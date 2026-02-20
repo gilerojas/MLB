@@ -26,7 +26,18 @@ venv/
 .venv/
 env/
 
-# Warehouse: ignore all game files and raw/enriched dirs (keep only 3 docs per season)
+# Warehouse: ignore all of data/ except the 3 docs per season (add new seasons below)
+data/
+!data/warehouse/
+!data/warehouse/mlb/
+!data/warehouse/mlb/README.md
+!data/warehouse/mlb/2025/
+!data/warehouse/mlb/2025/season_context.md
+!data/warehouse/mlb/2026/
+!data/warehouse/mlb/2026/schedule_post.csv
+!data/warehouse/mlb/2026/schedule_spring_training.json
+!data/warehouse/mlb/2026/season_context.md
+# Game files and dirs (never commit)
 *_feed_live.json
 *_pitches_enriched.parquet
 data/warehouse/mlb/*/raw/
@@ -35,7 +46,6 @@ data/warehouse/mlb/*/*/raw/
 data/warehouse/mlb/*/*/pitches_enriched/
 data/warehouse/mlb/*/*/*/raw/
 data/warehouse/mlb/*/*/*/pitches_enriched/
-# Old schedule formats and one-off outputs (keep only schedule_post.csv, schedule_*.json, season_context.md per season)
 data/warehouse/mlb/*/schedule_*_20*.csv
 data/warehouse/mlb/*/games_manifest*
 data/warehouse/mlb/*/*/schedule_*.csv
