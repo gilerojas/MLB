@@ -1,0 +1,103 @@
+{
+  "sportId": 1,
+  "gameTypeToStage": {
+    "S": "spring_training",
+    "R": "regular_season",
+    "A": "all_star",
+    "P": "playoffs",
+    "F": "playoffs/wild_card",
+    "D": "playoffs/division",
+    "L": "playoffs/championship",
+    "W": "playoffs/world_series",
+    "C": "playoffs/championship"
+  },
+  "scheduleSample": {
+    "totalGames_regular_2024": 2469,
+    "totalGames_spring_2024": 472
+  },
+  "sampleGamePk": 745444,
+  "payloadSizesKB": {
+    "boxscore": 204.2,
+    "linescore": 3.5,
+    "playByPlay": 589.9,
+    "feed_live": 859.3
+  },
+  "sabermetricPitchFields": [
+    "startSpeed",
+    "endSpeed",
+    "zone",
+    "plateTime",
+    "extension",
+    "breaks"
+  ],
+  "sabermetricHitFields": [
+    "launchSpeed",
+    "launchAngle",
+    "totalDistance",
+    "trajectory",
+    "hardness",
+    "location",
+    "coordinates"
+  ],
+  "recommendedDtypes": {
+    "schedule_games": [
+      "game_pk",
+      "season",
+      "game_type",
+      "game_date",
+      "venue_id",
+      "away_team_id",
+      "home_team_id",
+      "away_score",
+      "home_score",
+      "is_final"
+    ],
+    "game_pitching": [
+      "game_pk",
+      "season",
+      "team_side",
+      "team_id",
+      "person_id",
+      "innings_pitched",
+      "hits",
+      "runs",
+      "earned_runs",
+      "base_on_balls",
+      "strike_outs",
+      "home_runs",
+      "number_of_pitches",
+      "strikes",
+      "wins",
+      "losses",
+      "saves"
+    ],
+    "game_batting": [
+      "game_pk",
+      "season",
+      "team_side",
+      "team_id",
+      "person_id",
+      "batting_order",
+      "at_bats",
+      "runs",
+      "hits",
+      "doubles",
+      "triples",
+      "home_runs",
+      "rbi",
+      "base_on_balls",
+      "strike_outs",
+      "stolen_bases"
+    ],
+    "linescore_innings": [
+      "game_pk",
+      "inning",
+      "away_runs",
+      "away_hits",
+      "away_errors",
+      "home_runs",
+      "home_hits",
+      "home_errors"
+    ]
+  }
+}
