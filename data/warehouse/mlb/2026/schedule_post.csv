@@ -1,0 +1,452 @@
+date,game_time,away_team,home_team,venue,game_pk,stage
+2026-02-20,2026-02-20T20:10:00,San Diego Padres,Seattle Mariners,Peoria Stadium,831764,spring_training
+2026-02-20,2026-02-20T20:05:00,Kansas City Royals,Texas Rangers,Surprise Stadium,831829,spring_training
+2026-02-20,2026-02-20T20:10:00,Arizona Diamondbacks,Colorado Rockies,Salt River Fields at Talking Stick,831959,spring_training
+2026-02-20,2026-02-20T18:05:00,New York Yankees,Baltimore Orioles,Ed Smith Stadium,832034,spring_training
+2026-02-20,2026-02-20T20:05:00,Chicago White Sox,Chicago Cubs,Sloan Park,832042,spring_training
+2026-02-21,2026-02-21T18:05:00,Washington Nationals,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831494,spring_training
+2026-02-21,2026-02-21T18:10:00,Miami Marlins,New York Mets,Clover Park,831497,spring_training
+2026-02-21,2026-02-21T18:07:00,Philadelphia Phillies,Toronto Blue Jays,TD Ballpark,831542,spring_training
+2026-02-21,2026-02-21T18:05:00,Atlanta Braves,Tampa Bay Rays,Charlotte Sports Park,831543,spring_training
+2026-02-21,2026-02-21T18:05:00,Pittsburgh Pirates,Baltimore Orioles,Ed Smith Stadium,831544,spring_training
+2026-02-21,2026-02-21T18:05:00,Houston Astros,Washington Nationals,CACTI Park of the Palm Beaches,831598,spring_training
+2026-02-21,2026-02-21T18:05:00,Boston Red Sox,Minnesota Twins,Lee Health Sports Complex,831654,spring_training
+2026-02-21,2026-02-21T18:05:00,Detroit Tigers,New York Yankees,George M. Steinbrenner Field,831655,spring_training
+2026-02-21,2026-02-21T20:05:00,Texas Rangers,Chicago Cubs,Sloan Park,831732,spring_training
+2026-02-21,2026-02-21T20:10:00,San Francisco Giants,Seattle Mariners,Peoria Stadium,831750,spring_training
+2026-02-21,2026-02-21T20:05:00,San Diego Padres,Kansas City Royals,Surprise Stadium,831775,spring_training
+2026-02-21,2026-02-21T20:10:00,Colorado Rockies,Arizona Diamondbacks,Salt River Fields at Talking Stick,831872,spring_training
+2026-02-21,2026-02-21T20:10:00,Cleveland Guardians,Milwaukee Brewers,American Family Fields of Phoenix,831878,spring_training
+2026-02-21,2026-02-21T20:05:00,Cincinnati Reds,Cleveland Guardians,Goodyear Ballpark,831900,spring_training
+2026-02-21,2026-02-21T20:05:00,Athletics,Chicago White Sox,Camelback Ranch,831948,spring_training
+2026-02-21,2026-02-21T20:10:00,Los Angeles Dodgers,Los Angeles Angels,Tempe Diablo Stadium,832063,spring_training
+2026-02-22,2026-02-22T18:05:00,Pittsburgh Pirates,Philadelphia Phillies,BayCare Ballpark,831484,spring_training
+2026-02-22,2026-02-22T18:10:00,Washington Nationals,Miami Marlins,Roger Dean Chevrolet Stadium,831495,spring_training
+2026-02-22,2026-02-22T18:05:00,New York Mets,New York Yankees,George M. Steinbrenner Field,831537,spring_training
+2026-02-22,2026-02-22T18:05:00,St. Louis Cardinals,Houston Astros,CACTI Park of the Palm Beaches,831548,spring_training
+2026-02-22,2026-02-22T18:05:00,Tampa Bay Rays,Pittsburgh Pirates,LECOM Park,831596,spring_training
+2026-02-22,2026-02-22T18:05:00,Minnesota Twins,Atlanta Braves,CoolToday Park,831597,spring_training
+2026-02-22,2026-02-22T18:05:00,Toronto Blue Jays,Boston Red Sox,JetBlue Park,831656,spring_training
+2026-02-22,2026-02-22T18:05:00,Baltimore Orioles,Detroit Tigers,Publix Field at Joker Marchant Stadium,831657,spring_training
+2026-02-22,2026-02-22T20:05:00,Seattle Mariners,Cincinnati Reds,Goodyear Ballpark,831744,spring_training
+2026-02-22,2026-02-22T20:05:00,Milwaukee Brewers,Chicago White Sox,Camelback Ranch,831790,spring_training
+2026-02-22,2026-02-22T20:10:00,Los Angeles Dodgers,San Diego Padres,Peoria Stadium,831803,spring_training
+2026-02-22,2026-02-22T20:10:00,Los Angeles Angels,Arizona Diamondbacks,Salt River Fields at Talking Stick,831830,spring_training
+2026-02-22,2026-02-22T20:10:00,Kansas City Royals,Milwaukee Brewers,American Family Fields of Phoenix,831841,spring_training
+2026-02-22,2026-02-22T20:05:00,Colorado Rockies,Texas Rangers,Surprise Stadium,831859,spring_training
+2026-02-22,2026-02-22T20:05:00,Cleveland Guardians,Athletics,Hohokam Stadium,831886,spring_training
+2026-02-22,2026-02-22T20:05:00,Chicago Cubs,San Francisco Giants,Scottsdale Stadium,831922,spring_training
+2026-02-23,2026-02-23T23:05:00,Philadelphia Phillies,Washington Nationals,CACTI Park of the Palm Beaches,831483,spring_training
+2026-02-23,2026-02-23T18:05:00,Miami Marlins,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831485,spring_training
+2026-02-23,2026-02-23T18:07:00,New York Mets,Toronto Blue Jays,TD Ballpark,831539,spring_training
+2026-02-23,2026-02-23T18:05:00,Atlanta Braves,Baltimore Orioles,Ed Smith Stadium,831540,spring_training
+2026-02-23,2026-02-23T18:05:00,New York Yankees,Pittsburgh Pirates,LECOM Park,831595,spring_training
+2026-02-23,2026-02-23T18:05:00,Boston Red Sox,Tampa Bay Rays,Charlotte Sports Park,831652,spring_training
+2026-02-23,2026-02-23T18:05:00,Minnesota Twins,Detroit Tigers,Publix Field at Joker Marchant Stadium,831658,spring_training
+2026-02-23,2026-02-23T20:10:00,Texas Rangers,Los Angeles Angels,Tempe Diablo Stadium,831724,spring_training
+2026-02-23,2026-02-23T20:05:00,Seattle Mariners,Los Angeles Dodgers,Camelback Ranch,831745,spring_training
+2026-02-23,2026-02-23T20:10:00,Milwaukee Brewers,San Diego Padres,Peoria Stadium,831783,spring_training
+2026-02-23,2026-02-23T20:10:00,Chicago White Sox,Colorado Rockies,Salt River Fields at Talking Stick,831912,spring_training
+2026-02-23,2026-02-23T20:05:00,Chicago Cubs,Kansas City Royals,Surprise Stadium,831927,spring_training
+2026-02-23,2026-02-23T20:05:00,Athletics,San Francisco Giants,Scottsdale Stadium,831939,spring_training
+2026-02-23,2026-02-23T20:05:00,Arizona Diamondbacks,Cleveland Guardians,Goodyear Ballpark,831955,spring_training
+2026-02-24,2026-02-24T18:10:00,Philadelphia Phillies,Miami Marlins,Roger Dean Chevrolet Stadium,831489,spring_training
+2026-02-24,2026-02-24T23:05:00,St. Louis Cardinals,Washington Nationals,CACTI Park of the Palm Beaches,831491,spring_training
+2026-02-24,2026-02-24T18:05:00,Pittsburgh Pirates,Boston Red Sox,JetBlue Park,831534,spring_training
+2026-02-24,2026-02-24T18:10:00,Houston Astros,New York Mets,Clover Park,831593,spring_training
+2026-02-24,2026-02-24T18:05:00,Detroit Tigers,Atlanta Braves,CoolToday Park,831594,spring_training
+2026-02-24,2026-02-24T18:07:00,New York Yankees,Toronto Blue Jays,TD Ballpark,831649,spring_training
+2026-02-24,2026-02-24T18:05:00,Minnesota Twins,Tampa Bay Rays,Charlotte Sports Park,831650,spring_training
+2026-02-24,2026-02-24T18:05:00,Baltimore Orioles,Minnesota Twins,Lee Health Sports Complex,831651,spring_training
+2026-02-24,2026-02-24T20:05:00,San Diego Padres,Chicago Cubs,Sloan Park,831781,spring_training
+2026-02-24,2026-02-24T20:05:00,Milwaukee Brewers,Athletics,Hohokam Stadium,831797,spring_training
+2026-02-24,2026-02-24T20:10:00,Los Angeles Angels,Colorado Rockies,Salt River Fields at Talking Stick,831825,spring_training
+2026-02-24,2026-02-24T20:05:00,Kansas City Royals,Cincinnati Reds,Goodyear Ballpark,831847,spring_training
+2026-02-24,2026-02-24T20:05:00,Cleveland Guardians,Los Angeles Dodgers,Camelback Ranch,831876,spring_training
+2026-02-24,2026-02-24T20:10:00,Chicago White Sox,Seattle Mariners,Peoria Stadium,831906,spring_training
+2026-02-24,2026-02-24T20:05:00,Arizona Diamondbacks,Texas Rangers,Surprise Stadium,831951,spring_training
+2026-02-24,2026-02-24T20:10:00,San Francisco Giants,Los Angeles Angels,Tempe Diablo Stadium,832060,spring_training
+2026-02-25,2026-02-25T18:10:00,St. Louis Cardinals,New York Mets,Clover Park,831488,spring_training
+2026-02-25,2026-02-25T18:05:00,Pittsburgh Pirates,Atlanta Braves,CoolToday Park,831490,spring_training
+2026-02-25,2026-02-25T23:35:00,Washington Nationals,New York Yankees,George M. Steinbrenner Field,831538,spring_training
+2026-02-25,2026-02-25T18:10:00,Houston Astros,Miami Marlins,Roger Dean Chevrolet Stadium,831584,spring_training
+2026-02-25,2026-02-25T18:05:00,Detroit Tigers,Philadelphia Phillies,BayCare Ballpark,831591,spring_training
+2026-02-25,2026-02-25T18:05:00,Boston Red Sox,Minnesota Twins,Lee Health Sports Complex,831645,spring_training
+2026-02-25,2026-02-25T18:05:00,Toronto Blue Jays,Detroit Tigers,Publix Field at Joker Marchant Stadium,831647,spring_training
+2026-02-25,2026-02-25T18:05:00,Tampa Bay Rays,Baltimore Orioles,Ed Smith Stadium,831653,spring_training
+2026-02-25,2026-02-25T20:05:00,Texas Rangers,Cleveland Guardians,Goodyear Ballpark,831730,spring_training
+2026-02-25,2026-02-25T20:05:00,Seattle Mariners,Kansas City Royals,Surprise Stadium,831741,spring_training
+2026-02-25,2026-02-25T20:10:00,San Francisco Giants,Milwaukee Brewers,American Family Fields of Phoenix,831753,spring_training
+2026-02-25,2026-02-25T20:10:00,Los Angeles Dodgers,Arizona Diamondbacks,Salt River Fields at Talking Stick,831815,spring_training
+2026-02-25,2026-02-25T20:10:00,Los Angeles Angels,San Diego Padres,Peoria Stadium,831819,spring_training
+2026-02-25,2026-02-25T20:05:00,Colorado Rockies,Chicago Cubs,Sloan Park,831870,spring_training
+2026-02-25,2026-02-25T20:05:00,Cincinnati Reds,Chicago White Sox,Camelback Ranch,831901,spring_training
+2026-02-26,2026-02-26T18:05:00,Washington Nationals,Philadelphia Phillies,BayCare Ballpark,831487,spring_training
+2026-02-26,2026-02-26T18:05:00,New York Mets,Houston Astros,CACTI Park of the Palm Beaches,831535,spring_training
+2026-02-26,2026-02-26T18:05:00,Atlanta Braves,New York Yankees,George M. Steinbrenner Field,831536,spring_training
+2026-02-26,2026-02-26T18:07:00,Miami Marlins,Toronto Blue Jays,TD Ballpark,831541,spring_training
+2026-02-26,2026-02-26T18:05:00,Houston Astros,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831589,spring_training
+2026-02-26,2026-02-26T18:05:00,Minnesota Twins,Pittsburgh Pirates,LECOM Park,831590,spring_training
+2026-02-26,2026-02-26T18:05:00,Tampa Bay Rays,Boston Red Sox,JetBlue Park,831643,spring_training
+2026-02-26,2026-02-26T18:05:00,Detroit Tigers,Baltimore Orioles,Ed Smith Stadium,831644,spring_training
+2026-02-26,2026-02-26T20:05:00,Texas Rangers,Athletics,Hohokam Stadium,831736,spring_training
+2026-02-26,2026-02-26T20:05:00,San Diego Padres,Cincinnati Reds,Goodyear Ballpark,831773,spring_training
+2026-02-26,2026-02-26T20:05:00,Milwaukee Brewers,Texas Rangers,Surprise Stadium,831788,spring_training
+2026-02-26,2026-02-26T20:10:00,Kansas City Royals,Arizona Diamondbacks,Salt River Fields at Talking Stick,831843,spring_training
+2026-02-26,2026-02-26T20:05:00,Colorado Rockies,San Francisco Giants,Scottsdale Stadium,831862,spring_training
+2026-02-26,2026-02-26T20:10:00,Cleveland Guardians,Seattle Mariners,Peoria Stadium,831875,spring_training
+2026-02-26,2026-02-26T20:05:00,Chicago White Sox,Los Angeles Dodgers,Camelback Ranch,831911,spring_training
+2026-02-26,2026-02-26T20:10:00,Chicago Cubs,Los Angeles Angels,Tempe Diablo Stadium,831926,spring_training
+2026-02-27,2026-02-27T18:05:00,New York Mets,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831482,spring_training
+2026-02-27,2026-02-27T18:05:00,Miami Marlins,Philadelphia Phillies,BayCare Ballpark,831486,spring_training
+2026-02-27,2026-02-27T18:05:00,Philadelphia Phillies,Detroit Tigers,Publix Field at Joker Marchant Stadium,831528,spring_training
+2026-02-27,2026-02-27T23:05:00,Houston Astros,Washington Nationals,CACTI Park of the Palm Beaches,831586,spring_training
+2026-02-27,2026-02-27T18:05:00,Baltimore Orioles,Pittsburgh Pirates,LECOM Park,831587,spring_training
+2026-02-27,2026-02-27T18:05:00,Boston Red Sox,Atlanta Braves,CoolToday Park,831588,spring_training
+2026-02-27,2026-02-27T18:05:00,Toronto Blue Jays,Tampa Bay Rays,Charlotte Sports Park,831646,spring_training
+2026-02-27,2026-02-27T18:05:00,New York Yankees,Minnesota Twins,Lee Health Sports Complex,831648,spring_training
+2026-02-27,2026-02-27T20:05:00,Texas Rangers,Chicago White Sox,Camelback Ranch,831729,spring_training
+2026-02-27,2026-02-27T20:10:00,San Diego Padres,Colorado Rockies,Salt River Fields at Talking Stick,831776,spring_training
+2026-02-27,2026-02-27T20:05:00,Los Angeles Dodgers,San Francisco Giants,Scottsdale Stadium,831805,spring_training
+2026-02-27,2026-02-27T20:05:00,Los Angeles Angels,Cincinnati Reds,Goodyear Ballpark,831823,spring_training
+2026-02-27,2026-02-27T20:05:00,Cleveland Guardians,Chicago Cubs,Sloan Park,831884,spring_training
+2026-02-27,2026-02-27T20:10:00,Chicago White Sox,Milwaukee Brewers,American Family Fields of Phoenix,831909,spring_training
+2026-02-27,2026-02-27T20:05:00,Athletics,Kansas City Royals,Surprise Stadium,831946,spring_training
+2026-02-27,2026-02-28T01:10:00,Arizona Diamondbacks,Seattle Mariners,Peoria Stadium,831952,spring_training
+2026-02-28,2026-02-28T18:10:00,St. Louis Cardinals,Miami Marlins,Roger Dean Chevrolet Stadium,831474,spring_training
+2026-02-28,2026-02-28T18:10:00,Washington Nationals,New York Mets,Clover Park,831481,spring_training
+2026-02-28,2026-02-28T18:05:00,Pittsburgh Pirates,Houston Astros,CACTI Park of the Palm Beaches,831526,spring_training
+2026-02-28,2026-02-28T18:05:00,Atlanta Braves,Baltimore Orioles,Ed Smith Stadium,831530,spring_training
+2026-02-28,2026-02-28T18:07:00,Philadelphia Phillies,Toronto Blue Jays,TD Ballpark,831533,spring_training
+2026-02-28,2026-02-28T18:05:00,Minnesota Twins,Boston Red Sox,JetBlue Park,831635,spring_training
+2026-02-28,2026-02-28T18:05:00,Toronto Blue Jays,New York Yankees,George M. Steinbrenner Field,831636,spring_training
+2026-02-28,2026-02-28T18:05:00,Detroit Tigers,Tampa Bay Rays,Charlotte Sports Park,831637,spring_training
+2026-02-28,2026-02-28T20:10:00,Seattle Mariners,San Diego Padres,Peoria Stadium,831738,spring_training
+2026-02-28,2026-02-28T20:05:00,San Francisco Giants,Athletics,Hohokam Stadium,831763,spring_training
+2026-02-28,2026-02-28T20:05:00,Los Angeles Dodgers,Texas Rangers,Surprise Stadium,831798,spring_training
+2026-02-28,2026-02-28T20:10:00,Kansas City Royals,Colorado Rockies,Salt River Fields at Talking Stick,831845,spring_training
+2026-02-28,2026-02-28T20:10:00,Cincinnati Reds,Milwaukee Brewers,American Family Fields of Phoenix,831893,spring_training
+2026-02-28,2026-02-28T20:05:00,Chicago White Sox,Cleveland Guardians,Goodyear Ballpark,831917,spring_training
+2026-02-28,2026-02-28T20:05:00,Chicago Cubs,Los Angeles Dodgers,Camelback Ranch,831925,spring_training
+2026-02-28,2026-02-28T20:10:00,Arizona Diamondbacks,Los Angeles Angels,Tempe Diablo Stadium,831957,spring_training
+2026-03-01,2026-03-01T18:05:00,Miami Marlins,Washington Nationals,CACTI Park of the Palm Beaches,831475,spring_training
+2026-03-01,2026-03-01T18:05:00,Pittsburgh Pirates,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831477,spring_training
+2026-03-01,2026-03-01T18:05:00,Atlanta Braves,Minnesota Twins,Lee Health Sports Complex,831531,spring_training
+2026-03-01,2026-03-01T18:05:00,New York Yankees,Philadelphia Phillies,BayCare Ballpark,831578,spring_training
+2026-03-01,2026-03-01T18:10:00,Houston Astros,New York Mets,Clover Park,831579,spring_training
+2026-03-01,2026-03-01T18:05:00,Tampa Bay Rays,Atlanta Braves,CoolToday Park,831585,spring_training
+2026-03-01,2026-03-01T18:05:00,Baltimore Orioles,Boston Red Sox,JetBlue Park,831638,spring_training
+2026-03-01,2026-03-01T18:05:00,Toronto Blue Jays,Detroit Tigers,Publix Field at Joker Marchant Stadium,831639,spring_training
+2026-03-01,2026-03-01T20:10:00,Texas Rangers,Seattle Mariners,Peoria Stadium,831721,spring_training
+2026-03-01,2026-03-01T20:05:00,San Diego Padres,San Francisco Giants,Scottsdale Stadium,831768,spring_training
+2026-03-01,2026-03-01T20:05:00,Milwaukee Brewers,Kansas City Royals,Surprise Stadium,831794,spring_training
+2026-03-01,2026-03-01T20:05:00,Los Angeles Angels,Los Angeles Dodgers,Camelback Ranch,831827,spring_training
+2026-03-01,2026-03-01T20:05:00,Colorado Rockies,Cleveland Guardians,Goodyear Ballpark,831867,spring_training
+2026-03-01,2026-03-01T20:10:00,Cleveland Guardians,Arizona Diamondbacks,Salt River Fields at Talking Stick,831888,spring_training
+2026-03-01,2026-03-01T20:05:00,Cincinnati Reds,Athletics,Hohokam Stadium,831899,spring_training
+2026-03-01,2026-03-01T20:05:00,Chicago White Sox,Chicago Cubs,Sloan Park,831914,spring_training
+2026-03-02,2026-03-02T18:05:00,Miami Marlins,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831476,spring_training
+2026-03-02,2026-03-02T18:05:00,Atlanta Braves,Detroit Tigers,Publix Field at Joker Marchant Stadium,831527,spring_training
+2026-03-02,2026-03-02T18:05:00,Washington Nationals,Houston Astros,CACTI Park of the Palm Beaches,831529,spring_training
+2026-03-02,2026-03-02T18:05:00,Tampa Bay Rays,Pittsburgh Pirates,LECOM Park,831577,spring_training
+2026-03-02,2026-03-02T18:07:00,Boston Red Sox,Toronto Blue Jays,TD Ballpark,831640,spring_training
+2026-03-02,2026-03-02T20:05:00,San Francisco Giants,Chicago White Sox,Camelback Ranch,831760,spring_training
+2026-03-02,2026-03-02T20:10:00,Los Angeles Dodgers,Colorado Rockies,Salt River Fields at Talking Stick,831808,spring_training
+2026-03-02,2026-03-02T20:10:00,Kansas City Royals,Los Angeles Angels,Tempe Diablo Stadium,831840,spring_training
+2026-03-02,2026-03-02T20:05:00,Cleveland Guardians,Texas Rangers,Surprise Stadium,831874,spring_training
+2026-03-02,2026-03-02T20:05:00,Chicago Cubs,Cincinnati Reds,Goodyear Ballpark,831930,spring_training
+2026-03-02,2026-03-02T20:10:00,Athletics,San Diego Padres,Peoria Stadium,831934,spring_training
+2026-03-03,2026-03-03T18:05:00,Philadelphia Phillies,Tampa Bay Rays,Charlotte Sports Park,831532,spring_training
+2026-03-03,2026-03-03T18:05:00,Tampa Bay Rays,Minnesota Twins,Lee Health Sports Complex,831641,spring_training
+2026-03-03,2026-03-03T20:05:00,San Diego Padres,Chicago White Sox,Camelback Ranch,831772,spring_training
+2026-03-03,2026-03-03T20:05:00,Los Angeles Dodgers,Cleveland Guardians,Goodyear Ballpark,831811,spring_training
+2026-03-03,2026-03-03T20:10:00,Los Angeles Angels,Seattle Mariners,Peoria Stadium,831817,spring_training
+2026-03-04,2026-03-04T18:05:00,New York Yankees,Boston Red Sox,JetBlue Park,831634,spring_training
+2026-03-04,2026-03-04T18:05:00,Houston Astros,Baltimore Orioles,Ed Smith Stadium,831642,spring_training
+2026-03-04,2026-03-05T02:05:00,Seattle Mariners,San Francisco Giants,Scottsdale Stadium,831739,spring_training
+2026-03-04,2026-03-04T20:10:00,Chicago Cubs,Milwaukee Brewers,American Family Fields of Phoenix,831929,spring_training
+2026-03-04,2026-03-04T20:05:00,Arizona Diamondbacks,Athletics,Hohokam Stadium,831963,spring_training
+2026-03-05,2026-03-05T18:05:00,St. Louis Cardinals,Pittsburgh Pirates,LECOM Park,831478,spring_training
+2026-03-05,2026-03-05T18:05:00,New York Mets,Washington Nationals,CACTI Park of the Palm Beaches,831479,spring_training
+2026-03-05,2026-03-05T18:05:00,Boston Red Sox,Philadelphia Phillies,BayCare Ballpark,831581,spring_training
+2026-03-05,2026-03-05T18:10:00,Houston Astros,Miami Marlins,Roger Dean Chevrolet Stadium,831582,spring_training
+2026-03-05,2026-03-05T18:05:00,Toronto Blue Jays,Atlanta Braves,CoolToday Park,831583,spring_training
+2026-03-05,2026-03-05T18:05:00,Minnesota Twins,New York Yankees,George M. Steinbrenner Field,831632,spring_training
+2026-03-05,2026-03-05T18:05:00,Baltimore Orioles,Tampa Bay Rays,Charlotte Sports Park,831633,spring_training
+2026-03-05,2026-03-06T01:05:00,Texas Rangers,Kansas City Royals,Surprise Stadium,831733,spring_training
+2026-03-05,2026-03-05T20:10:00,San Diego Padres,Seattle Mariners,Peoria Stadium,831765,spring_training
+2026-03-05,2026-03-05T20:10:00,Milwaukee Brewers,Colorado Rockies,Salt River Fields at Talking Stick,831792,spring_training
+2026-03-05,2026-03-05T20:05:00,Los Angeles Dodgers,Cincinnati Reds,Goodyear Ballpark,831810,spring_training
+2026-03-05,2026-03-06T01:05:00,Cleveland Guardians,Chicago White Sox,Camelback Ranch,831880,spring_training
+2026-03-05,2026-03-05T20:10:00,Athletics,Los Angeles Angels,Tempe Diablo Stadium,831941,spring_training
+2026-03-05,2026-03-05T20:05:00,Arizona Diamondbacks,Chicago Cubs,Sloan Park,831961,spring_training
+2026-03-06,2026-03-06T18:05:00,Philadelphia Phillies,Pittsburgh Pirates,LECOM Park,831470,spring_training
+2026-03-06,2026-03-07T00:10:00,New York Mets,Miami Marlins,Roger Dean Chevrolet Stadium,831480,spring_training
+2026-03-06,2026-03-06T18:05:00,St. Louis Cardinals,Baltimore Orioles,Ed Smith Stadium,831519,spring_training
+2026-03-06,2026-03-06T23:05:00,Atlanta Braves,Minnesota Twins,Lee Health Sports Complex,831521,spring_training
+2026-03-06,2026-03-06T18:05:00,Washington Nationals,Houston Astros,CACTI Park of the Palm Beaches,831524,spring_training
+2026-03-06,2026-03-06T18:07:00,Pittsburgh Pirates,Toronto Blue Jays,TD Ballpark,831525,spring_training
+2026-03-06,2026-03-06T23:35:00,Tampa Bay Rays,New York Yankees,George M. Steinbrenner Field,831624,spring_training
+2026-03-06,2026-03-06T18:05:00,Boston Red Sox,Detroit Tigers,Publix Field at Joker Marchant Stadium,831631,spring_training
+2026-03-06,2026-03-06T20:05:00,Seattle Mariners,Texas Rangers,Surprise Stadium,831737,spring_training
+2026-03-06,2026-03-06T20:05:00,Los Angeles Angels,Cleveland Guardians,Goodyear Ballpark,831826,spring_training
+2026-03-06,2026-03-07T01:05:00,Kansas City Royals,Los Angeles Dodgers,Camelback Ranch,831842,spring_training
+2026-03-06,2026-03-06T20:05:00,Colorado Rockies,Athletics,Hohokam Stadium,831871,spring_training
+2026-03-06,2026-03-06T20:05:00,Cincinnati Reds,San Francisco Giants,Scottsdale Stadium,831889,spring_training
+2026-03-06,2026-03-06T20:10:00,Chicago White Sox,Arizona Diamondbacks,Salt River Fields at Talking Stick,831919,spring_training
+2026-03-06,2026-03-07T01:10:00,Chicago Cubs,San Diego Padres,Peoria Stadium,831921,spring_training
+2026-03-06,2026-03-06T20:10:00,Arizona Diamondbacks,Milwaukee Brewers,American Family Fields of Phoenix,831954,spring_training
+2026-03-07,2026-03-07T18:05:00,New York Mets,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831469,spring_training
+2026-03-07,2026-03-07T18:05:00,Pittsburgh Pirates,Detroit Tigers,Publix Field at Joker Marchant Stadium,831518,spring_training
+2026-03-07,2026-03-07T17:05:00,Miami Marlins,Houston Astros,CACTI Park of the Palm Beaches,831523,spring_training
+2026-03-07,2026-03-07T23:05:00,New York Yankees,Washington Nationals,CACTI Park of the Palm Beaches,831568,spring_training
+2026-03-07,2026-03-07T18:05:00,Toronto Blue Jays,Philadelphia Phillies,BayCare Ballpark,831576,spring_training
+2026-03-07,2026-03-07T18:05:00,Baltimore Orioles,Atlanta Braves,CoolToday Park,831580,spring_training
+2026-03-07,2026-03-07T18:05:00,Tampa Bay Rays,Boston Red Sox,JetBlue Park,831629,spring_training
+2026-03-07,2026-03-07T18:05:00,Minnesota Twins,Baltimore Orioles,Ed Smith Stadium,831630,spring_training
+2026-03-07,2026-03-07T20:05:00,Texas Rangers,San Francisco Giants,Scottsdale Stadium,831726,spring_training
+2026-03-07,2026-03-07T20:05:00,San Diego Padres,Cleveland Guardians,Goodyear Ballpark,831774,spring_training
+2026-03-07,2026-03-07T20:10:00,Milwaukee Brewers,Los Angeles Angels,Tempe Diablo Stadium,831795,spring_training
+2026-03-07,2026-03-07T21:05:00,Los Angeles Angels,Athletics,Las Vegas Ballpark,831828,spring_training
+2026-03-07,2026-03-08T01:05:00,Colorado Rockies,Los Angeles Dodgers,Camelback Ranch,831863,spring_training
+2026-03-07,2026-03-07T20:05:00,Cincinnati Reds,Kansas City Royals,Surprise Stadium,831897,spring_training
+2026-03-07,2026-03-07T20:10:00,Chicago White Sox,Seattle Mariners,Peoria Stadium,831904,spring_training
+2026-03-07,2026-03-07T20:05:00,Athletics,Chicago Cubs,Sloan Park,831949,spring_training
+2026-03-07,2026-03-07T20:10:00,San Francisco Giants,Arizona Diamondbacks,Salt River Fields at Talking Stick,832862,spring_training
+2026-03-08,2026-03-08T17:10:00,St. Louis Cardinals,Miami Marlins,Roger Dean Chevrolet Stadium,831467,spring_training
+2026-03-08,2026-03-08T17:05:00,Atlanta Braves,Tampa Bay Rays,Charlotte Sports Park,831520,spring_training
+2026-03-08,2026-03-08T17:05:00,Philadelphia Phillies,Minnesota Twins,Lee Health Sports Complex,831522,spring_training
+2026-03-08,2026-03-08T17:05:00,Boston Red Sox,Pittsburgh Pirates,LECOM Park,831571,spring_training
+2026-03-08,2026-03-08T17:05:00,Houston Astros,Washington Nationals,CACTI Park of the Palm Beaches,831572,spring_training
+2026-03-08,2026-03-08T17:10:00,New York Yankees,New York Mets,Clover Park,831575,spring_training
+2026-03-08,2026-03-08T17:07:00,Detroit Tigers,Toronto Blue Jays,TD Ballpark,831627,spring_training
+2026-03-08,2026-03-08T17:05:00,Toronto Blue Jays,Baltimore Orioles,Ed Smith Stadium,831628,spring_training
+2026-03-08,2026-03-08T20:10:00,Seattle Mariners,Milwaukee Brewers,American Family Fields of Phoenix,831740,spring_training
+2026-03-08,2026-03-08T20:05:00,San Francisco Giants,Chicago Cubs,Sloan Park,831757,spring_training
+2026-03-08,2026-03-08T20:05:00,Los Angeles Dodgers,Athletics,Hohokam Stadium,831812,spring_training
+2026-03-08,2026-03-08T20:05:00,Los Angeles Angels,Texas Rangers,Surprise Stadium,831813,spring_training
+2026-03-08,2026-03-08T20:05:00,Los Angeles Angels,Athletics,Las Vegas Ballpark,831832,spring_training
+2026-03-08,2026-03-08T20:05:00,Kansas City Royals,Chicago White Sox,Camelback Ranch,831848,spring_training
+2026-03-08,2026-03-08T20:10:00,Cleveland Guardians,Colorado Rockies,Salt River Fields at Talking Stick,831882,spring_training
+2026-03-08,2026-03-08T20:10:00,Cincinnati Reds,San Diego Padres,Peoria Stadium,831892,spring_training
+2026-03-08,2026-03-08T20:05:00,Arizona Diamondbacks,Cincinnati Reds,Goodyear Ballpark,831960,spring_training
+2026-03-09,2026-03-09T22:10:00,Miami Marlins,New York Mets,Clover Park,831468,spring_training
+2026-03-09,2026-03-09T17:05:00,Philadelphia Phillies,Boston Red Sox,JetBlue Park,831515,spring_training
+2026-03-09,2026-03-09T17:05:00,St. Louis Cardinals,Houston Astros,CACTI Park of the Palm Beaches,831516,spring_training
+2026-03-09,2026-03-09T22:35:00,Pittsburgh Pirates,New York Yankees,George M. Steinbrenner Field,831517,spring_training
+2026-03-09,2026-03-09T17:05:00,Minnesota Twins,Atlanta Braves,CoolToday Park,831569,spring_training
+2026-03-09,2026-03-09T17:05:00,Baltimore Orioles,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831570,spring_training
+2026-03-09,2026-03-09T17:05:00,Tampa Bay Rays,Detroit Tigers,Publix Field at Joker Marchant Stadium,831626,spring_training
+2026-03-09,2026-03-09T20:10:00,Texas Rangers,San Diego Padres,Peoria Stadium,831725,spring_training
+2026-03-09,2026-03-09T20:10:00,Seattle Mariners,Arizona Diamondbacks,Salt River Fields at Talking Stick,831748,spring_training
+2026-03-09,2026-03-09T20:10:00,Los Angeles Dodgers,Milwaukee Brewers,American Family Fields of Phoenix,831802,spring_training
+2026-03-09,2026-03-09T20:05:00,Los Angeles Angels,San Francisco Giants,Scottsdale Stadium,831816,spring_training
+2026-03-09,2026-03-09T20:05:00,Colorado Rockies,Chicago White Sox,Camelback Ranch,831865,spring_training
+2026-03-09,2026-03-09T20:05:00,Cleveland Guardians,Kansas City Royals,Surprise Stadium,831881,spring_training
+2026-03-09,2026-03-09T20:05:00,Athletics,Cincinnati Reds,Goodyear Ballpark,831943,spring_training
+2026-03-10,2026-03-10T17:10:00,Washington Nationals,Miami Marlins,Roger Dean Chevrolet Stadium,831471,spring_training
+2026-03-10,2026-03-10T17:10:00,St. Louis Cardinals,New York Mets,Clover Park,831473,spring_training
+2026-03-10,2026-03-10T17:07:00,Atlanta Braves,Toronto Blue Jays,TD Ballpark,831513,spring_training
+2026-03-10,2026-03-10T17:05:00,New York Yankees,Philadelphia Phillies,BayCare Ballpark,831573,spring_training
+2026-03-10,2026-03-10T17:05:00,Baltimore Orioles,Houston Astros,CACTI Park of the Palm Beaches,831617,spring_training
+2026-03-10,2026-03-10T17:05:00,Minnesota Twins,Tampa Bay Rays,Charlotte Sports Park,831618,spring_training
+2026-03-10,2026-03-10T17:05:00,Detroit Tigers,Boston Red Sox,JetBlue Park,831625,spring_training
+2026-03-10,2026-03-10T20:05:00,San Francisco Giants,Cleveland Guardians,Goodyear Ballpark,831758,spring_training
+2026-03-10,2026-03-10T20:10:00,San Diego Padres,Los Angeles Angels,Tempe Diablo Stadium,831771,spring_training
+2026-03-10,2026-03-10T20:10:00,Kansas City Royals,Seattle Mariners,Peoria Stadium,831836,spring_training
+2026-03-10,2026-03-10T20:10:00,Cincinnati Reds,Colorado Rockies,Salt River Fields at Talking Stick,831898,spring_training
+2026-03-10,2026-03-10T20:05:00,Chicago White Sox,Athletics,Hohokam Stadium,831918,spring_training
+2026-03-10,2026-03-10T20:05:00,Chicago Cubs,Texas Rangers,Surprise Stadium,831920,spring_training
+2026-03-10,2026-03-10T20:05:00,Arizona Diamondbacks,Los Angeles Dodgers,Camelback Ranch,831956,spring_training
+2026-03-11,2026-03-11T17:05:00,St. Louis Cardinals,Washington Nationals,CACTI Park of the Palm Beaches,831465,spring_training
+2026-03-11,2026-03-11T17:05:00,Pittsburgh Pirates,Baltimore Orioles,Ed Smith Stadium,831507,spring_training
+2026-03-11,2026-03-11T17:10:00,Houston Astros,Miami Marlins,Roger Dean Chevrolet Stadium,831561,spring_training
+2026-03-11,2026-03-11T17:05:00,Tampa Bay Rays,Atlanta Braves,CoolToday Park,831574,spring_training
+2026-03-11,2026-03-11T17:05:00,Detroit Tigers,Minnesota Twins,Lee Health Sports Complex,831619,spring_training
+2026-03-11,2026-03-11T22:35:00,Toronto Blue Jays,New York Yankees,George M. Steinbrenner Field,831620,spring_training
+2026-03-11,2026-03-11T20:05:00,San Francisco Giants,Kansas City Royals,Surprise Stadium,831762,spring_training
+2026-03-11,2026-03-11T20:05:00,Milwaukee Brewers,Cincinnati Reds,Goodyear Ballpark,831793,spring_training
+2026-03-11,2026-03-11T20:05:00,Los Angeles Angels,Chicago White Sox,Camelback Ranch,831824,spring_training
+2026-03-11,2026-03-11T20:05:00,Kansas City Royals,Chicago Cubs,Sloan Park,831849,spring_training
+2026-03-11,2026-03-11T20:10:00,Colorado Rockies,Seattle Mariners,Peoria Stadium,831861,spring_training
+2026-03-11,2026-03-11T20:10:00,Athletics,Arizona Diamondbacks,Salt River Fields at Talking Stick,831950,spring_training
+2026-03-12,2026-03-12T22:05:00,Atlanta Braves,Pittsburgh Pirates,LECOM Park,831466,spring_training
+2026-03-12,2026-03-12T17:05:00,New York Mets,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831472,spring_training
+2026-03-12,2026-03-12T22:05:00,Washington Nationals,Houston Astros,CACTI Park of the Palm Beaches,831510,spring_training
+2026-03-12,2026-03-12T17:05:00,Toronto Blue Jays,Philadelphia Phillies,BayCare Ballpark,831564,spring_training
+2026-03-12,2026-03-12T17:05:00,New York Yankees,Detroit Tigers,Publix Field at Joker Marchant Stadium,831621,spring_training
+2026-03-12,2026-03-12T17:05:00,Boston Red Sox,Minnesota Twins,Lee Health Sports Complex,831622,spring_training
+2026-03-12,2026-03-12T20:05:00,Seattle Mariners,Chicago Cubs,Sloan Park,831754,spring_training
+2026-03-12,2026-03-13T01:05:00,Milwaukee Brewers,Cleveland Guardians,Goodyear Ballpark,831791,spring_training
+2026-03-12,2026-03-13T01:10:00,Kansas City Royals,San Diego Padres,Peoria Stadium,831839,spring_training
+2026-03-12,2026-03-12T20:10:00,Colorado Rockies,Arizona Diamondbacks,Salt River Fields at Talking Stick,831869,spring_training
+2026-03-12,2026-03-13T01:05:00,Cincinnati Reds,Los Angeles Dodgers,Camelback Ranch,831894,spring_training
+2026-03-12,2026-03-13T01:05:00,Chicago White Sox,San Francisco Giants,Scottsdale Stadium,831908,spring_training
+2026-03-12,2026-03-12T20:05:00,Athletics,Texas Rangers,Surprise Stadium,831936,spring_training
+2026-03-13,2026-03-13T22:10:00,Miami Marlins,New York Mets,Clover Park,831462,spring_training
+2026-03-13,2026-03-13T22:05:00,New York Mets,Washington Nationals,CACTI Park of the Palm Beaches,831464,spring_training
+2026-03-13,2026-03-13T22:05:00,Pittsburgh Pirates,Detroit Tigers,Publix Field at Joker Marchant Stadium,831512,spring_training
+2026-03-13,2026-03-13T17:05:00,New York Yankees,Atlanta Braves,CoolToday Park,831563,spring_training
+2026-03-13,2026-03-13T17:05:00,Baltimore Orioles,Philadelphia Phillies,BayCare Ballpark,831565,spring_training
+2026-03-13,2026-03-13T22:05:00,Houston Astros,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831567,spring_training
+2026-03-13,2026-03-13T17:05:00,Tampa Bay Rays,Boston Red Sox,JetBlue Park,831616,spring_training
+2026-03-13,2026-03-13T17:07:00,Minnesota Twins,Toronto Blue Jays,TD Ballpark,831623,spring_training
+2026-03-13,2026-03-13T20:10:00,Texas Rangers,Colorado Rockies,Salt River Fields at Talking Stick,831731,spring_training
+2026-03-13,2026-03-14T01:05:00,San Francisco Giants,Cincinnati Reds,Goodyear Ballpark,831759,spring_training
+2026-03-13,2026-03-13T20:05:00,San Diego Padres,Athletics,Hohokam Stadium,831778,spring_training
+2026-03-13,2026-03-14T01:10:00,Los Angeles Dodgers,Seattle Mariners,Peoria Stadium,831801,spring_training
+2026-03-13,2026-03-13T20:10:00,Cleveland Guardians,Los Angeles Angels,Tempe Diablo Stadium,831879,spring_training
+2026-03-13,2026-03-13T23:05:00,Cincinnati Reds,San Francisco Giants,Scottsdale Stadium,831891,spring_training
+2026-03-13,2026-03-13T20:05:00,Chicago Cubs,Chicago White Sox,Camelback Ranch,831933,spring_training
+2026-03-13,2026-03-13T20:10:00,Athletics,Milwaukee Brewers,American Family Fields of Phoenix,831935,spring_training
+2026-03-13,2026-03-14T01:05:00,Arizona Diamondbacks,Kansas City Royals,Surprise Stadium,831958,spring_training
+2026-03-14,2026-03-14T16:05:00,Miami Marlins,Washington Nationals,CACTI Park of the Palm Beaches,831459,spring_training
+2026-03-14,2026-03-14T17:10:00,St. Louis Cardinals,Miami Marlins,Roger Dean Chevrolet Stadium,831460,spring_training
+2026-03-14,2026-03-14T22:05:00,New York Mets,Houston Astros,CACTI Park of the Palm Beaches,831508,spring_training
+2026-03-14,2026-03-14T17:05:00,Philadelphia Phillies,New York Yankees,George M. Steinbrenner Field,831514,spring_training
+2026-03-14,2026-03-14T17:05:00,Baltimore Orioles,Pittsburgh Pirates,LECOM Park,831562,spring_training
+2026-03-14,2026-03-14T22:05:00,Boston Red Sox,Atlanta Braves,CoolToday Park,831566,spring_training
+2026-03-14,2026-03-14T17:05:00,Tampa Bay Rays,Minnesota Twins,Lee Health Sports Complex,831613,spring_training
+2026-03-14,2026-03-14T17:07:00,Detroit Tigers,Toronto Blue Jays,TD Ballpark,831614,spring_training
+2026-03-14,2026-03-14T20:05:00,Texas Rangers,Cincinnati Reds,Goodyear Ballpark,831728,spring_training
+2026-03-14,2026-03-14T20:10:00,Seattle Mariners,Los Angeles Angels,Tempe Diablo Stadium,831747,spring_training
+2026-03-14,2026-03-14T20:05:00,San Diego Padres,Texas Rangers,Surprise Stadium,831770,spring_training
+2026-03-14,2026-03-14T20:05:00,Los Angeles Dodgers,Chicago White Sox,Camelback Ranch,831809,spring_training
+2026-03-14,2026-03-14T20:05:00,Kansas City Royals,Athletics,Hohokam Stadium,831850,spring_training
+2026-03-14,2026-03-14T20:10:00,Colorado Rockies,Milwaukee Brewers,American Family Fields of Phoenix,831860,spring_training
+2026-03-14,2026-03-14T20:10:00,Cleveland Guardians,San Diego Padres,Peoria Stadium,831877,spring_training
+2026-03-14,2026-03-14T20:10:00,Chicago Cubs,Colorado Rockies,Salt River Fields at Talking Stick,831928,spring_training
+2026-03-14,2026-03-14T20:05:00,Arizona Diamondbacks,San Francisco Giants,Scottsdale Stadium,831953,spring_training
+2026-03-15,2026-03-15T17:05:00,Atlanta Braves,Philadelphia Phillies,BayCare Ballpark,831458,spring_training
+2026-03-15,2026-03-15T17:05:00,Washington Nationals,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831461,spring_training
+2026-03-15,2026-03-15T17:05:00,Miami Marlins,Houston Astros,CACTI Park of the Palm Beaches,831509,spring_training
+2026-03-15,2026-03-15T17:05:00,Pittsburgh Pirates,Tampa Bay Rays,Charlotte Sports Park,831511,spring_training
+2026-03-15,2026-03-15T17:10:00,Toronto Blue Jays,New York Mets,Clover Park,831555,spring_training
+2026-03-15,2026-03-15T22:05:00,New York Yankees,Baltimore Orioles,Ed Smith Stadium,831608,spring_training
+2026-03-15,2026-03-15T17:05:00,Detroit Tigers,New York Yankees,George M. Steinbrenner Field,831611,spring_training
+2026-03-15,2026-03-15T17:05:00,Minnesota Twins,Boston Red Sox,JetBlue Park,831615,spring_training
+2026-03-15,2026-03-15T20:05:00,Texas Rangers,Los Angeles Dodgers,Camelback Ranch,831727,spring_training
+2026-03-15,2026-03-15T20:10:00,San Diego Padres,Arizona Diamondbacks,Salt River Fields at Talking Stick,831777,spring_training
+2026-03-15,2026-03-15T20:05:00,Milwaukee Brewers,San Francisco Giants,Scottsdale Stadium,831787,spring_training
+2026-03-15,2026-03-15T20:05:00,Los Angeles Dodgers,Chicago Cubs,Sloan Park,831814,spring_training
+2026-03-15,2026-03-15T20:10:00,Colorado Rockies,Los Angeles Angels,Tempe Diablo Stadium,831858,spring_training
+2026-03-15,2026-03-15T20:10:00,Cincinnati Reds,Seattle Mariners,Peoria Stadium,831890,spring_training
+2026-03-15,2026-03-15T20:05:00,Chicago White Sox,Kansas City Royals,Surprise Stadium,831913,spring_training
+2026-03-15,2026-03-15T20:05:00,Athletics,Cleveland Guardians,Goodyear Ballpark,831944,spring_training
+2026-03-16,2026-03-16T22:10:00,Washington Nationals,New York Mets,Clover Park,831457,spring_training
+2026-03-16,2026-03-16T17:05:00,Philadelphia Phillies,Detroit Tigers,Publix Field at Joker Marchant Stadium,831498,spring_training
+2026-03-16,2026-03-16T17:05:00,Pittsburgh Pirates,Minnesota Twins,Lee Health Sports Complex,831506,spring_training
+2026-03-16,2026-03-16T17:05:00,Tampa Bay Rays,Atlanta Braves,CoolToday Park,831557,spring_training
+2026-03-16,2026-03-16T17:10:00,Toronto Blue Jays,Miami Marlins,Roger Dean Chevrolet Stadium,831559,spring_training
+2026-03-16,2026-03-16T22:05:00,Boston Red Sox,Baltimore Orioles,Ed Smith Stadium,831612,spring_training
+2026-03-16,2026-03-16T20:10:00,San Francisco Giants,San Diego Padres,Peoria Stadium,831751,spring_training
+2026-03-16,2026-03-16T20:05:00,Milwaukee Brewers,Los Angeles Dodgers,Camelback Ranch,831785,spring_training
+2026-03-16,2026-03-16T20:05:00,Los Angeles Angels,Athletics,Hohokam Stadium,831834,spring_training
+2026-03-16,2026-03-16T20:10:00,Cincinnati Reds,Arizona Diamondbacks,Salt River Fields at Talking Stick,831903,spring_training
+2026-03-16,2026-03-17T00:05:00,Chicago White Sox,Texas Rangers,Surprise Stadium,831905,spring_training
+2026-03-16,2026-03-17T01:05:00,Chicago Cubs,Cleveland Guardians,Goodyear Ballpark,831924,spring_training
+2026-03-17,2026-03-17T17:05:00,St. Louis Cardinals,Washington Nationals,CACTI Park of the Palm Beaches,831454,spring_training
+2026-03-17,2026-03-17T17:10:00,New York Mets,Miami Marlins,Roger Dean Chevrolet Stadium,831463,spring_training
+2026-03-17,2026-03-17T17:05:00,Atlanta Braves,Boston Red Sox,JetBlue Park,831504,spring_training
+2026-03-17,2026-03-17T17:05:00,Minnesota Twins,Philadelphia Phillies,BayCare Ballpark,831554,spring_training
+2026-03-17,2026-03-17T17:05:00,Houston Astros,Pittsburgh Pirates,LECOM Park,831560,spring_training
+2026-03-17,2026-03-17T17:05:00,New York Yankees,Tampa Bay Rays,Charlotte Sports Park,831609,spring_training
+2026-03-17,2026-03-17T17:05:00,Baltimore Orioles,Detroit Tigers,Publix Field at Joker Marchant Stadium,831610,spring_training
+2026-03-17,2026-03-17T20:10:00,Seattle Mariners,Colorado Rockies,Salt River Fields at Talking Stick,831742,spring_training
+2026-03-17,2026-03-17T20:10:00,San Diego Padres,Seattle Mariners,Peoria Stadium,831769,spring_training
+2026-03-17,2026-03-18T01:05:00,Los Angeles Dodgers,Kansas City Royals,Surprise Stadium,831806,spring_training
+2026-03-17,2026-03-18T01:05:00,Los Angeles Angels,Chicago Cubs,Sloan Park,831831,spring_training
+2026-03-17,2026-03-18T01:05:00,Cleveland Guardians,Cincinnati Reds,Goodyear Ballpark,831883,spring_training
+2026-03-17,2026-03-17T20:05:00,Athletics,Chicago White Sox,Camelback Ranch,831942,spring_training
+2026-03-18,2026-03-18T17:05:00,Philadelphia Phillies,Atlanta Braves,CoolToday Park,831453,spring_training
+2026-03-18,2026-03-18T22:05:00,Miami Marlins,Washington Nationals,CACTI Park of the Palm Beaches,831455,spring_training
+2026-03-18,2026-03-18T17:05:00,Houston Astros,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831556,spring_training
+2026-03-18,2026-03-18T22:05:00,Detroit Tigers,Pittsburgh Pirates,LECOM Park,831558,spring_training
+2026-03-18,2026-03-18T17:07:00,Baltimore Orioles,Toronto Blue Jays,TD Ballpark,831600,spring_training
+2026-03-18,2026-03-18T17:05:00,Boston Red Sox,New York Yankees,George M. Steinbrenner Field,831607,spring_training
+2026-03-18,2026-03-18T20:05:00,San Francisco Giants,Los Angeles Dodgers,Camelback Ranch,831761,spring_training
+2026-03-18,2026-03-18T20:10:00,Milwaukee Brewers,Seattle Mariners,Peoria Stadium,831784,spring_training
+2026-03-18,2026-03-18T20:10:00,Los Angeles Angels,Milwaukee Brewers,American Family Fields of Phoenix,831818,spring_training
+2026-03-18,2026-03-19T00:05:00,Kansas City Royals,Texas Rangers,Surprise Stadium,831833,spring_training
+2026-03-18,2026-03-18T20:05:00,Colorado Rockies,Cincinnati Reds,Goodyear Ballpark,831866,spring_training
+2026-03-18,2026-03-18T20:10:00,Cincinnati Reds,Los Angeles Angels,Tempe Diablo Stadium,831895,spring_training
+2026-03-18,2026-03-18T20:10:00,Chicago Cubs,Arizona Diamondbacks,Salt River Fields at Talking Stick,831932,spring_training
+2026-03-19,2026-03-19T17:05:00,Washington Nationals,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831452,spring_training
+2026-03-19,2026-03-19T22:05:00,New York Mets,Houston Astros,CACTI Park of the Palm Beaches,831500,spring_training
+2026-03-19,2026-03-19T22:05:00,Pittsburgh Pirates,Baltimore Orioles,Ed Smith Stadium,831501,spring_training
+2026-03-19,2026-03-19T17:05:00,Tampa Bay Rays,Philadelphia Phillies,BayCare Ballpark,831551,spring_training
+2026-03-19,2026-03-19T17:07:00,New York Yankees,Toronto Blue Jays,TD Ballpark,831605,spring_training
+2026-03-19,2026-03-19T22:05:00,Minnesota Twins,Boston Red Sox,JetBlue Park,831606,spring_training
+2026-03-19,2026-03-20T01:10:00,Texas Rangers,Milwaukee Brewers,American Family Fields of Phoenix,831722,spring_training
+2026-03-19,2026-03-20T01:10:00,Seattle Mariners,Athletics,Hohokam Stadium,831755,spring_training
+2026-03-19,2026-03-19T20:10:00,San Francisco Giants,Colorado Rockies,Salt River Fields at Talking Stick,831756,spring_training
+2026-03-19,2026-03-19T20:05:00,Los Angeles Angels,Kansas City Royals,Surprise Stadium,831822,spring_training
+2026-03-19,2026-03-20T01:05:00,Kansas City Royals,Cleveland Guardians,Goodyear Ballpark,831846,spring_training
+2026-03-19,2026-03-20T01:10:00,Chicago White Sox,San Diego Padres,Peoria Stadium,831907,spring_training
+2026-03-19,2026-03-20T01:05:00,Arizona Diamondbacks,Chicago White Sox,Camelback Ranch,831962,spring_training
+2026-03-19,2026-03-19T17:05:00,Baltimore Orioles,New York Yankees,George M. Steinbrenner Field,832062,spring_training
+2026-03-20,2026-03-20T23:10:00,Washington Nationals,Miami Marlins,Roger Dean Chevrolet Stadium,831450,spring_training
+2026-03-20,2026-03-20T22:05:00,Pittsburgh Pirates,Atlanta Braves,CoolToday Park,831451,spring_training
+2026-03-20,2026-03-20T17:10:00,St. Louis Cardinals,New York Mets,Clover Park,831456,spring_training
+2026-03-20,2026-03-20T22:05:00,Miami Marlins,Houston Astros,CACTI Park of the Palm Beaches,831505,spring_training
+2026-03-20,2026-03-20T17:05:00,Detroit Tigers,Philadelphia Phillies,BayCare Ballpark,831550,spring_training
+2026-03-20,2026-03-20T17:05:00,Boston Red Sox,Tampa Bay Rays,Charlotte Sports Park,831602,spring_training
+2026-03-20,2026-03-20T22:35:00,Baltimore Orioles,New York Yankees,George M. Steinbrenner Field,831603,spring_training
+2026-03-20,2026-03-20T17:05:00,Toronto Blue Jays,Minnesota Twins,Lee Health Sports Complex,831604,spring_training
+2026-03-20,2026-03-20T20:05:00,Seattle Mariners,Cleveland Guardians,Goodyear Ballpark,831743,spring_training
+2026-03-20,2026-03-21T00:05:00,San Francisco Giants,Texas Rangers,Surprise Stadium,831749,spring_training
+2026-03-20,2026-03-21T01:05:00,San Diego Padres,Los Angeles Dodgers,Camelback Ranch,831766,spring_training
+2026-03-20,2026-03-20T20:10:00,Milwaukee Brewers,Arizona Diamondbacks,Salt River Fields at Talking Stick,831796,spring_training
+2026-03-20,2026-03-21T00:05:00,Kansas City Royals,San Francisco Giants,Scottsdale Stadium,831835,spring_training
+2026-03-20,2026-03-21T01:10:00,Colorado Rockies,San Diego Padres,Peoria Stadium,831864,spring_training
+2026-03-20,2026-03-20T20:05:00,Cincinnati Reds,Chicago Cubs,Sloan Park,831902,spring_training
+2026-03-20,2026-03-20T19:10:00,Chicago White Sox,Los Angeles Angels,Tempe Diablo Stadium,831910,spring_training
+2026-03-20,2026-03-20T20:05:00,Chicago Cubs,Athletics,Hohokam Stadium,831931,spring_training
+2026-03-21,2026-03-21T17:05:00,New York Mets,Washington Nationals,CACTI Park of the Palm Beaches,831448,spring_training
+2026-03-21,2026-03-21T17:05:00,Miami Marlins,St. Louis Cardinals,Roger Dean Chevrolet Stadium,831449,spring_training
+2026-03-21,2026-03-21T17:05:00,Philadelphia Phillies,Baltimore Orioles,Ed Smith Stadium,831499,spring_training
+2026-03-21,2026-03-21T17:05:00,Atlanta Braves,Boston Red Sox,JetBlue Park,831502,spring_training
+2026-03-21,2026-03-21T17:10:00,Houston Astros,New York Mets,Clover Park,831549,spring_training
+2026-03-21,2026-03-21T17:05:00,Toronto Blue Jays,Pittsburgh Pirates,LECOM Park,831553,spring_training
+2026-03-21,2026-03-21T17:05:00,Minnesota Twins,Tampa Bay Rays,Charlotte Sports Park,831599,spring_training
+2026-03-21,2026-03-21T17:05:00,New York Yankees,Detroit Tigers,Publix Field at Joker Marchant Stadium,831601,spring_training
+2026-03-21,2026-03-21T20:10:00,Texas Rangers,Arizona Diamondbacks,Salt River Fields at Talking Stick,831734,spring_training
+2026-03-21,2026-03-21T20:10:00,San Diego Padres,Milwaukee Brewers,American Family Fields of Phoenix,831767,spring_training
+2026-03-21,2026-03-21T19:05:00,Colorado Rockies,Kansas City Royals,Surprise Stadium,831868,spring_training
+2026-03-21,2026-03-21T19:05:00,Cleveland Guardians,San Francisco Giants,Scottsdale Stadium,831873,spring_training
+2026-03-21,2026-03-21T20:05:00,Chicago White Sox,Cincinnati Reds,Goodyear Ballpark,831916,spring_training
+2026-03-21,2026-03-21T20:10:00,Chicago Cubs,Seattle Mariners,Peoria Stadium,831923,spring_training
+2026-03-21,2026-03-21T19:05:00,Athletics,Los Angeles Dodgers,Camelback Ranch,831937,spring_training
+2026-03-22,2026-03-22T17:10:00,New York Mets,Miami Marlins,Roger Dean Chevrolet Stadium,831446,spring_training
+2026-03-22,2026-03-22T17:05:00,Atlanta Braves,Minnesota Twins,Lee Health Sports Complex,831492,spring_training
+2026-03-22,2026-03-22T17:05:00,Philadelphia Phillies,New York Yankees,George M. Steinbrenner Field,831493,spring_training
+2026-03-22,2026-03-22T16:05:00,St. Louis Cardinals,Houston Astros,CACTI Park of the Palm Beaches,831496,spring_training
+2026-03-22,2026-03-22T17:35:00,Washington Nationals,Baltimore Orioles,Oriole Park at Camden Yards,831503,spring_training
+2026-03-22,2026-03-22T17:05:00,Boston Red Sox,Pittsburgh Pirates,LECOM Park,831552,spring_training
+2026-03-22,2026-03-22T17:07:00,Tampa Bay Rays,Toronto Blue Jays,TD Ballpark,831592,spring_training
+2026-03-22,2026-03-22T19:05:00,Seattle Mariners,Chicago White Sox,Camelback Ranch,831746,spring_training
+2026-03-22,2026-03-22T19:05:00,Milwaukee Brewers,Chicago Cubs,Sloan Park,831789,spring_training
+2026-03-22,2026-03-23T01:07:00,Los Angeles Dodgers,Los Angeles Angels,Angel Stadium,831804,spring_training
+2026-03-22,2026-03-22T19:05:00,Cincinnati Reds,Cleveland Guardians,Goodyear Ballpark,831896,spring_training
+2026-03-22,2026-03-22T20:10:00,Athletics,Colorado Rockies,Salt River Fields at Talking Stick,831945,spring_training
+2026-03-22,2026-03-22T20:10:00,Arizona Diamondbacks,San Diego Padres,Peoria Stadium,831947,spring_training
+2026-03-23,2026-03-23T17:05:00,Atlanta Braves,Pittsburgh Pirates,LECOM Park,831447,spring_training
+2026-03-23,2026-03-23T17:05:00,Baltimore Orioles,Washington Nationals,Nationals Park,831546,spring_training
+2026-03-23,2026-03-23T16:05:00,Tampa Bay Rays,Philadelphia Phillies,BayCare Ballpark,831547,spring_training
+2026-03-23,2026-03-23T19:10:00,Seattle Mariners,San Diego Padres,Peoria Stadium,831735,spring_training
+2026-03-23,2026-03-23T19:05:00,New York Yankees,Chicago Cubs,Sloan Park,831780,spring_training
+2026-03-23,2026-03-24T01:10:00,Los Angeles Angels,Los Angeles Dodgers,Dodger Stadium,831821,spring_training
+2026-03-23,2026-03-24T00:05:00,Kansas City Royals,Texas Rangers,Globe Life Field,831838,spring_training
+2026-03-23,2026-03-24T01:10:00,Detroit Tigers,Colorado Rockies,Salt River Fields at Talking Stick,831857,spring_training
+2026-03-23,2026-03-24T01:40:00,Cleveland Guardians,Arizona Diamondbacks,Chase Field,831885,spring_training
+2026-03-23,2026-03-23T18:05:00,Chicago White Sox,Athletics,Hohokam Stadium,831915,spring_training
+2026-03-23,2026-03-23T17:05:00,Minnesota Twins,Boston Red Sox,JetBlue Park,832036,spring_training
+2026-03-23,2026-03-23T23:40:00,Cincinnati Reds,Milwaukee Brewers,American Family Field,832078,spring_training
+2026-03-24,2026-03-24T16:05:00,Tampa Bay Rays,Atlanta Braves,CoolToday Park,831545,spring_training
+2026-03-24,2026-03-24T19:05:00,New York Yankees,Chicago Cubs,Sloan Park,831779,spring_training
+2026-03-24,2026-03-25T00:10:00,Los Angeles Angels,Los Angeles Dodgers,Dodger Stadium,831820,spring_training
+2026-03-24,2026-03-24T18:05:00,Kansas City Royals,Texas Rangers,Globe Life Field,831837,spring_training
+2026-03-24,2026-03-24T19:10:00,Detroit Tigers,Colorado Rockies,Salt River Fields at Talking Stick,831856,spring_training
+2026-03-24,2026-03-24T19:40:00,Cleveland Guardians,Arizona Diamondbacks,Chase Field,831887,spring_training
+2026-03-24,2026-03-24T17:05:00,Boston Red Sox,Minnesota Twins,Lee Health Sports Complex,832037,spring_training
+2026-03-24,2026-03-24T21:10:00,Cincinnati Reds,Milwaukee Brewers,American Family Field,832077,spring_training

@@ -26,8 +26,22 @@ venv/
 .venv/
 env/
 
-# Warehouse data (local; do not commit large JSON/parquet)
-data/warehouse/
+# Warehouse: ignore all game files and raw/enriched dirs (keep only 3 docs per season)
+*_feed_live.json
+*_pitches_enriched.parquet
+data/warehouse/mlb/*/raw/
+data/warehouse/mlb/*/pitches_enriched/
+data/warehouse/mlb/*/*/raw/
+data/warehouse/mlb/*/*/pitches_enriched/
+data/warehouse/mlb/*/*/*/raw/
+data/warehouse/mlb/*/*/*/pitches_enriched/
+# Old schedule formats and one-off outputs (keep only schedule_post.csv, schedule_*.json, season_context.md per season)
+data/warehouse/mlb/*/schedule_*_20*.csv
+data/warehouse/mlb/*/games_manifest*
+data/warehouse/mlb/*/*/schedule_*.csv
+data/warehouse/mlb/*/*/games_manifest*
+data/warehouse/mlb/*/feed_statcast_merged*
+data/warehouse/mlb/feed_statcast_merged*
 
 # Jupyter
 .ipynb_checkpoints/
