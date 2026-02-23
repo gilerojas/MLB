@@ -2,12 +2,13 @@
 MLB Warehouse backfill: raw feed + Statcast → pitches_enriched.
 
 Por cada juego genera:
-  1. raw: game_{pk}_{date}_feed_live.json (feed/live desde API)
+  1. raw: game_{pk}_{date}_feed_live.json (feed/live desde API, sin indent)
   2. pitches_enriched: game_{pk}_{date}_pitches_enriched.parquet (join Statcast + play_id)
 
 Evita duplicados: si raw y pitches_enriched existen, se salta (usa --force para sobrescribir).
 """
 import argparse
+import gzip
 import json
 import re
 import time
@@ -76,9 +77,31 @@ def extract_play_ids_from_feed(feed: dict, game_pk: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+RAW_BASENAME = "feed_live"
+RAW_SUFFIX = ".json"
+
+
+def _raw_stem(path: Path) -> str:
+    """Base name without .json or .json.gz for feed_live files."""
+    name = path.name
+    if name.endswith(".json.gz"):
+        return name[:-7]
+    if name.endswith(".json"):
+        return name[:-5]
+    return path.stem
+
+
+def _open_raw(path: Path):
+    """Open raw file as text; supports .json and .json.gz."""
+    if path.suffix == ".gz" or path.name.endswith(".json.gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, encoding="utf-8")
+
+
 def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, bool]:
     """
     Asegura que existe raw. Si no existe, lo obtiene de la API.
+    Guarda como .json sin indent.
     Returns (raw_path, was_created). None si falló.
     """
     game_pk = game["gamePk"]
@@ -88,19 +111,19 @@ def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, b
 
     stage = get_stage_from_game_type(game_type)
     raw_dir = warehouse / season / stage / "raw"
-    raw_path = raw_dir / f"game_{game_pk}_{official_date}_feed_live.json"
+    raw_path = raw_dir / f"game_{game_pk}_{official_date}_{RAW_BASENAME}{RAW_SUFFIX}"
 
     if raw_path.exists() and not force:
         return raw_path, False
 
     try:
         feed = fetch_feed(game_pk)
-    except Exception as e:
+    except Exception:
         return None, False
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    with open(raw_path, "w") as f:
-        json.dump(feed, f, indent=2, ensure_ascii=False)
+    with open(raw_path, "w", encoding="utf-8") as f:
+        json.dump(feed, f, ensure_ascii=False)
 
     return raw_path, True
 
@@ -115,15 +138,16 @@ def _process_one(raw_path: Path, out_dir: Path, delay: float) -> bool:
 def process_pitches_enriched(raw_path: Path, out_dir: Path) -> bool:
     """
     Procesa un juego: raw → Statcast merge → pitches_enriched.parquet.
+    Acepta raw como .json o .json.gz.
     """
-    name = raw_path.stem
+    name = _raw_stem(raw_path)
     m = re.match(r"game_(\d+)_(\d+)_feed_live", name)
     if not m:
         return False
     game_pk = int(m.group(1))
     date = m.group(2)
 
-    with open(raw_path) as f:
+    with _open_raw(raw_path) as f:
         feed = json.load(f)
 
     df_feed_ids = extract_play_ids_from_feed(feed, game_pk)
@@ -216,15 +240,25 @@ def save_schedule_only(warehouse: Path, season: int, game_type: str | None, all_
 
 
 def find_raw_files(warehouse: Path, years: list[int]) -> list[tuple[Path, Path]]:
-    """Retorna [(raw_path, pitches_enriched_dir), ...]"""
-    results = []
+    """Retorna [(raw_path, pitches_enriched_dir), ...]. Incluye .json y .json.gz; prefiere .gz."""
+    by_key: dict[tuple[str, str], tuple[Path, Path]] = {}
     for year in years:
         base = warehouse / str(year)
-        for raw_path in base.rglob("**/raw/*_feed_live.json"):
+        for raw_path in base.rglob("**/raw/*_feed_live.json*"):
+            if not (raw_path.name.endswith(".json") or raw_path.name.endswith(".json.gz")):
+                continue
+            name = _raw_stem(raw_path)
+            m = re.match(r"game_(\d+)_(\d+)_feed_live", name)
+            if not m:
+                continue
+            key = (m.group(1), m.group(2))
             rel = raw_path.relative_to(base)
             out_dir = base / rel.parent.parent / "pitches_enriched"
-            results.append((raw_path, out_dir))
-    return results
+            if key not in by_key or (
+                raw_path.name.endswith(".json") and not raw_path.name.endswith(".json.gz")
+            ):
+                by_key[key] = (raw_path, out_dir)
+    return list(by_key.values())
 
 
 def main():
@@ -320,7 +354,7 @@ def main():
     to_process = []
     skipped = 0
     for raw_path, out_dir in games_to_process:
-        name = raw_path.stem
+        name = _raw_stem(raw_path)
         m = re.match(r"game_(\d+)_(\d+)_feed_live", name)
         if not m:
             continue

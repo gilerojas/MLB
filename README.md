@@ -5,7 +5,7 @@ Pipeline for ingesting MLB game data: **feed/live** (raw) and **pitches_enriched
 ## Features
 
 - **Schedule**: Fetch and export season schedules (JSON + CSV) for any year and stage.
-- **Raw feed**: Download MLB Stats API `feed/live` per game.
+- **Raw feed**: Download MLB Stats API `feed/live` per game; stored as `game_{pk}_{date}_feed_live.json.gz` (no indent) to save space.
 - **Pitches enriched**: Merge Statcast (pybaseball) with feed `play_id`; output Parquet with a curated column set.
 - **Stages**: Spring training (S), regular (R), All-Star (A), Wild Card (F), Division (D), Championship (L), World Series (W).
 - **Deduplication**: Skips games that already have raw and enriched output; use `--force` to overwrite.
@@ -77,7 +77,7 @@ data/warehouse/mlb/
   schedule_spring_training.json
   schedule_post.csv
   spring_training/
-    raw/          game_{pk}_{date}_feed_live.json
+    raw/          game_{pk}_{date}_feed_live.json.gz
     pitches_enriched/   game_{pk}_{date}_pitches_enriched.parquet
   regular_season/
     raw/
@@ -104,6 +104,17 @@ data/warehouse/mlb/
 | `--workers` | Parallel workers for enriched step (default: 3) |
 | `--delay` | Seconds to wait before each Statcast call (default: 0.25) |
 | `--quiet` | Disable progress bar |
+
+## Storage
+
+Raw feed files are stored as gzipped JSON (no indent) to reduce size. To compress existing `.json` files to `.json.gz` and remove originals:
+
+```bash
+python scripts/compress_raw_to_gz.py --dry-run   # preview
+python scripts/compress_raw_to_gz.py             # run
+```
+
+See [docs/STORAGE_STRATEGY.md](docs/STORAGE_STRATEGY.md) for scaling and retention options.
 
 ## License
 
