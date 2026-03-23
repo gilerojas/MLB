@@ -6,28 +6,62 @@ Por cada juego genera:
   2. pitches_enriched: game_{pk}_{date}_pitches_enriched.parquet (join Statcast + play_id)
 
 Evita duplicados: si raw y pitches_enriched existen, se salta (usa --force para sobrescribir).
+
+Al ejecutar sin argumentos (botón Run): intenta backfill de días faltantes. Si hay datos
+en el warehouse, descarga desde el día siguiente al último hasta ayer; si no hay datos,
+descarga los últimos 7 días. Temporada y stage se detectan automáticamente.
+Para cargas por fecha: --last-days N, --dates YYYY-MM-DD ..., o --from-raw.
 """
 import argparse
 import gzip
 import json
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
 import requests
-from pybaseball import statcast_single_game
 from tqdm import tqdm
 
-from .mlb_warehouse_schema import (
-    ALL_STAGES_GAME_TYPES,
-    COLUMNS_TO_KEEP,
-    FEED_LIVE_URL,
-    SPORT_ID_MLB,
-    BASE_URL,
-    GAME_TYPE_TO_STAGE,
-)
+# Defer pybaseball import: it can hang or raise (e.g. github circular import) in some envs.
+# Import only when process_pitches_enriched runs.
+
+try:
+    from .mlb_warehouse_schema import (
+        ALL_STAGES_GAME_TYPES,
+        COLUMNS_TO_KEEP,
+        FEED_LIVE_URL,
+        SPORT_ID_MLB,
+        BASE_URL,
+        GAME_TYPE_TO_STAGE,
+    )
+except ImportError:
+    # Run as script (e.g. Run button): add project root and use absolute import
+    _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+    from src.ingestion.mlb_warehouse_schema import (
+        ALL_STAGES_GAME_TYPES,
+        COLUMNS_TO_KEEP,
+        FEED_LIVE_URL,
+        SPORT_ID_MLB,
+        BASE_URL,
+        GAME_TYPE_TO_STAGE,
+    )
+
+# Repo root: walk up from this file until we find a dir containing data/warehouse/mlb (so Run works from any cwd)
+_here = Path(__file__).resolve().parent
+_PROJECT_ROOT = _here.parent.parent
+for _ in range(2):
+    _wh = _PROJECT_ROOT / "data" / "warehouse" / "mlb"
+    if _wh.exists() or (_PROJECT_ROOT / "data").exists():
+        break
+    _PROJECT_ROOT = _PROJECT_ROOT.parent
+# When no CLI dates given, default Run fetches this many days (including yesterday) so you get missed days
+DEFAULT_BACKFILL_DAYS = 7
 
 
 def get_stage_from_game_type(game_type: str) -> str:
@@ -36,8 +70,23 @@ def get_stage_from_game_type(game_type: str) -> str:
     return GAME_TYPE_TO_STAGE.get(gt, "regular_season")
 
 
+def detect_game_type_for_date(d: date) -> str:
+    """
+    Infer MLB game type from a date (for default run behavior).
+    Feb–Mar → Spring Training (S), Apr–early Nov → Regular (R).
+    """
+    if d.month in (2, 3):
+        return "S"
+    return "R"
+
+
+def is_game_final(g: dict) -> bool:
+    """True si el juego ya terminó (no Scheduled/Preview). Evita descargar feeds de juegos futuros."""
+    return (g.get("status") or {}).get("abstractGameState") == "Final"
+
+
 def fetch_schedule(season: int, game_type: str) -> list[dict]:
-    """Obtiene juegos del schedule API."""
+    """Obtiene juegos del schedule API (toda la temporada para ese gameType)."""
     url = f"{BASE_URL}/schedule"
     params = {"sportId": SPORT_ID_MLB, "season": season, "gameType": game_type}
     r = requests.get(url, params=params, timeout=30)
@@ -48,6 +97,32 @@ def fetch_schedule(season: int, game_type: str) -> list[dict]:
         for g in d.get("games", []):
             games.append(g)
     return games
+
+
+def fetch_schedule_for_dates(
+    season: int, game_type: str, dates: list[str]
+) -> list[dict]:
+    """Obtiene juegos solo para las fechas dadas (una llamada por fecha). Ideal para cargas diarias."""
+    games_by_pk: dict[int, dict] = {}
+    gt_upper = (game_type or "R").strip().upper()
+    for date_str in dates:
+        url = f"{BASE_URL}/schedule"
+        params = {"sportId": SPORT_ID_MLB, "date": date_str}
+        r = requests.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        for d in data.get("dates", []):
+            for g in d.get("games", []):
+                if (g.get("gameType") or "").strip().upper() != gt_upper:
+                    continue
+                try:
+                    if int(g.get("season")) != int(season):
+                        continue
+                except (TypeError, ValueError):
+                    continue
+                if g["gamePk"] not in games_by_pk:
+                    games_by_pk[g["gamePk"]] = g
+    return list(games_by_pk.values())
 
 
 def fetch_feed(game_pk: int) -> dict | None:
@@ -154,6 +229,18 @@ def process_pitches_enriched(raw_path: Path, out_dir: Path) -> bool:
     if df_feed_ids.empty:
         return False
 
+    try:
+        from pybaseball import statcast_single_game
+    except (ImportError, AttributeError) as e:
+        if "github" in str(e).lower() or "GithubObject" in str(e):
+            import sys
+            print(
+                "ERROR: pybaseball import failed (often due to PyGithub circular import). "
+                "Use a different env or install/update PyGithub. For --from-raw only, no Statcast is needed.",
+                file=sys.stderr,
+                flush=True,
+            )
+        raise
     df_sc = statcast_single_game(game_pk)
     if df_sc is None or df_sc.empty:
         return False
@@ -239,6 +326,35 @@ def save_schedule_only(warehouse: Path, season: int, game_type: str | None, all_
     print(f"\n✅ Schedule {season} guardado en {year_dir}")
 
 
+def get_latest_game_date_in_warehouse(
+    warehouse: Path, season: int, game_type: str
+) -> date | None:
+    """
+    Scan warehouse for the latest game date that has pitches_enriched for the given
+    season and game type. Returns that date or None if none found.
+    """
+    stage = get_stage_from_game_type(game_type)
+    enriched_dir = warehouse / str(season) / stage / "pitches_enriched"
+    if not enriched_dir.exists():
+        return None
+    max_d = None
+    for path in enriched_dir.glob("game_*_*_pitches_enriched.parquet"):
+        stem = path.stem  # game_{pk}_{date}_pitches_enriched
+        parts = stem.split("_")
+        if len(parts) >= 3:
+            try:
+                d = date(
+                    int(parts[2][:4]),
+                    int(parts[2][4:6]),
+                    int(parts[2][6:8]),
+                )
+                if max_d is None or d > max_d:
+                    max_d = d
+            except (ValueError, IndexError):
+                continue
+    return max_d
+
+
 def find_raw_files(warehouse: Path, years: list[int]) -> list[tuple[Path, Path]]:
     """Retorna [(raw_path, pitches_enriched_dir), ...]. Incluye .json y .json.gz; prefiere .gz."""
     by_key: dict[tuple[str, str], tuple[Path, Path]] = {}
@@ -262,16 +378,35 @@ def find_raw_files(warehouse: Path, years: list[int]) -> list[tuple[Path, Path]]
 
 
 def main():
+    # Show something immediately when Run from IDE (stdout may be buffered)
+    print("MLB warehouse backfill ...", flush=True)
     parser = argparse.ArgumentParser(
         description="Backfill MLB warehouse: raw + pitches_enriched por juego"
     )
-    parser.add_argument("--warehouse", type=Path, default=Path("data/warehouse/mlb"))
+    parser.add_argument(
+        "--warehouse",
+        type=Path,
+        default=None,
+        help="Carpeta warehouse (default: data/warehouse/mlb respecto al proyecto)",
+    )
     parser.add_argument("--years", nargs="+", type=int, default=[2024, 2025])
     parser.add_argument("--season", type=int, help="Temporada para fetch (schedule API)")
     parser.add_argument(
         "--game-type",
         default="R",
         help="gameType: R=regular, S=spring, A=all_star, F/D/L/W=playoffs",
+    )
+    parser.add_argument(
+        "--dates",
+        nargs="+",
+        metavar="YYYY-MM-DD",
+        help="Solo estos días (ej: --dates 2026-03-21 2026-03-22). Eficiente para cargas diarias.",
+    )
+    parser.add_argument(
+        "--last-days",
+        type=int,
+        metavar="N",
+        help="Solo los últimos N días hasta ayer (ej: --last-days 1 = ayer). Requiere --season.",
     )
     parser.add_argument(
         "--all-stages",
@@ -302,7 +437,20 @@ def main():
         action="store_true",
         help="Solo descargar schedule(s), crear carpeta del año y guardar JSON + CSV para publicar",
     )
+    parser.add_argument(
+        "--max-games",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Máximo de juegos a procesar en pitches_enriched (útil para no esperar 95 juegos de una vez)",
+    )
     args = parser.parse_args()
+
+    # Resolve warehouse so "Run" works from any cwd
+    if args.warehouse is None:
+        args.warehouse = _PROJECT_ROOT / "data" / "warehouse" / "mlb"
+    elif not args.warehouse.is_absolute():
+        args.warehouse = _PROJECT_ROOT / args.warehouse
 
     if args.schedule_only:
         if not args.season:
@@ -320,9 +468,72 @@ def main():
         games_to_process = [(r, o) for r, o in pairs]
         print(f"Modo --from-raw: {len(games_to_process)} juegos con raw encontrados")
     else:
-        if not args.season:
-            parser.error("--season requerido cuando no usas --from-raw")
-        if args.all_stages:
+        # Default run (no CLI dates): always fetch last N days so "Run" gets missed games without CLI
+        default_run = not (args.dates or args.last_days is not None or args.all_stages)
+        if default_run:
+            print(f"Warehouse: {args.warehouse.resolve()}")
+            today = date.today()
+            yesterday = today - timedelta(days=1)
+            if args.season is None:
+                args.season = today.year
+            args.game_type = detect_game_type_for_date(today)
+            stage = get_stage_from_game_type(args.game_type)
+            # Optionally backfill from latest warehouse date; otherwise use last N days
+            latest = get_latest_game_date_in_warehouse(
+                args.warehouse, args.season, args.game_type
+            )
+            if latest is not None:
+                start = latest + timedelta(days=1)
+                if start <= yesterday:
+                    dates_list = [
+                        (start + timedelta(days=k)).strftime("%Y-%m-%d")
+                        for k in range((yesterday - start).days + 1)
+                    ]
+                    if len(dates_list) > 14:
+                        dates_list = dates_list[-14:]
+                    args.dates = dates_list
+                    print(
+                        f"Backfill: {len(dates_list)} día(s) ({args.dates[0]} a {args.dates[-1]}), "
+                        f"temporada {args.season}, stage={stage} (gameType={args.game_type})"
+                    )
+                else:
+                    # Caught up: still use last N days so any missed day is included
+                    n_days = DEFAULT_BACKFILL_DAYS
+                    args.dates = [
+                        (yesterday - timedelta(days=k)).strftime("%Y-%m-%d")
+                        for k in range(n_days - 1, -1, -1)
+                    ]
+                    print(
+                        f"Run por defecto: últimos {len(args.dates)} día(s) ({args.dates[0]} a {args.dates[-1]}), "
+                        f"temporada {args.season}, stage={stage} (gameType={args.game_type})"
+                    )
+            else:
+                n_days = DEFAULT_BACKFILL_DAYS
+                args.dates = [
+                    (yesterday - timedelta(days=k)).strftime("%Y-%m-%d")
+                    for k in range(n_days - 1, -1, -1)
+                ]
+                print(
+                    f"Run por defecto: últimos {len(args.dates)} día(s) ({args.dates[0]} a {args.dates[-1]}), "
+                    f"warehouse={args.warehouse}, temporada {args.season}, stage={stage} (gameType={args.game_type})"
+                )
+        elif args.season is None:
+            parser.error("--season requerido cuando no usas --from-raw (o usa sin argumentos para ayer + stage automático)")
+        if args.dates or args.last_days is not None:
+            # Carga por fecha(s): solo esos días (eficiente para diario)
+            if args.last_days is not None:
+                today = date.today()
+                dates = [
+                    (today - timedelta(days=k)).strftime("%Y-%m-%d")
+                    for k in range(1, args.last_days + 1)
+                ]
+            else:
+                dates = args.dates
+            games = fetch_schedule_for_dates(args.season, args.game_type, dates)
+            print(
+                f"Schedule: {len(games)} juegos ({args.season}, type={args.game_type}, {len(dates)} día(s))"
+            )
+        elif args.all_stages:
             games_by_pk: dict[int, dict] = {}
             for gt in ALL_STAGES_GAME_TYPES:
                 batch = fetch_schedule(args.season, gt)
@@ -337,6 +548,13 @@ def main():
         else:
             games = fetch_schedule(args.season, args.game_type)
             print(f"Schedule: {len(games)} juegos ({args.season}, type={args.game_type})")
+
+        n_total = len(games)
+        games = [g for g in games if is_game_final(g)]
+        if n_total > len(games):
+            (tqdm.write if not args.quiet else print)(
+                f"  Solo juegos Final: {len(games)} (omitidos {n_total - len(games)} programados/futuros)"
+            )
 
         games_to_process = []
         desc_raw = "Raw (feed)"
@@ -358,12 +576,28 @@ def main():
         m = re.match(r"game_(\d+)_(\d+)_feed_live", name)
         if not m:
             continue
-        game_pk, date = m.group(1), m.group(2)
-        enriched_path = out_dir / f"game_{game_pk}_{date}_pitches_enriched.parquet"
+        game_pk, game_date = m.group(1), m.group(2)
+        enriched_path = out_dir / f"game_{game_pk}_{game_date}_pitches_enriched.parquet"
         if enriched_path.exists() and not args.force:
             skipped += 1
         else:
             to_process.append((raw_path, out_dir))
+
+    if not to_process:
+        (tqdm.write if not args.quiet else print)(
+            f"\n✅ Nada que procesar. Omitidos (ya tienen parquet): {skipped}"
+        )
+        return
+
+    n_to_process = len(to_process)
+    if args.max_games is not None and args.max_games > 0:
+        to_process = to_process[: args.max_games]
+        (tqdm.write if not args.quiet else print)(
+            f"\n  Procesando {len(to_process)} de {n_to_process} juegos (--max-games={args.max_games})"
+        )
+    (tqdm.write if not args.quiet else print)(
+        f"\n  Pitches_enriched: {len(to_process)} juegos (Statcast puede tardar ~15–60 s por juego). Omitidos: {skipped}"
+    )
 
     ok = 0
     workers = max(1, args.workers)
@@ -391,4 +625,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

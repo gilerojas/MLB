@@ -74,3 +74,19 @@ Thumbs.db
 *.log
 *.tmp
 .cache/
+
+# Generated assets (keeps git status readable; force-add with -f if you must commit one file)
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.ico
+*.svg
+
+# JSON dumps / exports (keep repo config + tracked warehouse schedule)
+*.json
+!config/*.json
+!config/**/*.json
+!data/warehouse/mlb/2026/schedule_spring_training.json
