@@ -27,13 +27,13 @@
 #
 # GitHub secrets (pick ONE style — same idea as FantasyXII)
 # ----------------------------------------------------------
-# A) FantasyXII-style — one secret (simplest if you already use this elsewhere)
-# • RCLONE_CONFIG_BASE64 — base64 of your full ~/.config/rclone/rclone.conf after
-#   `rclone config` (remote type drive, root_folder_id, and either
-#   service_account_credentials = <paste JSON on one line> or service_account_file).
+# A) FantasyXII-style — one secret
+# • RCLONE_CONFIG_BASE64 — MUST be base64 of the full rclone CONFIG file
+#   (~/.config/rclone/rclone.conf), NOT base64 of the service-account *.json key alone.
+#   The decoded text must contain lines like [mallitalytics] and type = drive.
 #   Linux: base64 -w0 ~/.config/rclone/rclone.conf
 #   macOS: base64 -i ~/.config/rclone/rclone.conf | tr -d '\n'
-#   Default remote name here is mallitalytics (same as FantasyXII). Override RCLONE_REMOTE if needed.
+#   Default remote name: mallitalytics. Override RCLONE_REMOTE if needed.
 #
 # B) Split secrets (what this workflow generated before)
 # • GDRIVE_SERVICE_ACCOUNT — full SA JSON or base64-of-JSON (see below).
@@ -114,15 +114,58 @@ jobs:
           mkdir -p ~/.config/rclone
           if [ -n "${RCLONE_CONFIG_BASE64}" ]; then
             echo "Using RCLONE_CONFIG_BASE64 (full rclone.conf, FantasyXII-style)."
-            echo "${RCLONE_CONFIG_BASE64}" | base64 --decode > ~/.config/rclone/rclone.conf
-            if [ ! -s ~/.config/rclone/rclone.conf ]; then
-              echo "::error::RCLONE_CONFIG_BASE64 decoded to an empty file."
-              exit 1
-            fi
-            if ! grep -q '^\[.*\]' ~/.config/rclone/rclone.conf; then
-              echo "::error::Decoded file does not look like rclone.conf (expected [remote] sections)."
-              exit 1
-            fi
+            python3 << 'PY'
+          import base64
+          import binascii
+          import os
+          import re
+          import sys
+
+          raw = os.environ.get("RCLONE_CONFIG_BASE64", "")
+          b64 = "".join(raw.split())
+          if not b64:
+              print("::error::RCLONE_CONFIG_BASE64 is empty.", file=sys.stderr)
+              sys.exit(1)
+          pad = (-len(b64)) % 4
+          if pad:
+              b64 += "=" * pad
+          try:
+              data = base64.b64decode(b64, validate=False)
+          except binascii.Error:
+              try:
+                  data = base64.urlsafe_b64decode(b64, validate=False)
+              except binascii.Error:
+                  print(
+                      "::error::RCLONE_CONFIG_BASE64 is not valid base64. "
+                      "Copy only the encoded characters (no labels, no quotes).",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+          try:
+              text = data.decode("utf-8")
+          except UnicodeDecodeError:
+              print("::error::Decoded bytes are not valid UTF-8.", file=sys.stderr)
+              sys.exit(1)
+          t = text.lstrip("\ufeff").lstrip()
+          if t.startswith("{"):
+              print(
+                  "::error::Decoded content is JSON (service account key), not rclone.conf. "
+                  "You must base64-encode the entire rclone config file that contains [mallitalytics], "
+                  "not the *.json key from Google Cloud. macOS: base64 -i ~/.config/rclone/rclone.conf | tr -d '\\n'",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          if not re.search(r"^\[", text, re.MULTILINE):
+              print(
+                  "::error::Decoded file must be rclone.conf with a [remote_name] section header.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+          path = os.path.expanduser("~/.config/rclone/rclone.conf")
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(text)
+          PY
           else
             python3 << 'PY'
           import base64
