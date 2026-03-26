@@ -9,10 +9,10 @@
 #      ./data/warehouse/mlb/{MLB_SEASON}/regular_season/pitches_enriched/
 #      ./data/warehouse/mlb/{MLB_SEASON}/players_registry.json
 # 3. rclone sync pushes ./data/warehouse/mlb back to Drive at:
-#      {GDRIVE_FOLDER_ID root}/MLB/warehouse/mlb/...
+#      mallitalytics:MLB/warehouse/mlb/...  (remote name = env RCLONE_REMOTE)
 #    (sync = mirror: local is source of truth for that path after ingest)
 #
-# Drive layout (relative to GDRIVE_FOLDER_ID):
+# Drive layout (relative to the Mallitalytics remote root / root_folder_id):
 #   MLB/warehouse/mlb/
 #     2026/                              MLB_SEASON (bump env below each year)
 #       players_registry.json
@@ -25,18 +25,26 @@
 # Searching by date: Drive search for YYYYMMDD in filenames, or open
 # MLB → warehouse → mlb → 2026 → regular_season → raw|pitches_enriched.
 #
-# GitHub secrets
-# --------------
-# • GDRIVE_SERVICE_ACCOUNT — either (1) paste the full service account JSON
-#   as downloaded from IAM → Keys, or (2) paste a single-line base64 encoding
-#   of that file (easier in some UIs). Local base64 (macOS):
-#     base64 -i mlb-....json | tr -d '\n'
-#   If you see "unexpected end of JSON input", the secret is empty or truncated.
-# • GDRIVE_FOLDER_ID — the Drive folder ID the service account can write to
-#   (from the folder URL). Share that folder with the service account email.
+# GitHub secrets (pick ONE style — same idea as FantasyXII)
+# ----------------------------------------------------------
+# A) FantasyXII-style — one secret (simplest if you already use this elsewhere)
+# • RCLONE_CONFIG_BASE64 — base64 of your full ~/.config/rclone/rclone.conf after
+#   `rclone config` (remote type drive, root_folder_id, and either
+#   service_account_credentials = <paste JSON on one line> or service_account_file).
+#   Linux: base64 -w0 ~/.config/rclone/rclone.conf
+#   macOS: base64 -i ~/.config/rclone/rclone.conf | tr -d '\n'
+#   Default remote name here is mallitalytics (same as FantasyXII). Override RCLONE_REMOTE if needed.
+#
+# B) Split secrets (what this workflow generated before)
+# • GDRIVE_SERVICE_ACCOUNT — full SA JSON or base64-of-JSON (see below).
+# • GDRIVE_FOLDER_ID — folder ID from the Drive URL (folders/THIS_PART).
+#   Required only if RCLONE_CONFIG_BASE64 is not set.
+#
+#   SA JSON local base64 (macOS): base64 -i key.json | tr -d '\n'
+#   Share the Drive folder with the service account email (Editor).
 #
 # Migrating from old remote root `mlb-warehouse`: e.g.
-#   rclone copy gdrive:mlb-warehouse gdrive:MLB/warehouse/mlb
+#   rclone copy mallitalytics:mlb-warehouse mallitalytics:MLB/warehouse/mlb
 
 name: Daily MLB Warehouse Ingest
 
@@ -66,11 +74,13 @@ on:
         type: boolean
 
 env:
-  # Path inside GDRIVE_FOLDER_ID. If that secret points directly at the MLB folder,
-  # change this to warehouse/mlb (no MLB/ prefix).
+  # Under the Mallitalytics Drive root (same remote as FantasyXII): MLB → warehouse → mlb.
+  # If root_folder_id points at a subfolder that is already "MLB", use warehouse/mlb only.
   GDRIVE_WAREHOUSE_PATH: MLB/warehouse/mlb
   # Scheduled runs use this season (regular season, --game-type R). Change to 2027 when needed.
   MLB_SEASON: "2026"
+  # Same [remote] name as FantasyXII (RCLONE_CONFIG_BASE64 / your rclone.conf).
+  RCLONE_REMOTE: mallitalytics
 
 jobs:
   ingest:
@@ -95,13 +105,26 @@ jobs:
         run: |
           curl -fsSL https://rclone.org/install.sh | sudo bash
 
-      - name: Configure rclone (Google Drive service account)
+      - name: Configure rclone (Google Drive)
         env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
           GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           mkdir -p ~/.config/rclone
-          python3 << 'PY'
+          if [ -n "${RCLONE_CONFIG_BASE64}" ]; then
+            echo "Using RCLONE_CONFIG_BASE64 (full rclone.conf, FantasyXII-style)."
+            echo "${RCLONE_CONFIG_BASE64}" | base64 --decode > ~/.config/rclone/rclone.conf
+            if [ ! -s ~/.config/rclone/rclone.conf ]; then
+              echo "::error::RCLONE_CONFIG_BASE64 decoded to an empty file."
+              exit 1
+            fi
+            if ! grep -q '^\[.*\]' ~/.config/rclone/rclone.conf; then
+              echo "::error::Decoded file does not look like rclone.conf (expected [remote] sections)."
+              exit 1
+            fi
+          else
+            python3 << 'PY'
           import base64
           import binascii
           import json
@@ -124,17 +147,15 @@ jobs:
           raw = os.environ.get("GDRIVE_SA_JSON", "")
           cur = norm(raw)
           if not cur:
-              print("::error::GDRIVE_SERVICE_ACCOUNT is missing or empty.", file=sys.stderr)
+              print("::error::Set RCLONE_CONFIG_BASE64, or GDRIVE_SERVICE_ACCOUNT + GDRIVE_FOLDER_ID.", file=sys.stderr)
               sys.exit(1)
 
-          # Whole secret is a JSON string containing JSON or base64 (some UIs wrap paste)
           if len(cur) >= 2 and cur[0] == '"' and cur[-1] == '"':
               try:
                   cur = norm(json.loads(cur))
               except json.JSONDecodeError:
                   pass
 
-          # Peel base64 layer(s) until we see a JSON object/array text
           for _ in range(5):
               if cur.startswith("{") or cur.startswith("["):
                   break
@@ -151,8 +172,8 @@ jobs:
                   raise ValueError("expected a JSON object (service account key)")
           except (json.JSONDecodeError, ValueError, TypeError):
               print(
-                  "::error::GDRIVE_SERVICE_ACCOUNT: use the raw .json key, or one-line base64 of that file "
-                  "(no extra quotes or labels). macOS: base64 -i key.json | tr -d '\\n'",
+                  "::error::GDRIVE_SERVICE_ACCOUNT: raw .json key or one-line base64 of that file. "
+                  "Or use RCLONE_CONFIG_BASE64 instead.",
                   file=sys.stderr,
               )
               sys.exit(1)
@@ -160,23 +181,24 @@ jobs:
           with open("/tmp/gdrive_sa.json", "w", encoding="utf-8") as f:
               json.dump(data, f, ensure_ascii=False, indent=2)
           PY
-          if [ -z "${GDRIVE_FOLDER_ID}" ]; then
-            echo "::error::GDRIVE_FOLDER_ID secret is missing or empty."
-            exit 1
+            if [ -z "${GDRIVE_FOLDER_ID}" ]; then
+              echo "::error::GDRIVE_FOLDER_ID is missing. Add it, or use RCLONE_CONFIG_BASE64 (full rclone.conf) like FantasyXII."
+              exit 1
+            fi
+            remote="${RCLONE_REMOTE:-mallitalytics}"
+            printf '%s\n' \
+              "[${remote}]" \
+              'type = drive' \
+              'scope = drive' \
+              'service_account_file = /tmp/gdrive_sa.json' \
+              "root_folder_id = ${GDRIVE_FOLDER_ID}" \
+              > ~/.config/rclone/rclone.conf
           fi
-          # No leading spaces (YAML-indented heredocs break INI parsing)
-          printf '%s\n' \
-            '[gdrive]' \
-            'type = drive' \
-            'scope = drive' \
-            'service_account_file = /tmp/gdrive_sa.json' \
-            "root_folder_id = ${GDRIVE_FOLDER_ID}" \
-            > ~/.config/rclone/rclone.conf
 
       - name: Sync warehouse from Google Drive
         run: |
           mkdir -p data/warehouse/mlb
-          REMOTE="gdrive:${GDRIVE_WAREHOUSE_PATH}"
+          REMOTE="${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}"
           echo "Pulling warehouse from ${REMOTE} ..."
           rclone sync "$REMOTE" data/warehouse/mlb \
             --transfers 8 \
@@ -213,7 +235,11 @@ jobs:
       - name: Sync warehouse to Google Drive
         if: always()
         run: |
-          REMOTE="gdrive:${GDRIVE_WAREHOUSE_PATH}"
+          if [ ! -f ~/.config/rclone/rclone.conf ]; then
+            echo "::warning::Skipping Drive push: rclone was not configured."
+            exit 0
+          fi
+          REMOTE="${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}"
           echo "Pushing warehouse to ${REMOTE} ..."
           rclone sync data/warehouse/mlb "$REMOTE" \
             --transfers 8 \
