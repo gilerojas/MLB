@@ -445,6 +445,15 @@ def main():
         help="Solo descargar schedule(s), crear carpeta del año y guardar JSON + CSV para publicar",
     )
     parser.add_argument(
+        "--refresh-schedule",
+        action="store_true",
+        help=(
+            "After ingest (not with --from-raw): rewrite schedule_{stage}.json and schedule_post.csv "
+            "for this season and --game-type using the full season schedule API (e.g. regular season → "
+            "schedule_regular_season.json + flat CSV for posts)."
+        ),
+    )
+    parser.add_argument(
         "--max-games",
         type=int,
         default=None,
@@ -603,6 +612,19 @@ def main():
         (tqdm.write if not args.quiet else print)(
             f"\n✅ Nada que procesar. Omitidos (ya tienen parquet): {skipped}"
         )
+        if (
+            args.refresh_schedule
+            and not args.from_raw
+            and args.season is not None
+        ):
+            if not args.quiet:
+                print(
+                    "\nRefreshing schedule artifacts (full season for this game-type) ...",
+                    flush=True,
+                )
+            save_schedule_only(
+                args.warehouse, args.season, args.game_type, all_stages=False
+            )
         return
 
     n_to_process = len(to_process)
@@ -638,6 +660,20 @@ def main():
                 pass
 
     (tqdm.write if not args.quiet else print)(f"\n✅ Procesados {ok} | Omitidos (duplicados): {skipped}")
+
+    if (
+        args.refresh_schedule
+        and not args.from_raw
+        and args.season is not None
+    ):
+        if not args.quiet:
+            print(
+                "\nRefreshing schedule artifacts (full season for this game-type) ...",
+                flush=True,
+            )
+        save_schedule_only(
+            args.warehouse, args.season, args.game_type, all_stages=False
+        )
 
 
 if __name__ == "__main__":

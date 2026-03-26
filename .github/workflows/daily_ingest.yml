@@ -270,7 +270,7 @@ jobs:
           if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
             ARGS+=(--force)
           fi
-          ARGS+=(--quiet)
+          ARGS+=(--quiet --refresh-schedule)
 
           echo "Running: python -m src.ingestion.load_mlb_warehouse ${ARGS[*]}"
           python -m src.ingestion.load_mlb_warehouse "${ARGS[@]}"
