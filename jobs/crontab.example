@@ -1,0 +1,27 @@
+# Mallitalytics MLB Hub — crontab
+# Install with: crontab -e   (paste these lines)
+# All times are ET — adjust CRON_TZ or offset if your Mac is not on ET
+
+SHELL=/bin/zsh
+PATH=/usr/local/bin:/usr/bin:/bin
+REPO=/Users/gilrojasb/Desktop/Mallitalytics_VS/MLB
+PYTHON=/Users/gilrojasb/Desktop/Mallitalytics_VS/MLB/mlb_env/bin/python
+LOG=/Users/gilrojasb/Desktop/Mallitalytics_VS/MLB/logs
+
+# Create logs directory if it doesn't exist
+# mkdir -p $LOG
+
+# ── 2:00 AM — Ingest last night's games ──────────────────────────────────────
+0 2 * * * cd $REPO && $PYTHON -m src.ingestion.load_mlb_warehouse --season 2025 --stage regular_season --last-days 1 >> $LOG/ingest.log 2>&1
+
+# ── 8:00 AM — Morning digest email + WhatsApp ────────────────────────────────
+0 8 * * * cd $REPO && $PYTHON jobs/morning_digest.py >> $LOG/morning_digest.log 2>&1
+
+# ── 10:00 AM — Generate draft cards for yesterday's top performers ───────────
+0 10 * * * cd $REPO && $PYTHON jobs/daily_card_generator.py >> $LOG/card_generator.log 2>&1
+
+# ── 11:30 PM — Post-game sweep for West Coast late games ─────────────────────
+30 23 * * * cd $REPO && $PYTHON jobs/daily_card_generator.py >> $LOG/card_generator.log 2>&1
+
+# ── 9:00 AM Monday — Weekly performance report ───────────────────────────────
+0 9 * * 1 cd $REPO && $PYTHON jobs/weekly_report.py >> $LOG/weekly_report.log 2>&1

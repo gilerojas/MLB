@@ -90,3 +90,11 @@ Thumbs.db
 !config/*.json
 !config/**/*.json
 !data/warehouse/mlb/2026/schedule_spring_training.json
+
+# Hub
+hub/.env.local
+hub/.next/
+hub/node_modules/
+jobs/.env
+data/hub.db
+logs/

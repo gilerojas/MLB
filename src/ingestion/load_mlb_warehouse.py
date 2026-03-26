@@ -2,15 +2,17 @@
 MLB Warehouse backfill: raw feed + Statcast → pitches_enriched.
 
 Por cada juego genera:
-  1. raw: game_{pk}_{date}_feed_live.json (feed/live desde API, sin indent)
-  2. pitches_enriched: game_{pk}_{date}_pitches_enriched.parquet (join Statcast + play_id)
+  1. raw: game_{pk}_{date}_feed_live.json.gz (feed/live, minified + gzip; .json legacy soportado)
+  2. opcional: {season}/players_registry.json (bios de gameData.players, deduplicadas)
+  3. pitches_enriched: game_{pk}_{date}_pitches_enriched.parquet (join Statcast + play_id)
 
 Evita duplicados: si raw y pitches_enriched existen, se salta (usa --force para sobrescribir).
 
 Al ejecutar sin argumentos (botón Run): intenta backfill de días faltantes. Si hay datos
 en el warehouse, descarga desde el día siguiente al último hasta ayer; si no hay datos,
-descarga los últimos 7 días. Temporada y stage se detectan automáticamente.
-Para cargas por fecha: --last-days N, --dates YYYY-MM-DD ..., o --from-raw.
+descarga los últimos 7 días. Usa temporada = año calendario de hoy y game type R (regular).
+Para spring training u otros tipos: --game-type S (etc.). Para cargas por fecha:
+--last-days N, --dates YYYY-MM-DD ..., o --from-raw.
 """
 import argparse
 import gzip
@@ -38,6 +40,7 @@ try:
         BASE_URL,
         GAME_TYPE_TO_STAGE,
     )
+    from .player_registry import merge_game_data_players_from_feed, season_registry_path
 except ImportError:
     # Run as script (e.g. Run button): add project root and use absolute import
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -51,6 +54,7 @@ except ImportError:
         BASE_URL,
         GAME_TYPE_TO_STAGE,
     )
+    from src.ingestion.player_registry import merge_game_data_players_from_feed, season_registry_path
 
 # Repo root: walk up from this file until we find a dir containing data/warehouse/mlb (so Run works from any cwd)
 _here = Path(__file__).resolve().parent
@@ -68,16 +72,6 @@ def get_stage_from_game_type(game_type: str) -> str:
     """gameType → stage folder."""
     gt = (game_type or "").strip().upper()
     return GAME_TYPE_TO_STAGE.get(gt, "regular_season")
-
-
-def detect_game_type_for_date(d: date) -> str:
-    """
-    Infer MLB game type from a date (for default run behavior).
-    Feb–Mar → Spring Training (S), Apr–early Nov → Regular (R).
-    """
-    if d.month in (2, 3):
-        return "S"
-    return "R"
 
 
 def is_game_final(g: dict) -> bool:
@@ -153,7 +147,8 @@ def extract_play_ids_from_feed(feed: dict, game_pk: int) -> pd.DataFrame:
 
 
 RAW_BASENAME = "feed_live"
-RAW_SUFFIX = ".json"
+# New raws: gzip only. Legacy plain .json still read by _open_raw / find_raw_files.
+RAW_SUFFIX_GZ = ".json.gz"
 
 
 def _raw_stem(path: Path) -> str:
@@ -176,7 +171,9 @@ def _open_raw(path: Path):
 def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, bool]:
     """
     Asegura que existe raw. Si no existe, lo obtiene de la API.
-    Guarda como .json sin indent.
+    Guarda como ``.json.gz`` (minified JSON, sin indent) — ~70–85% menos disco que .json suelto.
+    Si ya existe ``.json`` legacy, se respeta y no se vuelve a descargar.
+    Actualiza ``{season}/players_registry.json`` con ``gameData.players`` (bios deduplicadas).
     Returns (raw_path, was_created). None si falló.
     """
     game_pk = game["gamePk"]
@@ -185,11 +182,15 @@ def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, b
     season = game.get("season", "")
 
     stage = get_stage_from_game_type(game_type)
-    raw_dir = warehouse / season / stage / "raw"
-    raw_path = raw_dir / f"game_{game_pk}_{official_date}_{RAW_BASENAME}{RAW_SUFFIX}"
+    raw_dir = warehouse / str(season) / stage / "raw"
+    stem = f"game_{game_pk}_{official_date}_{RAW_BASENAME}"
+    raw_path_gz = raw_dir / f"{stem}{RAW_SUFFIX_GZ}"
+    raw_path_json = raw_dir / f"{stem}.json"
 
-    if raw_path.exists() and not force:
-        return raw_path, False
+    if raw_path_gz.exists() and not force:
+        return raw_path_gz, False
+    if raw_path_json.exists() and not force:
+        return raw_path_json, False
 
     try:
         feed = fetch_feed(game_pk)
@@ -197,10 +198,16 @@ def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, b
         return None, False
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    with open(raw_path, "w", encoding="utf-8") as f:
+    with gzip.open(raw_path_gz, "wt", encoding="utf-8") as f:
         json.dump(feed, f, ensure_ascii=False)
 
-    return raw_path, True
+    try:
+        reg_path = season_registry_path(warehouse, season)
+        merge_game_data_players_from_feed(feed, reg_path)
+    except Exception:
+        pass
+
+    return raw_path_gz, True
 
 
 def _process_one(raw_path: Path, out_dir: Path, delay: float) -> bool:
@@ -394,7 +401,7 @@ def main():
     parser.add_argument(
         "--game-type",
         default="R",
-        help="gameType: R=regular, S=spring, A=all_star, F/D/L/W=playoffs",
+        help="gameType: R=regular (default), S=spring, A=all_star, F/D/L/W=playoffs",
     )
     parser.add_argument(
         "--dates",
@@ -445,6 +452,7 @@ def main():
         help="Máximo de juegos a procesar en pitches_enriched (útil para no esperar 95 juegos de una vez)",
     )
     args = parser.parse_args()
+    args.game_type = (args.game_type or "R").strip().upper()
 
     # Resolve warehouse so "Run" works from any cwd
     if args.warehouse is None:
@@ -476,7 +484,6 @@ def main():
             yesterday = today - timedelta(days=1)
             if args.season is None:
                 args.season = today.year
-            args.game_type = detect_game_type_for_date(today)
             stage = get_stage_from_game_type(args.game_type)
             # Optionally backfill from latest warehouse date; otherwise use last N days
             latest = get_latest_game_date_in_warehouse(
@@ -555,6 +562,15 @@ def main():
             (tqdm.write if not args.quiet else print)(
                 f"  Solo juegos Final: {len(games)} (omitidos {n_total - len(games)} programados/futuros)"
             )
+
+        # --max-games limits both raw fetch and pitches_enriched (smoke tests / partial runs)
+        if args.max_games is not None and args.max_games > 0:
+            games = games[: args.max_games]
+            if not args.quiet:
+                print(
+                    f"  --max-games={args.max_games}: solo {len(games)} juego(s) Final",
+                    flush=True,
+                )
 
         games_to_process = []
         desc_raw = "Raw (feed)"

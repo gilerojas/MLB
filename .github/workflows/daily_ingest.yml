@@ -1,0 +1,168 @@
+# Daily MLB regular-season (game type R) ingest → Google Drive
+#
+# How data is saved
+# -----------------
+# 1. rclone pulls the existing tree from Drive into the runner:
+#      ./data/warehouse/mlb/  (ephemeral; same layout as below)
+# 2. load_mlb_warehouse writes new/updated games under:
+#      ./data/warehouse/mlb/{MLB_SEASON}/regular_season/raw/
+#      ./data/warehouse/mlb/{MLB_SEASON}/regular_season/pitches_enriched/
+#      ./data/warehouse/mlb/{MLB_SEASON}/players_registry.json
+# 3. rclone sync pushes ./data/warehouse/mlb back to Drive at:
+#      {GDRIVE_FOLDER_ID root}/MLB/warehouse/mlb/...
+#    (sync = mirror: local is source of truth for that path after ingest)
+#
+# Drive layout (relative to GDRIVE_FOLDER_ID):
+#   MLB/warehouse/mlb/
+#     2026/                              MLB_SEASON (bump env below each year)
+#       players_registry.json
+#       regular_season/
+#         raw/
+#           game_{gamePk}_{YYYYMMDD}_feed_live.json.gz
+#         pitches_enriched/
+#           game_{gamePk}_{YYYYMMDD}_pitches_enriched.parquet
+#
+# Searching by date: Drive search for YYYYMMDD in filenames, or open
+# MLB → warehouse → mlb → 2026 → regular_season → raw|pitches_enriched.
+#
+# GitHub secrets (no base64)
+# --------------------------
+# • GDRIVE_SERVICE_ACCOUNT — paste the FULL contents of the Google Cloud
+#   service account JSON key file (as downloaded). Do NOT base64-encode it;
+#   GitHub stores multiline secrets fine.
+# • GDRIVE_FOLDER_ID — the Drive folder ID the service account can write to
+#   (from the folder URL). Share that folder with the service account email.
+#
+# Migrating from old remote root `mlb-warehouse`: e.g.
+#   rclone copy gdrive:mlb-warehouse gdrive:MLB/warehouse/mlb
+
+name: Daily MLB Warehouse Ingest
+
+on:
+  # 3:05 AM ET daily (7:05 UTC; adjust if you prefer strict US Eastern)
+  schedule:
+    - cron: "5 7 * * *"
+
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Specific date (YYYY-MM-DD). Leave blank for last-days window."
+        required: false
+        default: ""
+      last_days:
+        description: "Ingest last N days (default 1 = typical daily catch-up)"
+        required: false
+        default: "1"
+      season:
+        description: "Season year (blank = MLB_SEASON from workflow env, default 2026)"
+        required: false
+        default: ""
+      force:
+        description: "Force re-ingest even if files exist"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  # Path inside GDRIVE_FOLDER_ID. If that secret points directly at the MLB folder,
+  # change this to warehouse/mlb (no MLB/ prefix).
+  GDRIVE_WAREHOUSE_PATH: MLB/warehouse/mlb
+  # Scheduled runs use this season (regular season, --game-type R). Change to 2027 when needed.
+  MLB_SEASON: "2026"
+
+jobs:
+  ingest:
+    name: Ingest MLB games and sync warehouse
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone (Google Drive service account)
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          mkdir -p ~/.config/rclone
+          echo "$GDRIVE_SA_JSON" > /tmp/gdrive_sa.json
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [gdrive]
+          type = drive
+          scope = drive
+          service_account_file = /tmp/gdrive_sa.json
+          root_folder_id = ${GDRIVE_FOLDER_ID}
+          EOF
+
+      - name: Sync warehouse from Google Drive
+        run: |
+          mkdir -p data/warehouse/mlb
+          REMOTE="gdrive:${GDRIVE_WAREHOUSE_PATH}"
+          echo "Pulling warehouse from ${REMOTE} ..."
+          rclone sync "$REMOTE" data/warehouse/mlb \
+            --transfers 8 \
+            --progress \
+            --stats-one-line
+          echo "Local files: $(find data/warehouse/mlb -type f | wc -l)"
+
+      - name: Run warehouse ingestion
+        run: |
+          # Manual run with empty season → use MLB_SEASON (2026). Scheduled → MLB_SEASON.
+          if [[ -n "${{ github.event.inputs.season }}" ]]; then
+            SEASON="${{ github.event.inputs.season }}"
+          else
+            SEASON="${MLB_SEASON}"
+          fi
+          echo "SEASON=$SEASON" >> "$GITHUB_ENV"
+          echo "Using season: $SEASON (regular season, game-type R)"
+
+          ARGS=(--season "$SEASON" --game-type R)
+          if [[ -n "${{ github.event.inputs.date }}" ]]; then
+            ARGS+=(--dates "${{ github.event.inputs.date }}")
+          else
+            DAYS="${{ github.event.inputs.last_days }}"
+            ARGS+=(--last-days "${DAYS:-1}")
+          fi
+          if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
+            ARGS+=(--force)
+          fi
+          ARGS+=(--quiet)
+
+          echo "Running: python -m src.ingestion.load_mlb_warehouse ${ARGS[*]}"
+          python -m src.ingestion.load_mlb_warehouse "${ARGS[@]}"
+
+      - name: Sync warehouse to Google Drive
+        if: always()
+        run: |
+          REMOTE="gdrive:${GDRIVE_WAREHOUSE_PATH}"
+          echo "Pushing warehouse to ${REMOTE} ..."
+          rclone sync data/warehouse/mlb "$REMOTE" \
+            --transfers 8 \
+            --progress \
+            --stats-one-line
+          echo "Sync complete."
+
+      - name: Print summary
+        run: |
+          YEAR="${SEASON:-$(date -u +%Y)}"
+          RAW="data/warehouse/mlb/$YEAR/regular_season/raw"
+          PARQ="data/warehouse/mlb/$YEAR/regular_season/pitches_enriched"
+          echo "=== Warehouse snapshot (season $YEAR) ==="
+          echo "Drive path: ${GDRIVE_WAREHOUSE_PATH}/$YEAR/regular_season/..."
+          [ -d "$RAW" ]  && echo "Raw files:     $(find "$RAW" -type f 2>/dev/null | wc -l | tr -d ' ')" || echo "Raw dir not found"
+          [ -d "$PARQ" ] && echo "Parquet files: $(find "$PARQ" -type f 2>/dev/null | wc -l | tr -d ' ')" || echo "Parquet dir not found"
+          echo "Completed: $(date -u)"

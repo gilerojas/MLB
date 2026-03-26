@@ -531,13 +531,14 @@ def _grad_color(val, vmin, vmax, lo_hex, hi_hex, invert=False):
     lo, hi = np.array(mpl.colors.to_rgb(lo_hex)), np.array(mpl.colors.to_rgb(hi_hex))
     return mpl.colors.to_hex(lo + t * (hi - lo))
 
-def _fmt_movement(pfx_x_in, pfx_z_in, hand):
+def _fmt_movement(pfx_x_in, pfx_z_in, _hand: str):
     try:
         if np.isnan(pfx_x_in) or np.isnan(pfx_z_in):
             return "--", "--"
         x = float(pfx_x_in)
         z = float(pfx_z_in)
-        return f'{-x if hand == "R" else x:+.1f}"', f'{z:+.1f}"'
+        # Display HB = -Statcast pfx_x for both hands (see plot_movement).
+        return f'{-x:+.1f}"', f'{z:+.1f}"'
     except (TypeError, ValueError):
         return "--", "--"
 
@@ -693,9 +694,10 @@ def plot_damage_heatmap(ax, arsenal, df):
 
 def plot_movement(ax, arsenal, df, hand):
     _clean(ax); _border(ax)
-    # Pitcher's perspective (matches Baseball Savant): RHP arm side → right (+x), glove side → left (-x)
-    # pfx_x is positive toward 1B; for RHP that's the arm side, so we keep sign=1 for RHP.
-    sign = -1 if hand == 'R' else 1
+    # Statcast pfx_x is catcher-frame (+ = toward 1B). Plot uses -pfx_x for BOTH hands so that
+    # clusters sit on the same side as the Arm/Glove captions (TJ / public-analyst style):
+    # RHP: glove (1B/+pfx) → left; arm (3B/-pfx) → right. LHP: arm (1B/+pfx) → left; glove → right.
+    sign = -1
 
     kde_fill_alpha, scatter_alpha = (0.35, 0.75) if LIGHT_MODE else (0.25, 0.55)
 

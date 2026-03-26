@@ -218,7 +218,7 @@ def plot_arsenal_table(ax, arsenal):
             elif ci == 1: ax.text(xc, yc, f"{r['usage_pct']:.0%}", ha='center', va='center', fontsize=10, color=PALETTE["text_primary"], transform=ax.transAxes)
             elif ci == 2: ax.text(xc, yc, f"{r['velo']:.1f}", ha='center', va='center', fontsize=10.5, fontweight='bold', color=PALETTE["accent_orange"], transform=ax.transAxes)
             elif ci == 3: ax.text(xc, yc, f"{r['pfx_z']:.1f}", ha='center', va='center', fontsize=10, color=PALETTE["text_primary"], transform=ax.transAxes)
-            elif ci == 4: ax.text(xc, yc, f"{r['pfx_x']:.1f}", ha='center', va='center', fontsize=10, color=PALETTE["text_primary"], transform=ax.transAxes)
+            elif ci == 4: ax.text(xc, yc, f"{-r['pfx_x']:.1f}", ha='center', va='center', fontsize=10, color=PALETTE["text_primary"], transform=ax.transAxes)
             elif ci == 5: 
                 wv = r['whiff_pct']
                 if pd.notnull(wv):
@@ -267,7 +267,8 @@ def plot_release_point(ax, arsenal, df, hand):
 def plot_movement_topographic(ax, arsenal, df, hand):
     """Topographic KDE Movement Profile: Replaces arrows with elegant density clouds."""
     _clean(ax); _border(ax)
-    sign = -1 if hand == 'R' else 1
+    # Match mallitalytics_daily_card: negate pfx_x for LHP and RHP so labels match blob positions.
+    sign = -1
     
     lim = 24
     ax.axhline(0, color=PALETTE["text_lo"], lw=1.0, alpha=0.5, zorder=1)
@@ -292,8 +293,12 @@ def plot_movement_topographic(ax, arsenal, df, hand):
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
 
     lkw = dict(fontsize=8, fontstyle='italic', color=PALETTE["text_secondary"], bbox=dict(facecolor=PALETTE["panel_bg"], edgecolor=PALETTE["border"], boxstyle='round,pad=0.3', linewidth=0.5))
-    ax.text(-lim+0.5, -lim+1.5, "← Glove", ha='left', va='bottom', **lkw)
-    ax.text(lim-0.5, -lim+1.5, "Arm →", ha='right', va='bottom', **lkw)
+    if hand == "R":
+        ax.text(-lim + 0.5, -lim + 1.5, "← Glove", ha="left", va="bottom", **lkw)
+        ax.text(lim - 0.5, -lim + 1.5, "Arm →", ha="right", va="bottom", **lkw)
+    else:
+        ax.text(-lim + 0.5, -lim + 1.5, "← Arm", ha="left", va="bottom", **lkw)
+        ax.text(lim - 0.5, -lim + 1.5, "Glove →", ha="right", va="bottom", **lkw)
 
     ax.set_title("TOPOGRAPHIC MOVEMENT PROFILE", color=PALETTE["text_secondary"], fontsize=11, fontweight='bold', pad=10)
 

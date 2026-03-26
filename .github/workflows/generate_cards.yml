@@ -1,0 +1,56 @@
+name: Generate Cards (Manual)
+
+# Manual-only — run from GitHub UI whenever you want to generate cards
+# for a specific date or player without waiting for the daily cron
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Game date (YYYY-MM-DD or 'yesterday')"
+        required: false
+        default: "yesterday"
+      player_id:
+        description: "Single player ID (leave blank to run full daily generator)"
+        required: false
+        default: ""
+      card_type:
+        description: "Card type"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto       # daily_card_generator.py (all watchlist players)
+          - hr_tracker # HR tracker for the date
+
+jobs:
+  generate:
+    name: Generate cards
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Generate cards
+        working-directory: ${{ github.workspace }}
+        run: |
+          PYTHON="mlb_env/bin/python"
+          DATE="${{ github.event.inputs.date }}"
+          TYPE="${{ github.event.inputs.card_type }}"
+
+          if [[ "$TYPE" == "hr_tracker" ]]; then
+            echo "Generating HR tracker for $DATE..."
+            $PYTHON scripts/hr_tracker_daily.py --date "$DATE" --format all --output-dir outputs
+
+          else
+            echo "Running daily card generator for $DATE..."
+            $PYTHON jobs/daily_card_generator.py --date "$DATE"
+          fi
+
+      - name: Print output files
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo "=== Generated cards ==="
+          ls -lh outputs/batter_cards/ 2>/dev/null | tail -5 || echo "(no batter cards)"
+          ls -lh outputs/pitching_cards/ 2>/dev/null | tail -5 || echo "(no pitcher cards)"

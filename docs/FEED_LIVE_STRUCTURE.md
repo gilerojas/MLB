@@ -19,7 +19,7 @@ En un feed minificado (sin comprimir), el tamaño aproximado por componente:
 
 **Conclusión:** Casi todo el peso está en (1) **play-by-play** (pitches) y (2) **boxscore**. Si quieres reducir tamaño sin tocar lo que te interesa (umpires, weather, roster, cómo les fue), la única parte “movible” a un doc por temporada es **gameData.players** (~7%). El boxscore (umpires + stats) y el play-by-play son por partido y son lo que más ocupa; para hacerlos más ligeros haría falta guardarlos en otro formato (p. ej. Parquet) o recortar campos dentro de cada pitch.
 
-**Si confías más en el feed que en Savant y no quieres dejar allPlays fuera:** allPlays es dato mutable y es el núcleo — no hay que omitirlo. La opción práctica: **seguir usando feed_live como fuente de verdad** y **derivar un Parquet desde allPlays** (y, si quieres, boxscore/officials). Misma fuente, misma información, formato más liviano y consultable. El runner diario (HR u otros) puede leer de ese Parquet; opcionalmente conservas el JSON raw como respaldo. Ver [STORAGE_STRATEGY.md](STORAGE_STRATEGY.md).
+**Si confías más en el feed que en Savant y no quieres dejar allPlays fuera:** allPlays es dato mutable y es el núcleo — no hay que omitirlo. La opción práctica: **seguir usando feed_live como fuente de verdad** y **derivar un Parquet desde allPlays** (y, si quieres, boxscore/officials). Misma fuente, misma información, formato más liviano y consultable. El runner diario (HR u otros) puede leer de ese Parquet; opcionalmente conservas el JSON raw como respaldo. Ver [STORAGE_STRATEGY.md](STORAGE_STRATEGY.md) y la fórmula recomendada en [PHASE0_STORAGE_FORMULA.md](PHASE0_STORAGE_FORMULA.md) (gzip + registry + parquet).
 
 ---
 
