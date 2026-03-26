@@ -25,11 +25,13 @@
 # Searching by date: Drive search for YYYYMMDD in filenames, or open
 # MLB → warehouse → mlb → 2026 → regular_season → raw|pitches_enriched.
 #
-# GitHub secrets (no base64)
-# --------------------------
-# • GDRIVE_SERVICE_ACCOUNT — paste the FULL contents of the Google Cloud
-#   service account JSON key file (as downloaded). Do NOT base64-encode it;
-#   GitHub stores multiline secrets fine.
+# GitHub secrets
+# --------------
+# • GDRIVE_SERVICE_ACCOUNT — either (1) paste the full service account JSON
+#   as downloaded from IAM → Keys, or (2) paste a single-line base64 encoding
+#   of that file (easier in some UIs). Local base64 (macOS):
+#     base64 -i mlb-....json | tr -d '\n'
+#   If you see "unexpected end of JSON input", the secret is empty or truncated.
 # • GDRIVE_FOLDER_ID — the Drive folder ID the service account can write to
 #   (from the folder URL). Share that folder with the service account email.
 #
@@ -99,14 +101,77 @@ jobs:
           GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
           mkdir -p ~/.config/rclone
-          echo "$GDRIVE_SA_JSON" > /tmp/gdrive_sa.json
-          cat > ~/.config/rclone/rclone.conf << EOF
-          [gdrive]
-          type = drive
-          scope = drive
-          service_account_file = /tmp/gdrive_sa.json
-          root_folder_id = ${GDRIVE_FOLDER_ID}
-          EOF
+          python3 << 'PY'
+          import base64
+          import binascii
+          import json
+          import os
+          import sys
+
+          def norm(t: str) -> str:
+              return t.strip().lstrip("\ufeff").strip()
+
+          def b64_to_bytes(blob: str) -> bytes:
+              b64 = "".join(blob.split())
+              pad = (-len(b64)) % 4
+              if pad:
+                  b64 += "=" * pad
+              try:
+                  return base64.b64decode(b64, validate=False)
+              except binascii.Error:
+                  return base64.urlsafe_b64decode(b64, validate=False)
+
+          raw = os.environ.get("GDRIVE_SA_JSON", "")
+          cur = norm(raw)
+          if not cur:
+              print("::error::GDRIVE_SERVICE_ACCOUNT is missing or empty.", file=sys.stderr)
+              sys.exit(1)
+
+          # Whole secret is a JSON string containing JSON or base64 (some UIs wrap paste)
+          if len(cur) >= 2 and cur[0] == '"' and cur[-1] == '"':
+              try:
+                  cur = norm(json.loads(cur))
+              except json.JSONDecodeError:
+                  pass
+
+          # Peel base64 layer(s) until we see a JSON object/array text
+          for _ in range(5):
+              if cur.startswith("{") or cur.startswith("["):
+                  break
+              try:
+                  cur = norm(b64_to_bytes(cur).decode("utf-8"))
+              except (binascii.Error, UnicodeDecodeError, ValueError):
+                  break
+
+          try:
+              data = json.loads(cur)
+              if isinstance(data, str):
+                  data = json.loads(norm(data))
+              if not isinstance(data, dict):
+                  raise ValueError("expected a JSON object (service account key)")
+          except (json.JSONDecodeError, ValueError, TypeError):
+              print(
+                  "::error::GDRIVE_SERVICE_ACCOUNT: use the raw .json key, or one-line base64 of that file "
+                  "(no extra quotes or labels). macOS: base64 -i key.json | tr -d '\\n'",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          with open("/tmp/gdrive_sa.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+          PY
+          if [ -z "${GDRIVE_FOLDER_ID}" ]; then
+            echo "::error::GDRIVE_FOLDER_ID secret is missing or empty."
+            exit 1
+          fi
+          # No leading spaces (YAML-indented heredocs break INI parsing)
+          printf '%s\n' \
+            '[gdrive]' \
+            'type = drive' \
+            'scope = drive' \
+            'service_account_file = /tmp/gdrive_sa.json' \
+            "root_folder_id = ${GDRIVE_FOLDER_ID}" \
+            > ~/.config/rclone/rclone.conf
 
       - name: Sync warehouse from Google Drive
         run: |
