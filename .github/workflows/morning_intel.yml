@@ -1,0 +1,176 @@
+# Morning intel: warehouse + Stats API + Claude + queue + Resend/Twilio.
+# hub.db at Drive: MLB/hub/hub.db (rclone copyto).
+# Intel JSON snapshots: MLB/morning_intel/snapshots/ (rclone sync) — pull before run, push after (for local mlbops hub).
+
+name: Morning Intel
+
+on:
+  workflow_run:
+    workflows: ["Daily MLB Warehouse Ingest"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      anchor_date:
+        description: "Anchor YYYY-MM-DD (blank = yesterday UTC)"
+        required: false
+        default: ""
+      skip_cards:
+        description: "Skip card subprocesses"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  GDRIVE_WAREHOUSE_PATH: MLB/warehouse/mlb
+  GDRIVE_INTEL_SNAPSHOTS_PATH: MLB/morning_intel/snapshots
+  RCLONE_REMOTE: mallitalytics
+  MLB_SEASON: "2026"
+
+jobs:
+  intel:
+    name: Morning intel
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install rclone
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone
+        env:
+          RCLONE_CONFIG_BASE64: ${{ secrets.RCLONE_CONFIG_BASE64 }}
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        run: |
+          mkdir -p ~/.config/rclone
+          if [ -n "${RCLONE_CONFIG_BASE64}" ]; then
+            python3 << 'PYIN'
+          import base64, binascii, os, re, sys
+          raw = os.environ.get("RCLONE_CONFIG_BASE64", "")
+          b64 = "".join(raw.split())
+          if not b64:
+              print("::error::RCLONE_CONFIG_BASE64 is empty.", file=sys.stderr)
+              sys.exit(1)
+          pad = (-len(b64)) % 4
+          if pad:
+              b64 += "=" * pad
+          try:
+              data = base64.b64decode(b64, validate=False)
+          except binascii.Error:
+              data = base64.urlsafe_b64decode(b64, validate=False)
+          text = data.decode("utf-8")
+          if text.lstrip().startswith("{"):
+              print("::error::Decoded content is JSON, not rclone.conf.", file=sys.stderr)
+              sys.exit(1)
+          if not re.search(r"^\[", text, re.MULTILINE):
+              print("::error::Decoded file must be rclone.conf.", file=sys.stderr)
+              sys.exit(1)
+          path = os.path.expanduser("~/.config/rclone/rclone.conf")
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(text)
+          PYIN
+          else
+            python3 << 'PYIN'
+          import base64, binascii, json, os, sys
+          def norm(t):
+              return t.strip().lstrip("\ufeff").strip()
+          def b64_to_bytes(blob):
+              b64 = "".join(blob.split())
+              pad = (-len(b64)) % 4
+              if pad:
+                  b64 += "=" * pad
+              try:
+                  return base64.b64decode(b64, validate=False)
+              except binascii.Error:
+                  return base64.urlsafe_b64decode(b64, validate=False)
+          raw = os.environ.get("GDRIVE_SA_JSON", "")
+          cur = norm(raw)
+          if not cur:
+              print("::error::Set RCLONE_CONFIG_BASE64 or GDRIVE_SERVICE_ACCOUNT + GDRIVE_FOLDER_ID.", file=sys.stderr)
+              sys.exit(1)
+          if len(cur) >= 2 and cur[0] == '"' and cur[-1] == '"':
+              try:
+                  cur = norm(json.loads(cur))
+              except json.JSONDecodeError:
+                  pass
+          for _ in range(5):
+              if cur.startswith("{") or cur.startswith("["):
+                  break
+              try:
+                  cur = norm(b64_to_bytes(cur).decode("utf-8"))
+              except (binascii.Error, UnicodeDecodeError, ValueError):
+                  break
+          try:
+              data = json.loads(cur)
+              if isinstance(data, str):
+                  data = json.loads(norm(data))
+              if not isinstance(data, dict):
+                  raise ValueError("expected JSON object")
+          except (json.JSONDecodeError, ValueError, TypeError):
+              print("::error::GDRIVE_SERVICE_ACCOUNT invalid.", file=sys.stderr)
+              sys.exit(1)
+          with open("/tmp/gdrive_sa.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
+          PYIN
+            if [ -z "${GDRIVE_FOLDER_ID}" ]; then
+              echo "::error::GDRIVE_FOLDER_ID is missing."
+              exit 1
+            fi
+            remote="${RCLONE_REMOTE:-mallitalytics}"
+            printf '%s\n' "[${remote}]" 'type = drive' 'scope = drive' 'service_account_file = /tmp/gdrive_sa.json' "root_folder_id = ${GDRIVE_FOLDER_ID}" > ~/.config/rclone/rclone.conf
+          fi
+
+      - name: Pull warehouse + hub.db + intel snapshots
+        run: |
+          mkdir -p data/warehouse/mlb data morning_intel/snapshots
+          rclone sync "${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}" data/warehouse/mlb --transfers 8
+          rclone copyto "${RCLONE_REMOTE}:MLB/hub/hub.db" "data/hub.db" || echo "::warning::no hub.db on remote yet"
+          rclone sync "${RCLONE_REMOTE}:${GDRIVE_INTEL_SNAPSHOTS_PATH}" morning_intel/snapshots --transfers 4 || echo "::warning::no intel snapshots on remote yet"
+
+      - name: Run morning intel
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_TO_EMAIL: ${{ secrets.RESEND_TO_EMAIL }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_WHATSAPP_TO: ${{ secrets.TWILIO_WHATSAPP_TO }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          MPLBACKEND: Agg
+        run: |
+          CMD=(python morning_intel/morning_intel.py --season "${MLB_SEASON}")
+          D="${{ github.event.inputs.anchor_date }}"
+          test -n "$D" && CMD+=(--date "$D")
+          test "${{ github.event.inputs.skip_cards }}" = "true" && CMD+=(--skip-cards)
+          "${CMD[@]}"
+
+      - name: Push hub.db
+        if: always()
+        run: |
+          test -f ~/.config/rclone/rclone.conf || exit 0
+          test -f data/hub.db || exit 0
+          rclone copyto data/hub.db "${RCLONE_REMOTE}:MLB/hub/hub.db"
+
+      - name: Push intel snapshots
+        if: always()
+        run: |
+          test -f ~/.config/rclone/rclone.conf || exit 0
+          test -d morning_intel/snapshots || exit 0
+          rclone sync morning_intel/snapshots "${RCLONE_REMOTE}:${GDRIVE_INTEL_SNAPSHOTS_PATH}" --transfers 4
