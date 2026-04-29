@@ -24,7 +24,7 @@ from pathlib import Path
 import requests
 
 REPO_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "mlbops"))
 
 from api.db.database import get_db, insert_queue_item, get_watchlist
 
@@ -182,7 +182,7 @@ def trigger_batter_card(player_id: int, feed_path: Path, player_name: str, game_
                 "player_id": player_id,
                 "feed_path": str(feed_path),
                 "dark": False,
-                "tweet_text": f"🦇 {player_name} | {game_date} #Mallitalytics #MLB",
+                "tweet_text": f"{player_name} | {game_date} | #Mallitalytics #MLB",
             },
             timeout=120,
         )
@@ -203,7 +203,7 @@ def trigger_pitcher_card(player_id: int, game_date: str, player_name: str):
                 "player_id": player_id,
                 "game_date": game_date,
                 "dark": False,
-                "tweet_text": f"⚾ {player_name} | {game_date} #Mallitalytics #MLB",
+                "tweet_text": f"{player_name} | {game_date} | #Mallitalytics #MLB",
             },
             timeout=120,
         )

@@ -11,11 +11,20 @@ LOG=/Users/gilrojasb/Desktop/Mallitalytics_VS/MLB/logs
 # Create logs directory if it doesn't exist
 # mkdir -p $LOG
 
-# ── 2:00 AM — Ingest last night's games ──────────────────────────────────────
-0 2 * * * cd $REPO && $PYTHON -m src.ingestion.load_mlb_warehouse --season 2025 --stage regular_season --last-days 1 >> $LOG/ingest.log 2>&1
+# ── Warehouse mirror from Google Drive (canonical store) ─────────────────────
+# CI (.github/workflows/daily_ingest.yml) ingests and pushes to Drive ~11:00 UTC.
+# Pull a fresh mirror before local jobs / hub use so cards & Insights see new parquets.
+# Requires: rclone configured (same remote as pull script), `which rclone` on PATH.
+# Adjust hour if you are not on US Eastern.
+# 7:30 AM ET — after overnight CI ingest
+30 7 * * * cd $REPO && ./scripts/pull_mlbops_from_drive.sh >> $LOG/rclone_pull.log 2>&1
 
-# ── 8:00 AM — Morning digest email + WhatsApp ────────────────────────────────
-0 8 * * * cd $REPO && $PYTHON jobs/morning_digest.py >> $LOG/morning_digest.log 2>&1
+# ── 2:00 AM — Local ingest (only if you do NOT rely on GitHub daily_ingest to Drive) ──
+# If CI owns ingest, comment this out and rely on rclone pull above.
+# 0 2 * * * cd $REPO && $PYTHON -m src.ingestion.load_mlb_warehouse --season 2026 --stage regular_season --last-days 1 >> $LOG/ingest.log 2>&1
+
+# ── Morning intel: GitHub Actions (.github/workflows/morning_intel.yml)
+#    Optional local: python morning_intel/morning_intel.py --dry-run
 
 # ── 10:00 AM — Generate draft cards for yesterday's top performers ───────────
 0 10 * * * cd $REPO && $PYTHON jobs/daily_card_generator.py >> $LOG/card_generator.log 2>&1

@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).parent.parent
 load_dotenv(REPO_ROOT / "jobs" / ".env")
-sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "mlbops"))
 
 from api.db.database import get_db, log_notification
 

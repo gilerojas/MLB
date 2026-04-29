@@ -1,0 +1,232 @@
+@import "tailwindcss";
+
+/*
+  Mallitalytics hub — Stitch 2 design tokens (dark) + light theme fallback.
+  Toggle: html[data-theme="light"] (default dark when unset).
+*/
+
+:root,
+html[data-theme="dark"] {
+  /* Brand core (unchanged names for any legacy references) */
+  --brand-dark-teal: #2c3e50;
+  --brand-forest: #2e7d32;
+  --brand-light-green: #66bb6a;
+  --brand-burnt-orange: #e8712b;
+  --brand-warm-cream: #ede8e0;
+  --brand-off-white: #f5f2ed;
+  --brand-slate: #5d6d7e;
+  --brand-charcoal: #09141f;
+  --brand-soft-red: #e74c3c;
+  --brand-muted-gold: #f0a830;
+
+  /* Stitch dark UI */
+  --background: #09141f;
+  --surface: #111d27;
+  --surface-hover: #2f3a46;
+  --surface-header: #202b36;
+  --surface-lowest: #040f19;
+  --surface-container: #16212b;
+  --border: color-mix(in srgb, #a68b7f 35%, transparent);
+  --border-dim: #574238;
+  --outline: #a68b7f;
+  --outline-variant: #574238;
+  --muted: #94a3b8;
+  --dim: #64748b;
+
+  --foreground: #d8e4f3;
+  --foreground-muted: #c8d4e3;
+
+  --accent: #e8712b;
+  --accent-hover: #ff9348;
+  --accent-soft: #ffb692;
+  --accent-bg: rgba(232, 113, 43, 0.1);
+  --accent-bg-active: rgba(232, 113, 43, 0.14);
+
+  --success: #66bb6a;
+  --success-bg: rgba(102, 187, 106, 0.12);
+  --success-border: #2e7d32;
+
+  --danger: #e74c3c;
+  --danger-bg: rgba(231, 76, 60, 0.12);
+  --danger-border: #c0392b;
+
+  --warning: #f0a830;
+  --warning-bg: rgba(240, 168, 48, 0.1);
+  --warning-border: #b8860b;
+
+  --info: #94ccff;
+  --info-bg: rgba(148, 204, 255, 0.08);
+  --info-border: #4499d8;
+}
+
+html[data-theme="light"] {
+  --background: #ede8e0;
+  --surface: #f5f2ed;
+  --surface-hover: #ebe6de;
+  --surface-header: #f5f2ed;
+  --surface-lowest: #faf8f5;
+  --surface-container: #f0ebe4;
+  --border: #c9c3b8;
+  --border-dim: #ddd8cf;
+  --outline: #8a7a6e;
+  --outline-variant: #c9c3b8;
+  --muted: #5d6d7e;
+  --dim: #5d6d7e;
+
+  --foreground: #2c3e50;
+  --foreground-muted: #3d5266;
+
+  --accent: #e8712b;
+  --accent-hover: #c45e20;
+  --accent-soft: #c45e20;
+  --accent-bg: rgba(232, 113, 43, 0.12);
+  --accent-bg-active: rgba(232, 113, 43, 0.2);
+
+  --success: #2e7d32;
+  --success-bg: #e8f5e9;
+  --success-border: #a5d6a7;
+
+  --danger: #e74c3c;
+  --danger-bg: #fdecea;
+  --danger-border: #e57373;
+
+  --warning: #f0a830;
+  --warning-bg: #fff8e6;
+  --warning-border: #e0c040;
+
+  --info: #1565c0;
+  --info-bg: #e3f2fd;
+  --info-border: #90caf9;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-header: var(--surface-header);
+  --color-surface-lowest: var(--surface-lowest);
+  --color-surface-container: var(--surface-container);
+  --color-border: var(--border);
+  --color-border-dim: var(--border-dim);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-muted: var(--muted);
+  --color-dim: var(--dim);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-bg-active: var(--accent-bg-active);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-success-border: var(--success-border);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-border: var(--warning-border);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
+  --color-tertiary: #94ccff;
+  --color-tertiary-container: #4499d8;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-headline: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --default-border-radius: 0;
+}
+
+html {
+  font-size: 118%;
+}
+
+@media (min-width: 1600px) {
+  html {
+    font-size: 125%;
+  }
+}
+
+@media (min-width: 2200px) {
+  html {
+    font-size: 132%;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.font-headline {
+  font-family: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+}
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  vertical-align: middle;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hub-grid-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.03;
+  background-image: radial-gradient(#a68b7f 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Stitch-style scrollbars (dark) */
+html[data-theme="dark"] ::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--surface-lowest);
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--outline-variant);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-soft) 30%, transparent);
+  color: var(--foreground);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.article-card {
+  transition: background-color 0.2s ease;
+}
+.article-card:hover {
+  background-color: var(--surface-hover);
+}

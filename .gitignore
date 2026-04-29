@@ -74,6 +74,7 @@ Thumbs.db
 *.log
 *.tmp
 .cache/
+*.tsbuildinfo
 
 # Generated assets (keeps git status readable; force-add with -f if you must commit one file)
 *.png
@@ -92,9 +93,20 @@ Thumbs.db
 !data/warehouse/mlb/2026/schedule_spring_training.json
 
 # Hub
-hub/.env.local
-hub/.next/
-hub/node_modules/
+mlbops/hub/.env.local
+mlbops/hub/.next/
+mlbops/hub/node_modules/
 jobs/.env
+morning_intel/.env
+morning_intel/snapshots/*.json
+!morning_intel/snapshots/.gitkeep
 data/hub.db
 logs/
+
+# Local agent / analysis artifacts
+.claude/worktrees/
+.graphify_python
+.graphify_uncached.txt
+graphify-out/
+mlbops/graphify-out/
+outputs/
