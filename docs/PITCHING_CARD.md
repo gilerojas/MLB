@@ -33,8 +33,8 @@ The **Mallitalytics Daily Pitcher Card** is a single-game visualization built fr
 - **Arsenal table (bottom)**  
   - One row per pitch type plus an **All** row.  
   - Columns: `Pitch`, `#`, `Pitch%`, `Velo`, `Spin`, `Ext.`, `HB`, `IVB`, `Chase%`, `Whiff%`, `Str%`, `BS75+%`, `xwOBA*`.  
-  - Rate columns are computed with **pitches as the denominator** so rows and the All line are consistent.  
-  - `BS75+%` is the share of swings with bat speed ≥ 75 mph (no minimum swing count; `--` only when no tracked bat-speed data).
+  - **Str%** and **Zone%** use **pitches** as the denominator. **Chase%**, **Whiff%**, and **BS75+%** use **swings** (for a pitch type with zero swings, those cells are `--`).  
+  - `BS75+%` is the share of **swings** with bat speed ≥ 75 mph (Statcast); swings without bat tracking count in the denominator but not as “fast.”
 
 - **Footer**  
   - Short explanations for `xwOBA*`, hard contact, and `BS75+%`.  
@@ -50,15 +50,16 @@ To avoid per-game scales where everything looks “maxed out,” the card uses a
 The benchmark file contains percentiles (p5, p20, p40, p60, p80, p95) for:
 
 - `velocity_mph` – mean **release_speed** by (game, pitcher, pitch_type)  
-- `whiff_per_pitch` – **whiff / pitches** by (game, pitcher, pitch_type)  
-- `chase_per_pitch` – **chase / pitches** by (game, pitcher, pitch_type)  
+- `whiff_per_swing` – **whiff / swings** by (game, pitcher, pitch_type)  
+- `chase_per_swing` – **chase / swings** by (game, pitcher, pitch_type)  
+- `fast_swing_per_swing` – **swings with bat speed ≥ 75 mph / swings** (same game grain)  
 - `strike_per_pitch` – **strikes / pitches** by (game, pitcher, pitch_type)  
 - `xwoba_allowed` – mean **estimated_woba_using_speedangle** by (game, pitcher, pitch_type)
 
 When rendering:
 
 - The card infers the **season year** from `game_date` and loads `pitch_metric_benchmarks_<season>.json` if present.  
-- For **Velo, Chase%, Whiff%, Str%, xwOBA*** the color gradients are anchored to league cutpoints (roughly p20 → p80, falling back to per-game ranges if no JSON is available).  
+- For **Velo, Chase%, Whiff%, Str%, xwOBA*** the color gradients are anchored to league cutpoints (roughly p20 → p80, falling back to per-game ranges if no JSON is available). Older `pitch_metric_benchmarks_*.json` files may only list `whiff_per_pitch` / `chase_per_pitch`; the card falls back to those for gradients until you regenerate benchmarks with swing-based keys.  
 - All highlighted metrics keep the same **amber-style gradient**; only the mapping into that gradient is changed by the benchmarks.
 
 ### How the script works (high level)

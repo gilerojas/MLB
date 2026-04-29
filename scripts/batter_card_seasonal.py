@@ -21,6 +21,7 @@ CLI examples
 
 import argparse
 import os
+import sys
 from collections import defaultdict
 from io import BytesIO
 from pathlib import Path
@@ -40,6 +41,9 @@ if "MPLBACKEND" not in os.environ:
     os.environ["MPLBACKEND"] = "Agg"
 
 _PARENT = Path(__file__).resolve().parent.parent
+if str(_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PARENT))
+from src.mlb_headshot import neutralize_mlb_headshot_background
 
 # ─────────────────────────────── CLI ────────────────────────────────────────
 
@@ -198,21 +202,6 @@ def fetch_player_bio(player_id: int) -> dict:
                     height="--", weight="--", team="MLB", position="")
 
 
-def _neutralize_headshot_bg(img, replace_rgb=(0x1F, 0x2E, 0x3D)):
-    arr = np.array(img)
-    if arr.ndim != 3 or arr.shape[2] < 3:
-        return img
-    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-    green_bg = (
-        (g > r) & (g > b) & (g > 80) &
-        (np.abs(g.astype(int) - r) + np.abs(g.astype(int) - b) > 40)
-    )
-    arr[green_bg, 0] = replace_rgb[0]
-    arr[green_bg, 1] = replace_rgb[1]
-    arr[green_bg, 2] = replace_rgb[2]
-    return Image.fromarray(arr)
-
-
 def fetch_headshot(player_id: int):
     url = (
         f"https://img.mlbstatic.com/mlb-photos/image/upload/"
@@ -223,9 +212,9 @@ def fetch_headshot(player_id: int):
         resp = requests.get(url, timeout=10)
         if not resp.ok or len(resp.content) < 500:
             return None
-        img = Image.open(BytesIO(resp.content)).convert("RGB")
+        img = Image.open(BytesIO(resp.content))
         replace = (255, 255, 255) if LIGHT_MODE else (0x1F, 0x2E, 0x3D)
-        return _neutralize_headshot_bg(img, replace_rgb=replace)
+        return neutralize_mlb_headshot_background(img, replace_rgb=replace)
     except Exception:
         return None
 

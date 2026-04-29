@@ -4,7 +4,8 @@ Mallitalytics Daily Pitcher Card
 Generates a single-game pitching card (PNG) from a Statcast pitches_enriched parquet:
 header (name, bio, box score, Zone%, Whiffs, CSW%, GB%), hard contact heatmap, movement
 profile with arm angle, pitch tendencies by count, and an arsenal table (velo, spin,
-break, Chase%, Whiff%, Str%, Zone%, BS75+%, xwOBA). Uses a default game and pitcher
+break, Chase%, Whiff%, Str%, Zone%, BS75+%, xwOBA). Chase%, Whiff%, and BS75+% use swings
+as the denominator; Str% and Zone% use pitches. Uses a default game and pitcher
 defined in CONFIG; use --random to pick a game from the warehouse instead.
 
 CLI:
@@ -30,6 +31,8 @@ CLI:
 To use a specific game/pitcher, edit PARQUET_PATH and PITCHER_ID in the CONFIG section.
 """
 
+from __future__ import annotations
+
 import warnings
 warnings.filterwarnings("ignore")
 import os
@@ -44,11 +47,13 @@ if "MPLCONFIGDIR" not in os.environ:
     except Exception:
         pass
 
+import math
 import re
 import sys
+from collections import Counter
 import argparse
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from io import BytesIO
 
@@ -60,18 +65,32 @@ _parser.add_argument("--date",     type=str, default="yesterday", help="Game dat
 _parser.add_argument("--parquet",  type=str, default=None, help="Path to a single pitches_enriched.parquet (e.g. WBC output)")
 _parser.add_argument("--pitcher",  type=int, default=None, help="Pitcher ID (required with --parquet)")
 _parser.add_argument("--logo-path", type=str, default=None, help="Path to custom logo/flag PNG to show in header (overrides ESPN team logo)")
+_parser.add_argument(
+    "--output-suffix",
+    type=str,
+    default=None,
+    help="Optional token inserted before _dark.png so concurrent runs do not clobber the same file",
+)
 _args, _ = _parser.parse_known_args()
 
 import requests
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib as mpl
+# Matplotlib must fully initialize before seaborn (avoids partial-init / _version errors on some setups).
+import matplotlib
+matplotlib.use(os.environ.get("MPLBACKEND", "Agg"))
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Ellipse
+import matplotlib as mpl
+import seaborn as sns
 from PIL import Image
+
+_ROOT_MLB = Path(__file__).resolve().parent.parent
+if str(_ROOT_MLB) not in sys.path:
+    sys.path.insert(0, str(_ROOT_MLB))
+from src.mlb_headshot import neutralize_mlb_headshot_background
 
 # -----------------------------------------------------------------
 # CONFIG
@@ -83,6 +102,10 @@ PITCHER_ID  = 650911  # Cristopher Sánchez
 MIN_PITCHES = 3
 # Statcast: league avg bat speed ~72 mph; 75+ = "fast swing" (MLB 2024 bat tracking)
 FAST_SWING_MPH = 75
+# Pitch-type xwOBA beats in card JSON / redraft: ignore tiny samples (e.g. 5 pitches).
+MIN_PITCHES_FOR_XWOBA_BEAT = 15
+MIN_BIP_FOR_XWOBA_BEAT = 6
+MIN_PITCHES_XWOBA_FALLBACK_NO_BIP = 25
 
 # League-wide benchmark cache for gradient scaling
 _BENCHMARK_CACHE = {}
@@ -242,18 +265,430 @@ PARQUET_PATTERN = re.compile(r"^game_(\d+)_(\d{8})_pitches_enriched\.parquet$")
 BOXSCORE_URL = "https://statsapi.mlb.com/api/v1/game/{game_pk}/boxscore"
 REQUEST_HEADERS = {"User-Agent": "Mallitalytics/1.0 (stats analysis)"}
 
+# Warehouse layout: .../mlb/{year}/{stage}/pitches_enriched/
+_WAREHOUSE_STAGES = ("regular_season", "postseason", "spring_training", "playoffs", "all_star")
+_RECENT_OUTING_LOOKBACK_DAYS = 120
+_MAX_PRIOR_OUTINGS_META = 5
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
-def fetch_box_score_line(game_pk: int, pitcher_id: int) -> dict | None:
+
+def _strip_env_quotes(raw: str) -> str:
+    s = raw.strip()
+    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+        return s[1:-1].strip()
+    return s
+
+
+def _env_warehouse_is_doc_placeholder(raw: str) -> bool:
+    s = raw.replace("\\", "/").strip().lower()
+    if not s:
+        return False
+    if "path/to/your" in s:
+        return True
+    if "path/to/local" in s and "mirror" in s:
+        return True
+    return False
+
+
+def _resolved_warehouse_root_from_env() -> Path:
+    """Same rules as mlbops api.paths.get_warehouse_dir (script cannot import FastAPI app)."""
+    raw = _strip_env_quotes(os.environ.get("MLB_WAREHOUSE_DIR", "").strip())
+    if raw and not _env_warehouse_is_doc_placeholder(raw):
+        return Path(raw).expanduser().resolve()
+    return _REPO_ROOT / "data" / "warehouse" / "mlb"
+
+
+def _safe_is_dir(path: Path) -> bool:
+    """Google Drive File Stream can raise TimeoutError from pathlib.stat()."""
+    try:
+        return path.is_dir()
+    except (OSError, TimeoutError):
+        return False
+
+
+def _warehouse_mlb_root_from_parquet(parquet_path: str) -> Path | None:
+    """Resolve MLB warehouse root for prior-start scan; None if path is outside standard layout."""
+    raw = _strip_env_quotes(os.environ.get("MLB_WAREHOUSE_DIR", "").strip())
+    if raw and not _env_warehouse_is_doc_placeholder(raw):
+        return Path(raw).expanduser().resolve()
+    p = Path(parquet_path).resolve()
+    parts = p.parts
+    try:
+        idx = parts.index("mlb")
+    except ValueError:
+        return _REPO_ROOT / "data" / "warehouse" / "mlb"
+    return Path(*parts[: idx + 1])
+
+
+def _parquet_game_pk_date(path: Path) -> tuple[int | None, date | None]:
+    m = PARQUET_PATTERN.match(path.name)
+    if not m:
+        return None, None
+    try:
+        gpk = int(m.group(1))
+        ymd = datetime.strptime(m.group(2), "%Y%m%d").date()
+        return gpk, ymd
+    except ValueError:
+        return None, None
+
+
+def fetch_boxscore_data(game_pk: int) -> dict | None:
+    """Single MLB boxscore JSON fetch (shared by line override + team abbrev correction)."""
+    try:
+        r = requests.get(BOXSCORE_URL.format(game_pk=game_pk), headers=REQUEST_HEADERS, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+
+def fetch_season_pitching_stats(pitcher_id: int, season: int) -> dict | None:
+    """Cumulative season pitching line from MLB Stats API (omit on failure).
+
+    Numbers reflect whatever the API returns at request time and may lag same-day games.
+    """
+    try:
+        r = requests.get(
+            f"https://statsapi.mlb.com/api/v1/people/{int(pitcher_id)}/stats",
+            params={"stats": "season", "group": "pitching", "season": str(int(season))},
+            headers=REQUEST_HEADERS,
+            timeout=12,
+        )
+        r.raise_for_status()
+        payload = r.json()
+    except Exception:
+        return None
+
+    stat_block: dict | None = None
+    for block in payload.get("stats") or []:
+        grp = (block.get("group") or {}).get("displayName") or ""
+        if str(grp).lower() != "pitching":
+            continue
+        splits = block.get("splits") or []
+        if splits:
+            st = splits[0].get("stat")
+            if isinstance(st, dict) and st:
+                stat_block = st
+                break
+    if not stat_block:
+        return None
+
+    def _to_float(x) -> float | None:
+        if x is None:
+            return None
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    def _to_int(x) -> int | None:
+        if x is None:
+            return None
+        try:
+            return int(x)
+        except (TypeError, ValueError):
+            return None
+
+    ip_raw = stat_block.get("inningsPitched")
+    return {
+        "season": int(season),
+        "era": _to_float(stat_block.get("era")),
+        "whip": _to_float(stat_block.get("whip")),
+        "innings_pitched": str(ip_raw) if ip_raw is not None and str(ip_raw).strip() else None,
+        "games_played": _to_int(stat_block.get("gamesPlayed")),
+        "games_started": _to_int(stat_block.get("gamesStarted")),
+        "strike_outs": _to_int(stat_block.get("strikeOuts")),
+        "base_on_balls": _to_int(stat_block.get("baseOnBalls")),
+        "hits": _to_int(stat_block.get("hits")),
+        "home_runs": _to_int(stat_block.get("homeRuns")),
+        "note": "Cumulative MLB season pitching stats from Stats API at card generation time; may lag same-day games.",
+    }
+
+
+def teams_from_boxscore_json(data: dict) -> tuple[str | None, str | None]:
+    teams = data.get("teams") or {}
+    th = (teams.get("home") or {}).get("team") or {}
+    ta = (teams.get("away") or {}).get("team") or {}
+    ha = th.get("abbreviation") or th.get("fileCode")
+    aa = ta.get("abbreviation") or ta.get("fileCode")
+    if ha and aa:
+        return str(ha).strip().upper(), str(aa).strip().upper()
+    return None, None
+
+
+def fetch_boxscore_team_abbrevs(game_pk: int, box_data: dict | None = None) -> tuple[str | None, str | None]:
+    """Official home/away abbreviations from boxscore (optionally reuse pre-fetched JSON)."""
+    data = box_data if box_data is not None else fetch_boxscore_data(game_pk)
+    if not data:
+        return None, None
+    return teams_from_boxscore_json(data)
+
+
+def _infer_opponent_team(
+    df: pd.DataFrame,
+    pitcher_mlb_team: str,
+    game_pk: int | None = None,
+    box_data: dict | None = None,
+) -> str:
+    """
+    Opponent team abbrev for the card header and JSON.
+    Uses per-pitch defensive team (Top half = home pitches, Bottom = away pitches) by majority vote,
+    case-insensitive inning_topbot. Falls back to bio vs home/away. Optionally corrects home/away from MLB boxscore.
+    """
+    def _clean_abb(s: str) -> str:
+        s = (s or "").strip()
+        if not s or s.lower() in ("--", "nan", "none"):
+            return ""
+        return s
+
+    home_team = _clean_abb(str(df["home_team"].iloc[0]) if "home_team" in df.columns else "")
+    away_team = _clean_abb(str(df["away_team"].iloc[0]) if "away_team" in df.columns else "")
+
+    if game_pk is not None:
+        bh, ba = fetch_boxscore_team_abbrevs(game_pk, box_data=box_data)
+        if bh and ba and bh != ba:
+            if (not home_team or not away_team) or (home_team.upper() == away_team.upper()):
+                home_team, away_team = bh, ba
+
+    if not home_team or not away_team:
+        return away_team or home_team or "--"
+
+    if home_team.upper() == away_team.upper():
+        return "--"
+
+    hu, au = home_team.upper(), away_team.upper()
+    bt = (pitcher_mlb_team or "").strip()
+    btu = bt.upper()
+
+    defensive: list[str] = []
+    if "inning_topbot" in df.columns:
+        for _, row in df.iterrows():
+            raw = row.get("inning_topbot")
+            if raw is None:
+                continue
+            try:
+                if isinstance(raw, float) and pd.isna(raw):
+                    continue
+            except TypeError:
+                pass
+            v = str(raw).strip().upper()
+            if not v:
+                continue
+            if v.startswith("T") and not v.startswith("TW"):
+                defensive.append(home_team)
+            elif v.startswith("B"):
+                defensive.append(away_team)
+
+    if defensive:
+        pit_team, _cnt = Counter(defensive).most_common(1)[0]
+        opp = away_team if pit_team.upper() == hu else home_team
+        if btu and btu in (hu, au) and opp.upper() == btu:
+            opp = away_team if btu == hu else home_team
+        return opp
+
+    if btu == hu:
+        return away_team
+    if btu == au:
+        return home_team
+
+    if "inning_topbot" in df.columns:
+        itb = df["inning_topbot"].astype(str).str.strip().str.upper()
+        n_top = int(itb.str.match(r"^T", na=False).sum())
+        n_bot = int(itb.str.match(r"^B", na=False).sum())
+        if n_top or n_bot:
+            return away_team if n_top >= n_bot else home_team
+
+    return away_team
+
+
+def _mean_velo(df: pd.DataFrame) -> float | None:
+    if "release_speed" not in df.columns or df["release_speed"].isna().all():
+        return None
+    v = float(df["release_speed"].mean())
+    return v if not math.isnan(v) else None
+
+
+def _summarize_one_outing(parquet_path: Path, pitcher_id: int, bio: dict) -> dict | None:
+    """Box + process stats for one game file and pitcher (for meta JSON / tweet context)."""
+    try:
+        df_raw = load_game(str(parquet_path), pitcher_id)
+    except Exception:
+        return None
+    df = process_pitches(df_raw)
+    box = compute_box_score(df)
+    gpk, gdate = _parquet_game_pk_date(parquet_path)
+    if gpk is not None:
+        try:
+            official = fetch_box_score_line(gpk, pitcher_id)
+            if official:
+                box["ip"] = official["ip"]
+                box["h"] = official["h"]
+                box["er"] = official.get("er", box.get("er", 0))
+                box["k"] = official["k"]
+                box["bb"] = official["bb"]
+                box["hr"] = official["hr"]
+        except Exception:
+            pass
+    opp = _infer_opponent_team(df, str(bio.get("team") or ""), game_pk=gpk)
+    game_date_s = gdate.isoformat() if gdate is not None else ""
+    if not game_date_s and "game_date" in df.columns:
+        gd = df["game_date"].iloc[0]
+        game_date_s = gd.strftime("%Y-%m-%d") if hasattr(gd, "strftime") else str(gd)[:10]
+    velo = _mean_velo(df)
+    return {
+        "game_date": game_date_s,
+        "game_pk": gpk,
+        "opponent": opp,
+        "ip": box.get("ip"),
+        "k": int(box.get("k", 0)),
+        "bb": int(box.get("bb", 0)),
+        "er": int(box.get("er", 0)),
+        "h": int(box.get("h", 0)),
+        "hr": int(box.get("hr", 0)),
+        "pitches": int(box.get("total_pitches") or box.get("n") or len(df)),
+        "whiffs": int(box.get("whiffs", 0)),
+        "csw_pct": _json_scalar_float(box.get("csw_pct"), 2),
+        "zone_pct": _json_scalar_float(box.get("zone_pct"), 2),
+        "avg_velo_mph": _json_scalar_float(velo, 2) if velo is not None else None,
+    }
+
+
+def _collect_recent_pitcher_outings(
+    *,
+    warehouse_root: Path,
+    pitcher_id: int,
+    card_game_date: str,
+    current_game_pk: int | None,
+    bio: dict,
+    max_prior: int = _MAX_PRIOR_OUTINGS_META,
+    lookback_days: int = _RECENT_OUTING_LOOKBACK_DAYS,
+) -> list[dict]:
+    """
+    Prior starts for the same pitcher before this game, by scanning warehouse parquets
+    day-by-day (cheap globs). Newest first.
+    """
+    try:
+        anchor = datetime.strptime(card_game_date.strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return []
+    if not _safe_is_dir(warehouse_root):
+        return []
+
+    seen_pk: set[int] = set()
+    if current_game_pk is not None:
+        seen_pk.add(int(current_game_pk))
+
+    out: list[dict] = []
+    for day_offset in range(1, lookback_days + 1):
+        if len(out) >= max_prior:
+            break
+        d = anchor - timedelta(days=day_offset)
+        date_str = d.strftime("%Y%m%d")
+        for yr in (d.year, d.year - 1):
+            for stage in _WAREHOUSE_STAGES:
+                enriched = warehouse_root / str(yr) / stage / "pitches_enriched"
+                if not _safe_is_dir(enriched):
+                    continue
+                try:
+                    paths_day = sorted(enriched.glob(f"game_*_{date_str}_pitches_enriched.parquet"))
+                except (OSError, TimeoutError):
+                    continue
+                for path in paths_day:
+                    if len(out) >= max_prior:
+                        break
+                    gpk, _gd = _parquet_game_pk_date(path)
+                    if gpk is not None and gpk in seen_pk:
+                        continue
+                    try:
+                        col = "pitcher" if "pitcher" in pd.read_parquet(path, columns=[]).columns else None
+                    except Exception:
+                        continue
+                    try:
+                        probe = pd.read_parquet(path, columns=["pitcher"] if col else ["pitcher_id"])
+                        pcol = "pitcher" if "pitcher" in probe.columns else "pitcher_id"
+                        n = int((probe[pcol] == pitcher_id).sum())
+                    except Exception:
+                        continue
+                    if n < MIN_PITCHES:
+                        continue
+                    summ = _summarize_one_outing(path, pitcher_id, bio)
+                    if not summ or not summ.get("game_date"):
+                        continue
+                    gpk2 = summ.get("game_pk")
+                    if gpk2 is not None:
+                        if gpk2 in seen_pk:
+                            continue
+                        seen_pk.add(int(gpk2))
+                    out.append(summ)
+        if len(out) >= max_prior:
+            break
+    return out
+
+
+def _outing_context_vs_last(
+    current_box: dict,
+    current_df: pd.DataFrame,
+    recent_outings: list[dict],
+) -> dict | None:
+    """Deltas vs most recent prior start (tweet / redraft context)."""
+    if not recent_outings:
+        return None
+    last = recent_outings[0]
+    cur_velo = _mean_velo(current_df)
+    lv = last.get("avg_velo_mph")
+    cv = float(cur_velo) if cur_velo is not None else None
+    ctx: dict = {"vs_last_start": {}}
+    vs = ctx["vs_last_start"]
+    if cv is not None and lv is not None:
+        vs["avg_velo_delta_mph"] = round(cv - float(lv), 2)
+    lc = last.get("csw_pct")
+    cc = current_box.get("csw_pct")
+    if lc is not None and cc is not None:
+        vs["csw_pct_delta"] = round(float(cc) - float(lc), 2)
+    lz = last.get("zone_pct")
+    cz = current_box.get("zone_pct")
+    if lz is not None and cz is not None:
+        vs["zone_pct_delta"] = round(float(cz) - float(lz), 2)
+    le = last.get("er")
+    ce = current_box.get("er")
+    if le is not None and ce is not None:
+        vs["er_delta"] = int(ce) - int(le)
+    return ctx if vs else None
+
+
+def _recent_prior_summary(recent: list[dict]) -> dict | None:
+    """Simple means over prior starts in meta (tweet context); not full season stats."""
+    if not recent:
+        return None
+
+    def _mean_int(key: str) -> float | None:
+        xs = [int(r[key]) for r in recent if r.get(key) is not None]
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    def _mean_float(key: str) -> float | None:
+        xs = [float(r[key]) for r in recent if r.get(key) is not None]
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    return {
+        "prior_starts_in_window": len(recent),
+        "avg_velo_mph_mean": _mean_float("avg_velo_mph"),
+        "csw_pct_mean": _mean_float("csw_pct"),
+        "zone_pct_mean": _mean_float("zone_pct"),
+        "k_mean": _mean_int("k"),
+        "bb_mean": _mean_int("bb"),
+        "er_mean": _mean_int("er"),
+    }
+
+
+def fetch_box_score_line(game_pk: int, pitcher_id: int, box_data: dict | None = None) -> dict | None:
     """
     Fetch official box score and return this pitcher's line: ip, h, r, k, bb, hr.
     Use this to override pitch-derived stats when Statcast only has events on the final pitch of each PA
     (so reliever-recorded outs are missing from the pitcher's filtered data). Returns None on failure.
+    Pass box_data to avoid a duplicate HTTP call when the box JSON was already loaded.
     """
-    try:
-        r = requests.get(BOXSCORE_URL.format(game_pk=game_pk), headers=REQUEST_HEADERS, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except Exception:
+    data = box_data if box_data is not None else fetch_boxscore_data(game_pk)
+    if not data:
         return None
     pid_str = str(pitcher_id)
     for side in ("home", "away"):
@@ -293,6 +728,74 @@ def fetch_box_score_line(game_pk: int, pitcher_id: int) -> dict | None:
                 "hr": int(stats.get("homeRuns") or stats.get("homeRun") or 0),
             }
     return None
+
+
+def _pitcher_person_from_boxscore(box_data: dict, pitcher_id: int) -> dict | None:
+    """Return the Stats API `person` object for this pitcher from a boxscore payload."""
+    pid_str = str(pitcher_id)
+    for side in ("home", "away"):
+        team = (box_data.get("teams") or {}).get(side) or {}
+        players = team.get("players") or {}
+        for key, obj in players.items():
+            if not isinstance(obj, dict):
+                continue
+            person = obj.get("person") or {}
+            if key == f"ID{pid_str}" or str(person.get("id", "")) == pid_str:
+                return person if isinstance(person, dict) else None
+    return None
+
+
+def fetch_person_mlb_debut_date(pitcher_id: int) -> str | None:
+    """`mlbDebutDate` from `/people/{id}` (YYYY-MM-DD). None if missing or request fails."""
+    try:
+        r = requests.get(
+            f"https://statsapi.mlb.com/api/v1/people/{int(pitcher_id)}",
+            headers=REQUEST_HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        people = r.json().get("people") or []
+        if not people:
+            return None
+        d = people[0].get("mlbDebutDate")
+        return str(d).strip() if d else None
+    except Exception:
+        return None
+
+
+def build_pitcher_source_metadata(
+    *,
+    game_pk: int | None,
+    pitcher_id: int,
+    game_date: str,
+    box_data: dict | None = None,
+) -> dict:
+    """Provenance for card JSON: compare Stats API `mlbDebutDate` to this card's game date."""
+    debut: str | None = None
+    source: str | None = None
+    bd = box_data
+    if bd is None and game_pk is not None:
+        bd = fetch_boxscore_data(game_pk)
+    if bd:
+        person = _pitcher_person_from_boxscore(bd, pitcher_id)
+        if person:
+            raw = person.get("mlbDebutDate")
+            if raw:
+                debut = str(raw).strip()
+                source = "statsapi_boxscore"
+    if debut is None:
+        fallback = fetch_person_mlb_debut_date(pitcher_id)
+        if fallback:
+            debut = fallback
+            source = "statsapi_people"
+    gd = (game_date or "").strip()[:10]
+    is_debut = bool(debut and gd and debut == gd)
+    return {
+        "game_official_date": gd or None,
+        "mlb_debut_date": debut,
+        "is_mlb_debut_game": is_debut,
+        "mlb_debut_date_source": source,
+    }
 
 
 # -----------------------------------------------------------------
@@ -408,9 +911,9 @@ def compute_box_score(df):
 
     fast_swing_pct = None
     if 'bat_speed' in df.columns and df['swing'].any():
-        swung = df.loc[df['swing'] & df['bat_speed'].notna(), 'bat_speed']
-        if len(swung) >= 1:
-            fast_swing_pct = (swung >= FAST_SWING_MPH).mean()
+        n_sw = int(df['swing'].sum())
+        if n_sw >= 1:
+            fast_swing_pct = float((df['swing'] & (df['bat_speed'] >= FAST_SWING_MPH)).sum()) / float(n_sw)
 
     zone_pct = df['in_zone'].sum() / n * 100 if n else 0
     return dict(
@@ -422,11 +925,17 @@ def compute_box_score(df):
     )
 
 def group_arsenal(df, min_pitches=MIN_PITCHES):
+    df = df.copy()
+    if 'bat_speed' in df.columns:
+        df['_fg75'] = df['swing'] & (df['bat_speed'] >= FAST_SWING_MPH)
+    else:
+        df['_fg75'] = False
     g = df.groupby('pitch_type').agg(
         count=('pitch_type','count'), velo=('release_speed','mean'), pfx_z=('pfx_z_in','mean'),
         pfx_x=('pfx_x_in','mean'), spin=('release_spin_rate','mean'), extension=('release_extension','mean'),
         rel_x=('release_pos_x','mean'), rel_z=('release_pos_z','mean'), swing=('swing','sum'),
         whiff=('whiff','sum'), in_zone=('in_zone','sum'), out_zone=('out_zone','sum'), chase=('chase','sum'),
+        fast_ge_75=('_fg75', 'sum'),
         xwoba=('estimated_woba_using_speedangle','mean'), delta_re=('delta_run_exp','sum'),
         gb=('is_gb_bip', 'sum'), bip=('is_bip', 'sum'), hard_hit=('hard_hit', 'sum'),
     ).reset_index()
@@ -439,11 +948,12 @@ def group_arsenal(df, min_pitches=MIN_PITCHES):
         g['strikes'] = np.nan
     total = len(df)
     g['usage_pct']    = g['count'] / total
-    # All rates use pitches as denominator for full consistency with the All row
-    g['whiff_pct']    = g['whiff']   / g['count']   # whiffs / pitches (SwStr%)
+    sw = g['swing'].replace(0, np.nan)
+    # Whiff% / Chase% / BS75+%: denominator = swings (Str% / Zone% still per pitch)
+    g['whiff_pct']    = g['whiff'] / sw
     g['str_pct']      = g['strikes'] / g['count']   # strikes / pitches
     g['zone_pct']     = g['in_zone'] / g['count']   # in-zone / pitches
-    g['chase_pct']    = g['chase']   / g['count']   # chases / pitches
+    g['chase_pct']    = g['chase'] / sw
     g['rv100']        = -g['delta_re'] / g['count'] * 100
     gb_denom = g['bip'].replace(0, np.nan)
     # GB%: ground balls as a share of balls IN PLAY (not all pitches)
@@ -452,17 +962,12 @@ def group_arsenal(df, min_pitches=MIN_PITCHES):
     g.loc[g['bip'] < 5, 'gb_pct'] = np.nan
     g['hard_hit_pct'] = (g['hard_hit'] / gb_denom).fillna(0.0).clip(upper=1.0)
 
-    # Fast swing %: share of swings (with tracked bat speed) that were 75+ mph — show whenever we have any tracked swings; "--" only when zero
-    if 'bat_speed' in df.columns and df['swing'].any():
-        swung = df[df['swing'] & df['bat_speed'].notna()].copy()
-        swung['fast_swing'] = swung['bat_speed'] >= FAST_SWING_MPH
-        fs = swung.groupby('pitch_type')['fast_swing'].mean()  # no minimum sample; "--" only when no tracked swings
-        g['fast_swing_pct'] = g['pitch_type'].map(fs).values
-    else:
-        g['fast_swing_pct'] = np.nan
+    # BS75+%: swings with bat speed ≥ FAST_SWING_MPH, as a share of all swings on that pitch type
+    g['fast_swing_pct'] = g['fast_ge_75'] / sw
 
-    g['name']         = g['pitch_type'].map(DICT_PITCH).fillna(g['pitch_type'])
-    g['colour']       = g['pitch_type'].map(DICT_COLOUR).fillna('#9C8975')
+    g['name']   = g['pitch_type'].map(DICT_PITCH).fillna(g['pitch_type'])
+    g['colour'] = g['pitch_type'].map(DICT_COLOUR).fillna('#9C8975')
+    g = g.drop(columns=['fast_ge_75'], errors='ignore')
     return g.sort_values('count', ascending=False).reset_index(drop=True)
 
 def fetch_player_bio(pitcher_id):
@@ -474,18 +979,6 @@ def fetch_player_bio(pitcher_id):
         return dict(name=data['fullName'], hand=data['pitchHand']['code'], age=data.get('currentAge','--'), height=data.get('height','--'), weight=data.get('weight','--'), team=team_abb)
     except Exception: return dict(name="Unknown Pitcher", hand="R", age="--", height="--", weight="--", team="MLB")
 
-def _neutralize_headshot_background(img, replace_rgb=(255, 255, 255)):
-    """Replace green/teal MLB headshot background with a neutral color. img: PIL Image (RGB)."""
-    arr = np.array(img)
-    if arr.ndim != 3 or arr.shape[2] < 3:
-        return img
-    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-    # Green-ish background: green dominant and not too dark
-    green_bg = (g > r) & (g > b) & (g > 80) & (np.abs(g.astype(int) - r) + np.abs(g.astype(int) - b) > 40)
-    arr[green_bg, 0], arr[green_bg, 1], arr[green_bg, 2] = replace_rgb[0], replace_rgb[1], replace_rgb[2]
-    return Image.fromarray(arr)
-
-
 def fetch_headshot(pitcher_id):
     pid = int(pitcher_id)
     url = f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_640,q_auto:best/v1/people/{pid}/headshot/silo/current.png"
@@ -493,10 +986,10 @@ def fetch_headshot(pitcher_id):
         r = requests.get(url, timeout=10)
         if not r.ok or len(r.content) < 500:
             return None
-        img = Image.open(BytesIO(r.content)).convert("RGB")
-        # Replace MLB's default green/teal background with neutral (white in light mode, panel in dark)
+        img = Image.open(BytesIO(r.content))
+        # Green/teal and black/charcoal silo backdrops → neutral (see src/mlb_headshot.py)
         replace = (255, 255, 255) if LIGHT_MODE else (0x1F, 0x2E, 0x3D)
-        return _neutralize_headshot_background(img, replace_rgb=replace)
+        return neutralize_mlb_headshot_background(img, replace_rgb=replace)
     except Exception:
         return None
 
@@ -783,29 +1276,74 @@ def plot_movement(ax, arsenal, df, hand):
         title += f" \u2022 {arm_deg:.0f}\u00b0 Arm Angle"
     ax.set_title(title, color=PALETTE["text_secondary"], fontsize=13, fontweight='black', pad=10)
 
+# Shared with plot_pitch_tendencies and compute_pitch_tendencies_by_situation (card JSON for tweets / redraft).
+PITCH_TENDENCY_SITUATIONS = [
+    ("FIRST PITCH", "0-0", [(0, 0)]),
+    ("PITCHER AHEAD", "0-1  \u00b7  1-1", [(0, 1), (1, 1)]),
+    ("TWO-STRIKE", "0-2  \u00b7  1-2  \u00b7  2-2", [(0, 2), (1, 2), (2, 2)]),
+    ("EVEN", "1-0  \u00b7  2-1", [(1, 0), (2, 1)]),
+    ("HITTER AHEAD", "2-0  \u00b7  3-0  \u00b7  3-1", [(2, 0), (3, 0), (3, 1)]),
+    ("FULL COUNT", "3-2", [(3, 2)]),
+]
+
+
+def _tendency_balls_strikes(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Count-state columns for tendency bucketing (coerce, clip to in-play grid, round).
+
+    Raw feeds sometimes carry floats, strings, or post-pitch walk/K counts (>3 balls / >2 strikes).
+    Without this, those rows match no situation and vanish from the n= sums while still in pitch totals.
+    """
+    if "balls" not in df.columns or "strikes" not in df.columns:
+        return pd.Series(np.nan, index=df.index), pd.Series(np.nan, index=df.index)
+    b = pd.to_numeric(df["balls"], errors="coerce").clip(lower=0, upper=3).round()
+    s = pd.to_numeric(df["strikes"], errors="coerce").clip(lower=0, upper=2).round()
+    return b, s
+
+
+def _pitch_tendency_specs(df: pd.DataFrame) -> list[tuple[str, str, pd.Series]]:
+    """Situation label, count subtitle, boolean mask — same logic for plot + card JSON."""
+    b, s = _tendency_balls_strikes(df)
+    # Sentinel so NaN balls/strikes never match a legal count (avoids pd.NA in boolean masks)
+    b_m = b.fillna(-1)
+    s_m = s.fillna(-1)
+    specs: list[tuple[str, str, pd.Series]] = []
+    union = pd.Series(False, index=df.index)
+    for sit_label, count_str, counts in PITCH_TENDENCY_SITUATIONS:
+        m = pd.Series(False, index=df.index)
+        for bb, ss in counts:
+            m = m | ((b_m == bb) & (s_m == ss))
+        union = union | m
+        specs.append((sit_label, count_str, m))
+    other = ~union
+    if int(other.sum()) > 0:
+        specs.append(("OTHER", "outside standard counts", other))
+    return specs
+
+
 def plot_pitch_tendencies(ax, arsenal, df):
     _clean(ax); _border(ax)
-    SITUATIONS = [("FIRST PITCH", "0-0", [(0, 0)]), ("PITCHER AHEAD", "0-1  \u00b7  1-1", [(0, 1), (1, 1)]), ("TWO-STRIKE", "0-2  \u00b7  1-2  \u00b7  2-2", [(0, 2), (1, 2), (2, 2)]), ("EVEN", "1-0  \u00b7  2-1", [(1, 0), (2, 1)]), ("HITTER AHEAD", "2-0  \u00b7  3-0  \u00b7  3-1", [(2, 0), (3, 0), (3, 1)]), ("FULL COUNT", "3-2", [(3, 2)])]
     ACCENTS = [PALETTE["text_lo"], PALETTE["accent_green"], "#5BC8D5", PALETTE["text_lo"], PALETTE["accent_orange"], "#BE5FA0"]
 
     LPAD, RPAD, TPAD, BPAD = 0.03, 0.03, 0.04, 0.04   # tight top padding: use full height
-    ROW_H = (1 - TPAD - BPAD) / len(SITUATIONS)
+    specs = _pitch_tendency_specs(df)
+    n_rows = len(specs)
+    ROW_H = (1 - TPAD - BPAD) / n_rows
     LABEL_W, BAR_W, BADGE_W = 0.32, 0.44, 0.15
 
-    for si, (sit_label, count_str, counts) in enumerate(SITUATIONS):
-        mask = pd.Series(False, index=df.index)
-        for b, s in counts: mask = mask | ((df['balls'] == b) & (df['strikes'] == s))
-        sit_df, n_total = df[mask], len(df[mask])
+    for si, (sit_label, _count_str, mask) in enumerate(specs):
+        sit_df, n_total = df[mask], int(mask.sum())
         y_center = 1 - TPAD - si * ROW_H - ROW_H/2
 
         bg = PALETTE["table_alt"] if si % 2 == 0 else PALETTE["table_bg"]
+        accent = ACCENTS[si % len(ACCENTS)]
         ax.add_patch(FancyBboxPatch((LPAD, y_center - ROW_H/2 + 0.005), 1 - LPAD - RPAD, ROW_H - 0.010, boxstyle="round,pad=0.004", lw=0, facecolor=bg, transform=ax.transAxes, zorder=1))
-        ax.add_patch(FancyBboxPatch((LPAD, y_center - ROW_H/2 + 0.005), 0.008, ROW_H - 0.010, boxstyle="square,pad=0", lw=0, facecolor=ACCENTS[si], alpha=0.95, transform=ax.transAxes, zorder=2))
+        ax.add_patch(FancyBboxPatch((LPAD, y_center - ROW_H/2 + 0.005), 0.008, ROW_H - 0.010, boxstyle="square,pad=0", lw=0, facecolor=accent, alpha=0.95, transform=ax.transAxes, zorder=2))
 
         ax.text(LPAD + 0.025, y_center + ROW_H * 0.14, sit_label,
                 ha='left', va='center', transform=ax.transAxes,
                 color=PALETTE["text_primary"], fontsize=10.5, fontweight='black', zorder=3)
-        ax.text(LPAD + 0.025, y_center - ROW_H * 0.25, f"n = {n_total}",
+        n_note = f"n = {n_total}" if sit_label != "OTHER" else f"n = {n_total}  ·  non-grid / missing count"
+        ax.text(LPAD + 0.025, y_center - ROW_H * 0.25, n_note,
                 ha='left', va='center', transform=ax.transAxes,
                 color=PALETTE["text_primary"], fontsize=9.0, fontweight='black', zorder=3)
 
@@ -873,13 +1411,14 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
     ax.plot([0.005, 0.995], [SEP_Y, SEP_Y], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
 
     total = arsenal['count'].sum()
-    # All row: from pitch-level aggregates (totals), not averages of per-pitch percentages
-    aw = arsenal['whiff'].sum() / total if total else np.nan          # whiffs / included pitches
+    tsw = arsenal['swing'].sum()
+    # All row: whiff/chase/BS75 use total swings; str/zone/xwOBA still per pitch
+    aw = arsenal['whiff'].sum() / tsw if tsw else np.nan
     astr = arsenal['strikes'].sum() / total if 'strikes' in arsenal.columns and total else np.nan  # strikes / included pitches
     az = arsenal['in_zone'].sum() / total if total else np.nan        # in-zone / included pitches
     axw = (arsenal['xwoba'] * arsenal['count']).sum() / total if total else np.nan  # weighted xwOBA (included pitches)
-    ach = arsenal['chase'].sum() / total if total else np.nan         # chases / included pitches
-    all_fast_swing_pct = box.get('fast_swing_pct')  # game-level from compute_box_score (swings with bat speed)
+    ach = arsenal['chase'].sum() / tsw if tsw else np.nan
+    all_fast_swing_pct = box.get('fast_swing_pct')  # game-level: fast swings / swings
 
     def _safe(v):
         try: return not np.isnan(float(v))
@@ -911,6 +1450,11 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
             return data_rng
         try:
             metric = benchmarks.get(league_key, {})
+            # Legacy JSON used *_per_pitch; gradients are approximate until benchmarks are regenerated.
+            if league_key == "whiff_per_swing" and "whiff_per_swing" not in benchmarks:
+                metric = benchmarks.get("whiff_per_pitch", {})
+            if league_key == "chase_per_swing" and "chase_per_swing" not in benchmarks:
+                metric = benchmarks.get("chase_per_pitch", {})
             lo = metric.get("p20", metric.get("p5"))
             hi = metric.get("p80", metric.get("p95"))
             if lo is None or hi is None:
@@ -923,10 +1467,10 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
             return data_rng
 
     # League-anchored ranges where available; fall back to game-only spread
-    chase_range       = _range('raw_chase',       league_key="chase_per_pitch")
-    whiff_range       = _range('raw_whiff',       league_key="whiff_per_pitch")
+    chase_range       = _range('raw_chase',       league_key="chase_per_swing")
+    whiff_range       = _range('raw_whiff',       league_key="whiff_per_swing")
     str_range         = _range('raw_str',         league_key="strike_per_pitch")
-    fast_swing_range  = _range('raw_fast_swing')  # no league benchmarks yet
+    fast_swing_range  = _range('raw_fast_swing',   league_key="fast_swing_per_swing")
     xw_range          = _range('raw_xwoba',       league_key="xwoba_allowed")
 
     velo_vals = [float(r['velo']) for r in rows if not r['is_all'] and r['velo'] != '--']
@@ -1135,18 +1679,442 @@ def plot_footer(ax, card_flags=None):
     else:
         notes.append("* HH%: hard-hit balls in play (EV \u2265 95 mph) as share of BIP \u2014 lower is better")
     notes.append("* Hard contact: EV \u2265 95 mph or xwOBA \u2265 0.350")
+    notes.append("* Chase% & Whiff%: whiffs and chases as a share of swings; Str% & Zone% use pitches")
     if card_flags.get('has_bs75', True):
-        notes.append("* BS75+%: share of swings with bat speed \u2265 75 mph (Statcast bat tracking)")
+        notes.append("* BS75+%: swings with bat speed \u2265 75 mph \u00f7 swings (Statcast)")
 
     kw = dict(color=PALETTE["text_secondary"], fontsize=9.0, ha='center', va='center', transform=ax.transAxes)
     n = len(notes)
-    ys = [0.78, 0.50, 0.22][:n]
     if n == 2:
         ys = [0.70, 0.30]
+    elif n == 4:
+        ys = [0.84, 0.60, 0.38, 0.16]
+    else:
+        ys = [0.78, 0.50, 0.22][:n]
     for note, y in zip(notes, ys):
         ax.text(0.5, y, note, **kw)
 
 # -----------------------------------------------------------------
+def _json_scalar_float(x, ndigits: int = 4):
+    """JSON-safe float (None if NaN)."""
+    if x is None:
+        return None
+    try:
+        if pd.isna(x):
+            return None
+    except TypeError:
+        pass
+    try:
+        if hasattr(x, "item"):
+            x = x.item()
+        v = float(x)
+        if math.isnan(v):
+            return None
+        return round(v, ndigits)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_pitch_tendencies_by_situation(df: pd.DataFrame, arsenal: pd.DataFrame) -> list[dict]:
+    """
+    Count-state pitch mix aligned with the card's PITCH TENDENCIES BY SITUATION panel.
+    Serialized on the card snapshot for queue redraft / X copy.
+    """
+    if arsenal.empty or "balls" not in df.columns or "strikes" not in df.columns or "pitch_type" not in df.columns:
+        return []
+    key_from_label = {
+        "FIRST PITCH": "first_pitch",
+        "PITCHER AHEAD": "pitcher_ahead",
+        "TWO-STRIKE": "two_strike",
+        "EVEN": "even",
+        "HITTER AHEAD": "hitter_ahead",
+        "FULL COUNT": "full_count",
+        "OTHER": "other_count",
+    }
+    out: list[dict] = []
+    for sit_label, _count_display, mask in _pitch_tendency_specs(df):
+        sit_df = df[mask]
+        n_total = len(sit_df)
+        sid = key_from_label.get(sit_label, sit_label.lower().replace(" ", "_"))
+        row: dict = {
+            "situation_key": sid,
+            "situation_label": sit_label,
+            "n_pitches": int(n_total),
+        }
+        if n_total == 0:
+            row["dominant_pitch_type"] = None
+            row["dominant_share"] = None
+            row["top_mix"] = []
+            out.append(row)
+            continue
+        pitch_counts = sit_df["pitch_type"].value_counts()
+        dominant_pt, dominant_pct = None, 0.0
+        top_mix: list[dict] = []
+        for _, arow in arsenal.iterrows():
+            pt = arow["pitch_type"]
+            cnt = int(pitch_counts.get(pt, 0))
+            if cnt == 0:
+                continue
+            pct = cnt / n_total
+            top_mix.append({"pitch_type": str(pt), "share": _json_scalar_float(pct, 4)})
+            if pct > dominant_pct:
+                dominant_pt, dominant_pct = str(pt), pct
+        top_mix.sort(key=lambda z: -(z["share"] or 0))
+        row["dominant_pitch_type"] = dominant_pt
+        row["dominant_share"] = _json_scalar_float(dominant_pct, 4)
+        row["top_mix"] = top_mix[:3]
+        out.append(row)
+    return out
+
+
+def _outs_from_ip_str(ip) -> int:
+    """Convert IP string like ``8.1`` to total outs (8*3+1=25)."""
+    if ip is None:
+        return 0
+    s = str(ip).strip()
+    if not s:
+        return 0
+    parts = s.split(".", 1)
+    try:
+        inn = int(parts[0])
+    except ValueError:
+        return 0
+    if len(parts) == 1:
+        return inn * 3
+    frac = (parts[1].strip()[:1] or "0")
+    try:
+        o = int(frac)
+    except ValueError:
+        o = 0
+    o = min(max(o, 0), 2)
+    return inn * 3 + o
+
+
+def _derive_notable_pitcher_events(df: pd.DataFrame, box: dict) -> list[dict]:
+    """High-salience outing beats (no-hit bids, one-hit gems) from pitch log + box."""
+    out: list[dict] = []
+    if df is None or df.empty:
+        return out
+    needed = ("inning", "at_bat_number", "pitch_number", "events")
+    if not all(c in df.columns for c in needed):
+        return out
+    t = df.sort_values(["inning", "at_bat_number", "pitch_number"])
+    hit_ev = {"single", "double", "triple", "home_run"}
+    # One row per PA: any pitch in the PA can carry the hit outcome (last pitch is usual, but align with compute_box_score
+    # by preferring last pitch, then scanning the PA if the last row is blank / non-hit).
+    hit_innings: list[int] = []
+    for (_, _), sub in t.groupby(["inning", "at_bat_number"], dropna=False):
+        sub = sub.sort_values("pitch_number")
+        evs = (
+            sub["events"]
+            .astype(str)
+            .str.lower()
+            .str.replace(" ", "_", regex=False)
+            .str.replace("-", "_", regex=False)
+            .replace("nan", pd.NA)
+        )
+        row_hit = evs.isin(list(hit_ev))
+        if not row_hit.any():
+            continue
+        try:
+            inn_i = int(sub["inning"].iloc[0])
+        except (TypeError, ValueError):
+            continue
+        hit_innings.append(inn_i)
+
+    outs = _outs_from_ip_str(box.get("ip"))
+    h_off = int(box.get("h") or 0)
+    first_hit = min(hit_innings) if hit_innings else None
+    hits_through_8 = sum(1 for inn in hit_innings if inn <= 8)
+    late_only_hits = len(hit_innings) > 0 and hits_through_8 == 0 and min(hit_innings) >= 9
+
+    if late_only_hits and outs >= 24:
+        out.append({
+            "type": "no_hitter_through_8_first_hit_late",
+            "priority": 1,
+            "label": "Carried a no-hit bid through 8; all hits allowed came in the 9th or later",
+            "first_hit_inning": int(first_hit) if first_hit is not None else None,
+            "hits_official": h_off,
+        })
+    elif h_off == 0 and outs >= 21 and not hit_innings:
+        out.append({
+            "type": "hitless_in_pitch_log",
+            "priority": 1,
+            "label": "No hits in pitch-by-pitch log (verify official box)",
+        })
+    elif (
+        h_off == 1
+        and outs >= 24
+        and not any(e.get("type") == "no_hitter_through_8_first_hit_late" for e in out)
+        and (first_hit is None or first_hit < 9)
+    ):
+        out.append({
+            "type": "one_hit_deep_outing",
+            "priority": 2,
+            "label": "One-hit outing over 8 IP",
+            "hits": h_off,
+            "ip": str(box.get("ip") or ""),
+        })
+    out.sort(key=lambda x: int(x.get("priority", 99)))
+    return out
+
+
+def _derived_pitcher_tweet_context(
+    arsenal: pd.DataFrame,
+    box: dict,
+    tendencies: list[dict],
+    outing_context: dict | None,
+    prior_summary: dict | None,
+) -> dict:
+    """Compact fields so redraft prompts can reason about mix, BS75+, and form without huge JSON."""
+    total = int(arsenal["count"].sum()) if not arsenal.empty else 0
+    derived: dict = {"total_pitches": total}
+    if total <= 0:
+        return derived
+
+    sorta = arsenal.sort_values("count", ascending=False)
+    top2 = sorta.head(2)
+    top3 = sorta.head(3)
+    c2 = int(top2["count"].sum())
+    c3 = int(top3["count"].sum())
+    derived["top2_usage_share"] = _json_scalar_float(c2 / total, 4)
+    derived["top3_usage_share"] = _json_scalar_float(c3 / total, 4)
+    p2 = "+".join(str(x) for x in top2["pitch_type"].tolist())
+    pct2 = _json_scalar_float(100.0 * c2 / total, 1)
+    derived["primary_pitch_line"] = f"{p2} = {pct2}% of pitches" if pct2 is not None else p2
+
+    fs = box.get("fast_swing_pct")
+    if fs is not None:
+        try:
+            if not pd.isna(fs):
+                derived["game_fast_swing_pct"] = _json_scalar_float(fs, 4)
+        except TypeError:
+            derived["game_fast_swing_pct"] = _json_scalar_float(fs, 4)
+
+    hints: list[str] = []
+    vs = (outing_context or {}).get("vs_last_start") or {}
+    if vs:
+        erd = vs.get("er_delta")
+        if erd is not None:
+            if int(erd) < 0:
+                hints.append("fewer_ER_than_last_start")
+            elif int(erd) > 0:
+                hints.append("more_ER_than_last_start")
+        csw_d = vs.get("csw_pct_delta")
+        if csw_d is not None:
+            try:
+                if float(csw_d) > 3:
+                    hints.append("CSW_up_vs_last_start")
+                elif float(csw_d) < -3:
+                    hints.append("CSW_down_vs_last_start")
+            except (TypeError, ValueError):
+                pass
+        vm = vs.get("avg_velo_delta_mph")
+        if vm is not None:
+            try:
+                if float(vm) > 0.5:
+                    hints.append("velo_up_vs_last_start")
+                elif float(vm) < -0.5:
+                    hints.append("velo_down_vs_last_start")
+            except (TypeError, ValueError):
+                pass
+
+    if prior_summary and prior_summary.get("er_mean") is not None and box.get("er") is not None:
+        try:
+            em = float(prior_summary["er_mean"])
+            be = float(box["er"])
+            if be < em - 0.05:
+                hints.append("ER_below_recent_prior_mean")
+            elif be > em + 0.05:
+                hints.append("ER_above_recent_prior_mean")
+        except (TypeError, ValueError):
+            pass
+
+    derived["form_hints"] = hints[:5]
+
+    if "xwoba" in sorta.columns and sorta["xwoba"].notna().any():
+        sub = sorta[sorta["xwoba"].notna()].copy()
+        if "bip" in sub.columns:
+            sub = sub[
+                (sub["count"] >= MIN_PITCHES_FOR_XWOBA_BEAT)
+                & (sub["bip"] >= MIN_BIP_FOR_XWOBA_BEAT)
+            ]
+        else:
+            sub = sub[sub["count"] >= MIN_PITCHES_XWOBA_FALLBACK_NO_BIP]
+        if len(sub) >= 1:
+            imin = sub["xwoba"].idxmin()
+            imax = sub["xwoba"].idxmax()
+            best = sub.loc[imin]
+            worst = sub.loc[imax]
+            n_bip_best = (
+                int(best["bip"]) if "bip" in sub.columns and pd.notna(best["bip"]) else None
+            )
+            n_bip_worst = (
+                int(worst["bip"]) if "bip" in sub.columns and pd.notna(worst["bip"]) else None
+            )
+            derived["best_xwoba_pitch"] = {
+                "pitch_type": str(best["pitch_type"]),
+                "xwoba": _json_scalar_float(best["xwoba"], 3),
+                "n_pitches": int(best["count"]),
+                "n_bip": n_bip_best,
+            }
+            if imin != imax:
+                derived["worst_xwoba_pitch"] = {
+                    "pitch_type": str(worst["pitch_type"]),
+                    "xwoba": _json_scalar_float(worst["xwoba"], 3),
+                    "n_pitches": int(worst["count"]),
+                    "n_bip": n_bip_worst,
+                }
+
+    rich_sit = [
+        t for t in tendencies
+        if t.get("n_pitches", 0) >= 6
+        and t.get("dominant_pitch_type")
+        and t.get("dominant_share") is not None
+    ]
+    if rich_sit:
+        def _sit_score(t: dict) -> float:
+            try:
+                share = float(t.get("dominant_share") or 0.0)
+                n_pitches = int(t.get("n_pitches") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+            return share * math.log1p(max(n_pitches, 0))
+
+        pick = max(rich_sit, key=_sit_score)
+        try:
+            dominant_share = float(pick.get("dominant_share") or 0.0)
+        except (TypeError, ValueError):
+            dominant_share = 0.0
+        if dominant_share >= 0.50:
+            derived["tendency_highlight"] = {
+                "situation_key": pick.get("situation_key"),
+                "n_pitches": pick.get("n_pitches"),
+                "dominant_pitch_type": pick.get("dominant_pitch_type"),
+                "dominant_share": pick.get("dominant_share"),
+            }
+
+    return derived
+
+
+def _box_json(box: dict) -> dict:
+    out = {}
+    for k, v in box.items():
+        if k == "ip":
+            out[k] = v
+        elif isinstance(v, (bool, np.bool_)):
+            out[k] = bool(v)
+        elif isinstance(v, (int, np.integer)):
+            out[k] = int(v)
+        elif v is None:
+            out[k] = None
+        else:
+            out[k] = _json_scalar_float(v, 4)
+    return out
+
+
+def _arsenal_rows_json(arsenal: pd.DataFrame) -> list[dict]:
+    cols = [
+        "pitch_type",
+        "name",
+        "count",
+        "usage_pct",
+        "velo",
+        "whiff_pct",
+        "zone_pct",
+        "chase_pct",
+        "str_pct",
+        "xwoba",
+        "fast_swing_pct",
+        "gb_pct",
+        "spin",
+        "rv100",
+    ]
+    rows = []
+    for _, row in arsenal.iterrows():
+        d: dict = {}
+        for c in cols:
+            if c not in arsenal.columns:
+                continue
+            val = row[c]
+            if c in ("pitch_type", "name"):
+                d[c] = str(val) if val is not None and not pd.isna(val) else None
+            elif c == "count":
+                d[c] = int(val) if not pd.isna(val) else None
+            elif c in ("usage_pct", "whiff_pct", "zone_pct", "chase_pct", "str_pct", "gb_pct", "fast_swing_pct"):
+                d[c] = _json_scalar_float(val, 4)
+            else:
+                d[c] = _json_scalar_float(val, 3)
+        rows.append(d)
+    return rows
+
+
+def _build_pitcher_card_snapshot(
+    *,
+    pitcher_id: int,
+    parquet_path: str,
+    output_path: str,
+    game_date: str,
+    opp_team: str,
+    bio: dict,
+    box: dict,
+    arsenal: pd.DataFrame,
+    recent_outings: list[dict] | None = None,
+    outing_context: dict | None = None,
+    recent_prior_summary: dict | None = None,
+    pitch_tendencies_by_situation: list[dict] | None = None,
+    pitcher_tweet_context: dict | None = None,
+    season_pitching_stats: dict | None = None,
+    notable_game_events: list[dict] | None = None,
+    source_metadata: dict | None = None,
+) -> dict:
+    path_name = Path(parquet_path).name
+    game_pk = None
+    m = PARQUET_PATTERN.search(path_name)
+    if m:
+        try:
+            game_pk = int(m.group(1))
+        except ValueError:
+            pass
+    ro = list(recent_outings or [])
+    snap: dict = {
+        "schema_version": 2,
+        "card_type": "pitcher_card",
+        "pitcher_id": pitcher_id,
+        "player_name": bio.get("name"),
+        "team": bio.get("team"),
+        "throws": bio.get("hand"),
+        "game_date": game_date,
+        "opponent": opp_team,
+        "game_pk": game_pk,
+        "source_parquet": path_name,
+        "source_metadata": dict(source_metadata) if source_metadata else {},
+        "output_image": Path(output_path).name,
+        "box": _box_json(box),
+        "header_summary": {
+            "total_pitches": box.get("total_pitches"),
+            "zone_pct": _json_scalar_float(box.get("zone_pct"), 2),
+            "whiffs": box.get("whiffs"),
+            "csw_pct": _json_scalar_float(box.get("csw_pct"), 2),
+            "gb_pct": _json_scalar_float(box.get("gb_pct"), 3) if box.get("gb_pct") is not None else None,
+        },
+        "arsenal": _arsenal_rows_json(arsenal),
+        "recent_outings": ro,
+        "pitch_tendencies_by_situation": list(pitch_tendencies_by_situation or []),
+    }
+    if outing_context:
+        snap["outing_context"] = outing_context
+    if recent_prior_summary:
+        snap["recent_prior_summary"] = recent_prior_summary
+    if pitcher_tweet_context:
+        snap["pitcher_tweet_context"] = pitcher_tweet_context
+    if season_pitching_stats:
+        snap["season_pitching_stats"] = season_pitching_stats
+    if notable_game_events:
+        snap["notable_game_events"] = list(notable_game_events)
+    return snap
+
+
 def render_card(parquet_path, pitcher_id, output_path):
     mpl.rcParams['figure.dpi']  = 200
     mpl.rcParams['font.family'] = 'DejaVu Sans'
@@ -1157,10 +2125,17 @@ def render_card(parquet_path, pitcher_id, output_path):
     # Override with official box score when available (IP/line often wrong from pitch-level events when reliever gets the final out)
     path_name = Path(parquet_path).name
     game_pk_match = PARQUET_PATTERN.search(path_name)
+    game_pk: int | None = None
+    box_data: dict | None = None
     if game_pk_match:
         try:
             game_pk = int(game_pk_match.group(1))
-            official = fetch_box_score_line(game_pk, pitcher_id)
+            box_data = fetch_boxscore_data(game_pk)
+            official = (
+                fetch_box_score_line(game_pk, pitcher_id, box_data=box_data)
+                if box_data
+                else fetch_box_score_line(game_pk, pitcher_id)
+            )
             if official:
                 box["ip"] = official["ip"]
                 box["h"] = official["h"]
@@ -1185,19 +2160,18 @@ def render_card(parquet_path, pitcher_id, output_path):
     hand = df["p_throws"].iloc[0] if "p_throws" in df.columns else "R"
     home_team = str(df["home_team"].iloc[0]) if "home_team" in df.columns else "--"
     away_team = str(df["away_team"].iloc[0]) if "away_team" in df.columns else "--"
-
-    # Rival: por inning_topbot (Top = home pitcher → rival away; Bottom = away pitcher → rival home).
-    # Válido para MLB y WBC; en WBC evita "vs DOM" cuando el pitcher lanza por DOM pero su equipo MLB es otro.
-    if "inning_topbot" in df.columns:
-        n_top = (df["inning_topbot"] == "Top").sum()
-        n_bot = (df["inning_topbot"] == "Bottom").sum()
-        opp_team = away_team if n_top >= n_bot else home_team
-    else:
-        opp_team = away_team  # fallback
+    if game_pk is not None:
+        bh, ba = fetch_boxscore_team_abbrevs(game_pk, box_data=box_data)
+        if bh and ba and bh != ba:
+            hu = home_team.strip().upper() if home_team and home_team != "--" else ""
+            au = away_team.strip().upper() if away_team and away_team != "--" else ""
+            if (not hu or not au) or (hu == au):
+                home_team, away_team = bh, ba
 
     bio = fetch_player_bio(pitcher_id)
-    if "inning_topbot" not in df.columns:
-        opp_team = away_team if bio["team"] == home_team else home_team
+    opp_team = _infer_opponent_team(
+        df, str(bio.get("team") or ""), game_pk=game_pk, box_data=box_data
+    )
     headshot = fetch_headshot(pitcher_id)
     logo_path_arg = getattr(_args, 'logo_path', None)
     if logo_path_arg and Path(logo_path_arg).is_file():
@@ -1251,6 +2225,68 @@ def render_card(parquet_path, pitcher_id, output_path):
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     fig.canvas.draw()
     fig.savefig(output_path, dpi=200, bbox_inches="tight", facecolor=PALETTE["card_bg"], edgecolor="none")
+
+    wh_root = _warehouse_mlb_root_from_parquet(str(parquet_path))
+    recent_meta: list[dict] = []
+    if wh_root is not None and _safe_is_dir(wh_root):
+        recent_meta = _collect_recent_pitcher_outings(
+            warehouse_root=wh_root,
+            pitcher_id=int(pitcher_id),
+            card_game_date=game_date,
+            current_game_pk=game_pk,
+            bio=bio,
+        )
+    outing_ctx = _outing_context_vs_last(box, df, recent_meta)
+    prior_summary = _recent_prior_summary(recent_meta)
+    tendency_rows = compute_pitch_tendencies_by_situation(df, arsenal)
+    ptweet_ctx = _derived_pitcher_tweet_context(arsenal, box, tendency_rows, outing_ctx, prior_summary)
+    notable_events = _derive_notable_pitcher_events(df, box)
+    if notable_events:
+        ptweet_ctx = {**ptweet_ctx, "notable_game_events": notable_events}
+
+    season_stats = None
+    try:
+        season_y = int(str(game_date).strip()[:4])
+    except (TypeError, ValueError):
+        season_y = date.today().year
+    if season_y >= 2000:
+        season_stats = fetch_season_pitching_stats(int(pitcher_id), season_y)
+
+    src_meta = build_pitcher_source_metadata(
+        game_pk=game_pk,
+        pitcher_id=int(pitcher_id),
+        game_date=game_date,
+        box_data=box_data,
+    )
+
+    snapshot = _build_pitcher_card_snapshot(
+        pitcher_id=int(pitcher_id),
+        parquet_path=str(parquet_path),
+        output_path=str(output_path),
+        game_date=game_date,
+        opp_team=str(opp_team),
+        bio=bio,
+        box=box,
+        arsenal=arsenal,
+        recent_outings=recent_meta,
+        outing_context=outing_ctx,
+        recent_prior_summary=prior_summary,
+        pitch_tendencies_by_situation=tendency_rows,
+        pitcher_tweet_context=ptweet_ctx,
+        season_pitching_stats=season_stats,
+        notable_game_events=notable_events,
+        source_metadata=src_meta,
+    )
+    outp = Path(output_path)
+    json_sidecar = outp.parent / f"{outp.stem}_card.json"
+    try:
+        json_sidecar.write_text(json.dumps(snapshot, indent=2, default=str), encoding="utf-8")
+    except OSError:
+        pass
+    print("--- Card JSON ---")
+    print(json.dumps(snapshot, default=str))
+    print("--- End Card JSON ---")
+
     plt.close()
     return output_path
 
@@ -1293,15 +2329,45 @@ if __name__ == "__main__":
             except ValueError:
                 sys.exit(f"Invalid --date: use yesterday or YYYY-MM-DD")
         date_str = target_date.strftime("%Y%m%d")
-        warehouse_root = Path(__file__).parent.parent / "data" / "warehouse"
-        all_parquets = sorted(warehouse_root.rglob("*pitches_enriched.parquet"))
-        # Filter to files matching target date (game_*_YYYYMMDD_*.parquet)
-        parquets_by_date = [p for p in all_parquets if date_str in p.name and "pitches_enriched" in p.name]
+        warehouse_root = _resolved_warehouse_root_from_env()
+        # Bounded scan only — full rglob(warehouse) can take minutes on large Drive mirrors.
+        _stages = ("regular_season", "postseason", "spring_training", "playoffs", "all_star")
+        y0 = target_date.year
+        parquets_by_date: list[Path] = []
+        for yr in (y0, y0 - 1):
+            for stage in _stages:
+                enriched = warehouse_root / str(yr) / stage / "pitches_enriched"
+                if not _safe_is_dir(enriched):
+                    continue
+                try:
+                    parquets_by_date.extend(
+                        sorted(enriched.glob(f"game_*_{date_str}_pitches_enriched.parquet"))
+                    )
+                except (OSError, TimeoutError):
+                    continue
+        parquets_by_date = sorted(set(parquets_by_date))
         if not parquets_by_date:
-            sys.exit(f"No parquet files found for date {target_date} under {warehouse_root}")
+            print(
+                "\nNo pitches_enriched parquets for this game date on disk.\n"
+                f"  Date:     {target_date}  (glob: game_*_{date_str}_pitches_enriched.parquet)\n"
+                f"  Looked in: {warehouse_root}/{{year}}/{{stage}}/pitches_enriched/\n\n"
+                "The hub does NOT stream from Google Drive. Drive is the source of truth; the API and\n"
+                "card scripts read whatever path MLB_WAREHOUSE_DIR points to (default: repo data/warehouse/mlb).\n\n"
+                "Fix:\n"
+                "  1) Prefer a local mirror: ./scripts/pull_mlbops_from_drive.sh (or Hub Settings -> Drive sync),\n"
+                "     then remove MLB_WAREHOUSE_DIR or set it to the repo path …/data/warehouse/mlb.\n"
+                "  2) If MLB_WAREHOUSE_DIR points at Google Drive for Desktop, open MLB/warehouse/mlb in Finder first;\n"
+                "     File Stream often times out until the folder is hydrated — local mirror is more reliable.\n\n"
+                "Pitcher cards need Statcast pitches_enriched parquets for that game — the MLB game log alone is not enough.\n",
+                file=sys.stderr,
+                flush=True,
+            )
+            sys.exit(1)
         out_dir = Path(__file__).parent.parent / "outputs" / "pitching_cards"
         out_dir.mkdir(parents=True, exist_ok=True)
         mode_sfx = "" if LIGHT_MODE else "_dark"
+        generated = 0
+        skip_msgs: list[str] = []
         for pid in pitcher_ids:
             best_path, best_count = None, 0
             for path in parquets_by_date:
@@ -1313,14 +2379,34 @@ if __name__ == "__main__":
                 except Exception:
                     continue
             if best_path is None:
-                print(f"  Pitcher {pid}: no game with \u2265{MIN_PITCHES} pitches on {target_date}; skipped.")
+                msg = (
+                    f"Pitcher {pid}: no Statcast game with ≥{MIN_PITCHES} pitches on {target_date} "
+                    f"in the local warehouse (checked {len(parquets_by_date)} parquet(s) for that date)."
+                )
+                skip_msgs.append(msg)
+                print(f"  {msg}", file=sys.stderr, flush=True)
                 continue
             bio = fetch_player_bio(pid)
             safe_nm = bio["name"].lower().replace(", ", "_").replace(",", "_").replace(" ", "_").replace(".", "").replace("'", "")
-            out_path = out_dir / f"pitcher_card_{safe_nm}_{target_date.isoformat()}{mode_sfx}.png"
+            _osuf = getattr(_args, "output_suffix", None)
+            _mid = f"_{_osuf}" if (_osuf and str(_osuf).strip()) else ""
+            out_path = out_dir / f"pitcher_card_{safe_nm}_{target_date.isoformat()}{_mid}{mode_sfx}.png"
             print(f"  Pitcher {pid} ({bio['name']}): {best_path.name} \u2192 {out_path.name}")
             render_card(str(best_path), pid, str(out_path))
             print(f"  \u2192 Saved: {out_path}\n")
+            generated += 1
+        if generated == 0:
+            print(
+                "\nNo pitcher card(s) were written. Common causes:\n"
+                "  • pitches_enriched parquets exist for the date but this pitcher has fewer than "
+                f"{MIN_PITCHES} tracked pitches in each file (injury / very short outing).\n"
+                "  • Warehouse mirror is stale — sync from Drive or run ingestion for that date.\n",
+                file=sys.stderr,
+                flush=True,
+            )
+            for m in skip_msgs:
+                print(f"  - {m}", file=sys.stderr, flush=True)
+            sys.exit(1)
     elif _args.random:
         import random as _random
 

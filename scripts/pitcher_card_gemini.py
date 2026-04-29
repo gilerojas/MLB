@@ -22,12 +22,14 @@ from pathlib import Path
 import requests
 import numpy as np
 import pandas as pd
-import seaborn as sns
-import matplotlib as mpl
+import matplotlib
+matplotlib.use(os.environ.get("MPLBACKEND", "Agg"))
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch
+import matplotlib as mpl
+import seaborn as sns
 from io import BytesIO
 
 # ─────────────────────────────────────────────────────────────────
