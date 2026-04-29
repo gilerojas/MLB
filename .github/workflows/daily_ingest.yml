@@ -49,9 +49,10 @@
 name: Daily MLB Warehouse Ingest
 
 on:
-  # 3:05 AM ET daily (7:05 UTC; adjust if you prefer strict US Eastern)
+  # 7:00 AM Dominican time / AST year-round (UTC−4) → 11:00 UTC.
+  # Validation below fails loudly if Baseball Savant is still late and parquets are missing.
   schedule:
-    - cron: "5 7 * * *"
+    - cron: "0 11 * * *"
 
   workflow_dispatch:
     inputs:
@@ -60,9 +61,9 @@ on:
         required: false
         default: ""
       last_days:
-        description: "Ingest last N days (default 1 = typical daily catch-up)"
+        description: "Ingest last N days (default 2 = retry yesterday + catch late Savant availability)"
         required: false
-        default: "1"
+        default: "2"
       season:
         description: "Season year (blank = MLB_SEASON from workflow env, default 2026)"
         required: false
@@ -86,6 +87,9 @@ jobs:
   ingest:
     name: Ingest MLB games and sync warehouse
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - name: Checkout
@@ -265,7 +269,7 @@ jobs:
             ARGS+=(--dates "${{ github.event.inputs.date }}")
           else
             DAYS="${{ github.event.inputs.last_days }}"
-            ARGS+=(--last-days "${DAYS:-1}")
+            ARGS+=(--last-days "${DAYS:-2}")
           fi
           if [[ "${{ github.event.inputs.force }}" == "true" ]]; then
             ARGS+=(--force)
@@ -274,6 +278,18 @@ jobs:
 
           echo "Running: python -m src.ingestion.load_mlb_warehouse ${ARGS[*]}"
           python -m src.ingestion.load_mlb_warehouse "${ARGS[@]}"
+
+      - name: Validate daily ingest completeness
+        run: |
+          ARGS=(--season "$SEASON" --game-type R --warehouse data/warehouse/mlb)
+          if [[ -n "${{ github.event.inputs.date }}" ]]; then
+            ARGS+=(--dates "${{ github.event.inputs.date }}")
+          else
+            DAYS="${{ github.event.inputs.last_days }}"
+            ARGS+=(--last-days "${DAYS:-2}")
+          fi
+          echo "Running: python scripts/validate_daily_ingest.py ${ARGS[*]}"
+          python scripts/validate_daily_ingest.py "${ARGS[@]}"
 
       - name: Sync warehouse to Google Drive
         if: always()
@@ -291,6 +307,7 @@ jobs:
           echo "Sync complete."
 
       - name: Print summary
+        if: always()
         run: |
           YEAR="${SEASON:-$(date -u +%Y)}"
           RAW="data/warehouse/mlb/$YEAR/regular_season/raw"
@@ -300,3 +317,66 @@ jobs:
           [ -d "$RAW" ]  && echo "Raw files:     $(find "$RAW" -type f 2>/dev/null | wc -l | tr -d ' ')" || echo "Raw dir not found"
           [ -d "$PARQ" ] && echo "Parquet files: $(find "$PARQ" -type f 2>/dev/null | wc -l | tr -d ' ')" || echo "Parquet dir not found"
           echo "Completed: $(date -u)"
+
+      - name: Create GitHub issue on missing warehouse files
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPORT="data/daily_ingest_validation_report.md"
+          if [ ! -f "$REPORT" ]; then
+            REPORT="/tmp/daily_ingest_validation_report.md"
+            {
+              echo "# Daily Ingest Failure"
+              echo
+              echo "The workflow failed before the daily validation report was created."
+              echo
+              echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            } > "$REPORT"
+          fi
+          TITLE="MLB warehouse ingest needs attention - $(date -u +%Y-%m-%d)"
+          {
+            cat "$REPORT"
+            echo
+            echo "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > /tmp/issue_body.md
+          gh issue create --title "$TITLE" --body-file /tmp/issue_body.md || true
+
+      - name: Email ingest failure report
+        if: failure()
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          RESEND_TO_EMAIL: ${{ secrets.RESEND_TO_EMAIL }}
+        run: |
+          if [ -z "${RESEND_API_KEY}" ] || [ -z "${RESEND_TO_EMAIL}" ]; then
+            echo "::warning::RESEND_API_KEY or RESEND_TO_EMAIL missing; skipping email notification."
+            exit 0
+          fi
+          python3 << 'PY'
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          report_path = pathlib.Path("data/daily_ingest_validation_report.md")
+          report = report_path.read_text(encoding="utf-8") if report_path.is_file() else "Daily ingest failed before validation report was created."
+          run_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body = {
+              "from": os.environ.get("RESEND_FROM_EMAIL") or "Mallitalytics <onboarding@resend.dev>",
+              "to": os.environ["RESEND_TO_EMAIL"],
+              "subject": "Mallitalytics MLB warehouse ingest needs attention",
+              "text": f"{report}\n\nWorkflow run: {run_url}\n",
+          }
+          req = urllib.request.Request(
+              "https://api.resend.com/emails",
+              data=json.dumps(body).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              print(resp.read().decode("utf-8"))
+          PY

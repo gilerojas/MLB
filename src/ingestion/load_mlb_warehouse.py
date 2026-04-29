@@ -234,13 +234,17 @@ def process_pitches_enriched(raw_path: Path, out_dir: Path) -> bool:
 
     df_feed_ids = extract_play_ids_from_feed(feed, game_pk)
     if df_feed_ids.empty:
+        print(
+            f"pitches_enriched: sin playIds en feed (game_pk={game_pk} date={date})",
+            file=sys.stderr,
+            flush=True,
+        )
         return False
 
     try:
         from pybaseball import statcast_single_game
     except (ImportError, AttributeError) as e:
         if "github" in str(e).lower() or "GithubObject" in str(e):
-            import sys
             print(
                 "ERROR: pybaseball import failed (often due to PyGithub circular import). "
                 "Use a different env or install/update PyGithub. For --from-raw only, no Statcast is needed.",
@@ -250,6 +254,12 @@ def process_pitches_enriched(raw_path: Path, out_dir: Path) -> bool:
         raise
     df_sc = statcast_single_game(game_pk)
     if df_sc is None or df_sc.empty:
+        print(
+            f"pitches_enriched: Statcast vacío para game_pk={game_pk} (date={date}); "
+            "Savant suele tardar horas tras el final — re-ejecutar más tarde o --from-raw.",
+            file=sys.stderr,
+            flush=True,
+        )
         return False
 
     df_sc = df_sc.copy()
@@ -284,7 +294,7 @@ def schedule_game_to_row(g: dict, stage: str) -> dict:
     }
 
 
-def save_schedule_only(warehouse: Path, season: int, game_type: str | None, all_stages: bool) -> None:
+def save_schedule_only(warehouse: Path, season: int, game_type: str | None, all_stages: bool, stages_to_fetch: list[str] | None = None) -> None:
     """
     Crea carpeta del año, descarga schedule(s) y guarda JSON + CSV para publicar.
     """
@@ -293,13 +303,14 @@ def save_schedule_only(warehouse: Path, season: int, game_type: str | None, all_
 
     if all_stages:
         games_by_pk: dict[int, dict] = {}
-        for gt in ALL_STAGES_GAME_TYPES:
+        gt_list = stages_to_fetch or ALL_STAGES_GAME_TYPES
+        for gt in gt_list:
             batch = fetch_schedule(season, gt)
             for g in batch:
                 if g["gamePk"] not in games_by_pk:
                     games_by_pk[g["gamePk"]] = g
         games = list(games_by_pk.values())
-        stages_used = ALL_STAGES_GAME_TYPES
+        stages_used = gt_list
     else:
         gt = game_type or "R"
         games = fetch_schedule(season, gt)
@@ -396,7 +407,13 @@ def main():
         default=None,
         help="Carpeta warehouse (default: data/warehouse/mlb respecto al proyecto)",
     )
-    parser.add_argument("--years", nargs="+", type=int, default=[2024, 2025])
+    parser.add_argument(
+        "--years",
+        nargs="+",
+        type=int,
+        default=[2024, 2025, 2026],
+        help="Con --from-raw: años a escanear bajo warehouse (default incluye 2026)",
+    )
     parser.add_argument("--season", type=int, help="Temporada para fetch (schedule API)")
     parser.add_argument(
         "--game-type",
@@ -419,6 +436,12 @@ def main():
         "--all-stages",
         action="store_true",
         help="Obtener toda la temporada: S, R, A, F, D, L, W",
+    )
+    parser.add_argument(
+        "--skip-stages",
+        nargs="+",
+        metavar="STAGE",
+        help="Skip specific stages with --all-stages (e.g. --skip-stages S to skip spring training)",
     )
     parser.add_argument(
         "--from-raw",
@@ -462,6 +485,7 @@ def main():
     )
     args = parser.parse_args()
     args.game_type = (args.game_type or "R").strip().upper()
+    args.skip_stages = [s.strip().upper() for s in (args.skip_stages or [])]
 
     # Resolve warehouse so "Run" works from any cwd
     if args.warehouse is None:
@@ -472,11 +496,13 @@ def main():
     if args.schedule_only:
         if not args.season:
             parser.error("--season requerido con --schedule-only")
+        stages_to_fetch = [gt for gt in ALL_STAGES_GAME_TYPES if gt not in args.skip_stages] if args.all_stages else None
         save_schedule_only(
             args.warehouse,
             args.season,
             args.game_type,
             args.all_stages,
+            stages_to_fetch,
         )
         return
 
@@ -551,7 +577,8 @@ def main():
             )
         elif args.all_stages:
             games_by_pk: dict[int, dict] = {}
-            for gt in ALL_STAGES_GAME_TYPES:
+            gt_list = [gt for gt in ALL_STAGES_GAME_TYPES if gt not in args.skip_stages]
+            for gt in gt_list:
                 batch = fetch_schedule(args.season, gt)
                 for g in batch:
                     # No sobrescribir: preservar el gameType original para la carpeta correcta
@@ -560,7 +587,8 @@ def main():
                 if batch:
                     print(f"  {gt}: {len(batch)} juegos")
             games = list(games_by_pk.values())
-            print(f"Schedule: {len(games)} juegos únicos ({args.season}, all stages)")
+            skip_msg = f" (skipped: {', '.join(args.skip_stages)})" if args.skip_stages else ""
+            print(f"Schedule: {len(games)} juegos únicos ({args.season}, all stages{skip_msg})")
         else:
             games = fetch_schedule(args.season, args.game_type)
             print(f"Schedule: {len(games)} juegos ({args.season}, type={args.game_type})")
@@ -622,8 +650,9 @@ def main():
                     "\nRefreshing schedule artifacts (full season for this game-type) ...",
                     flush=True,
                 )
+            stages_to_fetch = [gt for gt in ALL_STAGES_GAME_TYPES if gt not in args.skip_stages] if args.all_stages else None
             save_schedule_only(
-                args.warehouse, args.season, args.game_type, all_stages=False
+                args.warehouse, args.season, args.game_type, all_stages=False, stages_to_fetch=stages_to_fetch
             )
         return
 
@@ -653,11 +682,16 @@ def main():
             disable=args.quiet,
         )
         for fut in it:
+            raw_path, _out = futures[fut]
             try:
                 if fut.result():
                     ok += 1
-            except Exception:
-                pass
+            except Exception as e:
+                print(
+                    f"pitches_enriched: excepción {raw_path.name}: {e}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
     (tqdm.write if not args.quiet else print)(f"\n✅ Procesados {ok} | Omitidos (duplicados): {skipped}")
 
@@ -671,8 +705,9 @@ def main():
                 "\nRefreshing schedule artifacts (full season for this game-type) ...",
                 flush=True,
             )
+        stages_to_fetch = [gt for gt in ALL_STAGES_GAME_TYPES if gt not in args.skip_stages] if args.all_stages else None
         save_schedule_only(
-            args.warehouse, args.season, args.game_type, all_stages=False
+            args.warehouse, args.season, args.game_type, all_stages=False, stages_to_fetch=stages_to_fetch
         )
 
 
