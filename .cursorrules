@@ -1,0 +1,46 @@
+# Mallitalytics MLB — Cursor Rules
+
+## First thing every session
+1. Read `TRACKING.md` at the repo root — shared source of truth between Claude Code and Cursor.
+   It tracks what is done, what is broken, and what is in the backlog.
+2. Update `TRACKING.md` when you complete a task, find a bug, or add a backlog item.
+
+## Project
+- Repo root: the directory containing this file
+- Stack: Python (FastAPI, pandas, pybaseball, matplotlib) + Next.js 16 (App Router, TypeScript, Tailwind)
+- Hub lives under `mlbops/` — FastAPI on port 8000, Next.js on port 3000
+- Start everything: `./start_hub.sh` or `./scripts/start_mlbops.sh`
+- All env-overridable paths live in `mlbops/api/paths.py`
+
+## Critical facts (things that have burned us before)
+- `player_name` column in `pitches_enriched` parquets = **batter** name, NOT pitcher
+- Pitcher names come from `data/warehouse/mlb/{season}/players_registry.json`
+- Google Drive is the warehouse source of truth → rclone syncs to `data/warehouse/mlb/`
+- `MLB_WAREHOUSE_DIR` env var overrides the default warehouse path in both the API and card scripts
+- Schedule page is a Server Component — no client-side event handlers (onError, onClick, etc.)
+- No emojis anywhere in the hub UI — use unicode symbols if decoration is needed (▶ ◆ ● ↕ →)
+
+## Architecture
+- `mlbops/api/routers/` — FastAPI routers: cards, insights, leaderboards, intel, queue, schedule, watchlist, briefing
+- `mlbops/hub/app/` — Next.js pages (one folder per route)
+- `mlbops/hub/components/` — shared React components
+- `mlbops/api/paths.py` — all data paths (overridable via MLB_REPO_ROOT, MLB_WAREHOUSE_DIR, MLB_INTEL_SNAPSHOTS_DIR)
+- `data/warehouse/mlb/{season}/regular_season/pitches_enriched/` — Statcast parquets
+- `morning_intel/snapshots/intel_YYYY-MM-DD.json` — daily intel snapshots
+- `data/hub.db` — SQLite (content_queue, player_watchlist, notification_log)
+
+## Schedule page specifics
+- Uses URL search param `?date=YYYY-MM-DD` for multi-day navigation
+- API: `GET /schedule/{date}` — returns games with probablePitcher, leagueRecord, venue
+- Server Component: fetch at render time, use `<Link>` for date nav (no useState/useEffect)
+
+## Statcast / Insights rules
+- Pitcher groupbys: always group on `pitcher` ID only, then look up name from players_registry.json
+- Batter groupbys: `player_name` col in pitches_enriched IS the batter name — use it directly
+- No progress bars on stat tiles — stats have different dimensions and a shared scale is misleading
+
+## Card generation scripts
+- `scripts/mallitalytics_daily_card.py` — pitcher cards
+- `scripts/batter_card_daily.py` — batter cards
+- Both respect `MLB_WAREHOUSE_DIR` env var for the warehouse root
+- FastAPI card endpoints: `POST /cards/pitcher` and `POST /cards/batter`
