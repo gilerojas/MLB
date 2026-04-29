@@ -3,14 +3,18 @@
 HR Tracker daily: text, tweet, and optional image from raw feed_live.
 
 Extracts home runs for a date from warehouse raw files (EV, distance, stadium,
-pitcher). Outputs plain text, tweet-ready copy (280-char aware), and/or
+pitcher). Outputs plain text, tweet-ready copy (top 5 HR lines + “more on card”; length cap via MLBOPS_TWEET_MAX_CHARS), and/or
 Mallitalytics-styled PNG.
 
 Usage:
-  python scripts/hr_tracker_daily.py                        # text for today
-  python scripts/hr_tracker_daily.py --date 2026-02-21
-  python scripts/hr_tracker_daily.py --yesterday            # text for yesterday (MLB)
-  python scripts/hr_tracker_daily.py --wbc                  # WBC HRs yesterday (live from API)
+  python scripts/hr_tracker_daily.py                        # today: warehouse regular_season, else API
+  python scripts/hr_tracker_daily.py --date 2026-03-26
+  python scripts/hr_tracker_daily.py --yesterday            # yesterday (RS warehouse + API fallback)
+  python scripts/hr_tracker_daily.py --live --date 2026-03-26   # HRs from API only (regular season)
+  python scripts/hr_tracker_daily.py --warehouse-all-stages --date 2026-02-21  # include ST raw
+  python scripts/hr_tracker_daily.py --spring-training --date 2026-03-01
+  python scripts/hr_tracker_daily.py --warehouse-only --date 2026-03-26  # no API fallback
+  python scripts/hr_tracker_daily.py --wbc                  # WBC (live API)
   python scripts/hr_tracker_daily.py --wbc --date 2026-03-11
   python scripts/hr_tracker_daily.py --format tweet
   python scripts/hr_tracker_daily.py --format image --output-dir outputs
@@ -32,7 +36,11 @@ if str(_REPO_ROOT) not in sys.path:
 
 from src.hr_tracker import get_hrs_for_date, render_hr_tracker_image
 from src.hr_tracker.extract import extract_hrs_from_feed
+from src.hr_tracker.name_display import last_name_compact as _last_name
 
+# MLB / WBC Stats API
+MLB_SPORT_ID = 1
+SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
 # WBC sport ID in the MLB Stats API
 WBC_SPORT_ID = 51
 
@@ -67,15 +75,70 @@ COUNTRY_FLAGS: dict[str, str] = {
 }
 
 
+def fetch_mlb_regular_season_hrs_for_date(date_str: str) -> list[dict]:
+    """
+    Fetch regular-season (gameType R) home runs for a date from the MLB Stats API.
+    No local warehouse required — uses schedule + feed/live for each Final game.
+    """
+    params = {"sportId": MLB_SPORT_ID, "date": date_str}
+    try:
+        r = requests.get(SCHEDULE_URL, params=params, timeout=30)
+        r.raise_for_status()
+    except Exception as exc:
+        print(f"MLB schedule fetch failed: {exc}", file=sys.stderr)
+        return []
+
+    games: list[dict] = []
+    for d in r.json().get("dates", []):
+        for g in d.get("games", []):
+            games.append(g)
+
+    if not games:
+        print(f"No MLB games in schedule for {date_str}.")
+        return []
+
+    rs_games = [g for g in games if (g.get("gameType") or "").strip().upper() == "R"]
+    if not rs_games:
+        print(
+            f"No regular-season (gameType R) games on {date_str} "
+            f"({len(games)} other game(s) — use --spring-training or --warehouse-all-stages for ST warehouse)."
+        )
+        return []
+
+    print(f"MLB regular season: {len(rs_games)} game(s) on {date_str} (fetching feeds …)")
+    all_hrs: list[dict] = []
+    for g in rs_games:
+        game_pk = g.get("gamePk")
+        if not game_pk:
+            continue
+        if (g.get("status") or {}).get("abstractGameState") != "Final":
+            continue
+        feed_url = f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live"
+        try:
+            rf = requests.get(feed_url, timeout=60)
+            rf.raise_for_status()
+            feed = rf.json()
+        except Exception as exc:
+            print(f"  Feed fetch failed for game {game_pk}: {exc}", file=sys.stderr)
+            continue
+        hrs = extract_hrs_from_feed(feed)
+        for hr in hrs:
+            hr["stage"] = "regular_season"
+            hr["hr_in_stage"] = None
+        all_hrs.extend(hrs)
+
+    all_hrs.sort(key=lambda r: (r.get("game_pk") or 0, r.get("inning") or 0))
+    return all_hrs
+
+
 def fetch_wbc_hrs_for_date(date_str: str) -> list[dict]:
     """
     Fetch WBC home runs for a date directly from the MLB Stats API.
     No local warehouse needed — fetches feed/live for each Final game.
     """
-    url = "https://statsapi.mlb.com/api/v1/schedule"
     params = {"sportId": WBC_SPORT_ID, "date": date_str}
     try:
-        r = requests.get(url, params=params, timeout=30)
+        r = requests.get(SCHEDULE_URL, params=params, timeout=30)
         r.raise_for_status()
     except Exception as exc:
         print(f"WBC schedule fetch failed: {exc}", file=sys.stderr)
@@ -114,14 +177,6 @@ def fetch_wbc_hrs_for_date(date_str: str) -> list[dict]:
 
     all_hrs.sort(key=lambda r: (r.get("game_pk") or 0, r.get("inning") or 0))
     return all_hrs
-
-
-def _last_name(full_name: str) -> str:
-    """Last word of full name, or full if single word."""
-    if not full_name:
-        return "?"
-    parts = full_name.strip().split()
-    return parts[-1] if len(parts) > 1 else full_name
 
 
 def _short_venue(venue: str, max_words: int = 2) -> str:
@@ -223,9 +278,12 @@ def build_tweet(
     hashtag: str | None = None,
     compact: bool = True,
     show_flags: bool = False,
-    max_len: int = 280,
+    max_len: int = 10_000,
+    tweet_hr_line_limit: int | None = 5,
 ) -> str:
-    """Tweet-ready text; truncate with '+N more' if over max_len."""
+    """Tweet-ready text. Default: top ``tweet_hr_line_limit`` HR lines + '(+N more on card)'.
+    Image shows the full list. Truncates to ``max_len`` if needed.
+    """
     intro_line = intro or f"HR Tracker — {day_fmt}"
     if not hrs:
         body = "No home runs on this date."
@@ -234,12 +292,19 @@ def build_tweet(
             tweet += f"\n{hashtag}"
         return tweet
 
-    lines = [_hr_line(r, compact=compact, show_flags=show_flags) for r in hrs]
+    lines_raw = [_hr_line(r, compact=compact, show_flags=show_flags) for r in hrs]
     idx_top_ev = _longest_and_top_ev_indexes(hrs)[1]
-    for i in range(len(lines)):
+    limit = len(lines_raw) if tweet_hr_line_limit is None else min(tweet_hr_line_limit, len(lines_raw))
+    lines_out: list[str] = []
+    for i in range(limit):
+        ln = lines_raw[i]
         if i == idx_top_ev:
-            lines[i] = "💨 " + lines[i]
-    block = "\n".join(lines)
+            ln = "💨 " + ln
+        lines_out.append(ln)
+    remaining = len(lines_raw) - limit
+    if remaining > 0:
+        lines_out.append(f"(+{remaining} more on card)")
+    block = "\n".join(lines_out)
     tweet = f"{intro_line}\n\n{block}"
     if hashtag:
         tweet += f"\n{hashtag}"
@@ -254,18 +319,18 @@ def build_tweet(
     body_max = max_len - reserve - 15  # space for "+N more"
 
     parts = []
-    for ln in lines:
+    for ln in lines_out:
         candidate = "\n".join(parts + [ln]) if parts else ln
         if len(candidate) <= body_max:
             parts.append(ln)
         else:
             break
     if not parts:
-        parts = [lines[0][: body_max - 3] + "…"]
+        parts = [lines_out[0][: body_max - 3] + "…"]
     body = "\n".join(parts)
-    remaining = len(lines) - len(parts)
-    if remaining > 0:
-        body += f"\n(+{remaining} more)"
+    rem2 = len(lines_out) - len(parts)
+    if rem2 > 0:
+        body += f"\n(+{rem2} more)"
     tweet = f"{intro_line}\n\n{body}"
     if hashtag:
         tweet += f"\n{hashtag}"
@@ -292,6 +357,27 @@ def main() -> None:
         help="Fetch WBC home runs live from MLB Stats API instead of local warehouse",
     )
     ap.add_argument(
+        "--live",
+        action="store_true",
+        help="Fetch MLB regular-season HRs from the API only (ignore warehouse)",
+    )
+    ap.add_argument(
+        "--warehouse-only",
+        action="store_true",
+        help="Never call MLB API for HRs; warehouse files only (no fallback if empty)",
+    )
+    ap.add_argument(
+        "--warehouse-all-stages",
+        action="store_true",
+        help="Read raw from all stages under each season (spring + regular + playoffs). "
+        "Default is regular_season/raw only.",
+    )
+    ap.add_argument(
+        "--spring-training",
+        action="store_true",
+        help="Only read spring_training/raw in the warehouse (mutually exclusive focus)",
+    )
+    ap.add_argument(
         "--warehouse",
         type=Path,
         default=Path("data/warehouse/mlb"),
@@ -312,6 +398,11 @@ def main() -> None:
     ap.add_argument("--intro", help="Override tweet intro line")
     ap.add_argument("--hashtag", help="Append hashtag to tweet (e.g. #MLB)")
     ap.add_argument(
+        "--tweet-all-hr-lines",
+        action="store_true",
+        help="Include every HR line in tweet text (default: top 5 + '+N more on card')",
+    )
+    ap.add_argument(
         "--full-names",
         action="store_true",
         help="Use full batter/pitcher names and full venue (longer lines, less tweet-friendly)",
@@ -330,11 +421,33 @@ def main() -> None:
         day_fmt = args.date
 
     show_flags = args.wbc
+    if args.spring_training and args.warehouse_all_stages:
+        print("Use only one of --spring-training or --warehouse-all-stages.", file=sys.stderr)
+        sys.exit(2)
+
     if args.wbc:
         print(f"Fetching WBC home runs for {args.date} ...")
         hrs = fetch_wbc_hrs_for_date(args.date)
+    elif args.live:
+        print(f"Fetching MLB regular-season home runs (API) for {args.date} ...")
+        hrs = fetch_mlb_regular_season_hrs_for_date(args.date)
     else:
-        hrs = get_hrs_for_date(args.warehouse, args.date)
+        if args.spring_training:
+            stages = ["spring_training"]
+        elif args.warehouse_all_stages:
+            stages = None
+        else:
+            stages = ["regular_season"]
+        hrs = get_hrs_for_date(args.warehouse, args.date, stages=stages)
+        if (
+            not hrs
+            and not args.warehouse_only
+            and not args.spring_training
+        ):
+            print(
+                f"No HRs in warehouse for {args.date}; trying MLB API (regular season Final games) …"
+            )
+            hrs = fetch_mlb_regular_season_hrs_for_date(args.date)
     # Sort by distance descending (furthest first); no distance → end
     hrs = sorted(hrs, key=lambda r: -(r.get("distance_ft") or 0))
 
@@ -347,6 +460,13 @@ def main() -> None:
             print()
 
     if fmt in ("tweet", "all"):
+        import os as _os
+
+        try:
+            _cap = int((_os.environ.get("MLBOPS_TWEET_MAX_CHARS") or "10000").strip() or "10000")
+        except ValueError:
+            _cap = 10_000
+        _cap = max(1, min(250_000, _cap))
         tweet = build_tweet(
             hrs,
             args.date,
@@ -355,6 +475,8 @@ def main() -> None:
             hashtag=args.hashtag,
             compact=compact,
             show_flags=show_flags,
+            max_len=_cap,
+            tweet_hr_line_limit=None if args.tweet_all_hr_lines else 5,
         )
         if fmt == "all":
             print("--- Tweet ---")

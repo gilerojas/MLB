@@ -62,10 +62,8 @@ Ver también: python scripts/st_leaders_tweet.py --help
 """
 
 import argparse
-import gzip
 import json
 import math
-import re
 import sys
 from pathlib import Path
 
@@ -77,6 +75,7 @@ _REPO_ROOT = _SCRIPT_DIR.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from src.ingestion.boxscore_aggregate import aggregate_boxscore_from_raw, find_stage_raw_paths
 from src.ingestion.mlb_warehouse_schema import GAME_TYPE_TO_STAGE
 
 # Sorting stat for leaderboards (boxscore aggregates only)
@@ -100,173 +99,6 @@ PIT_ERA_DAMP_OFFSET = 2.0  # 5/(ERA+offset); higher offset = less ERA separation
 STAGE_TO_GAME_TYPES: dict[str, list[str]] = {}
 for _gt, _stage in GAME_TYPE_TO_STAGE.items():
     STAGE_TO_GAME_TYPES.setdefault(_stage, []).append(_gt)
-
-
-def _open_raw(path: Path):
-    """Open raw file as text; supports .json and .json.gz."""
-    if path.suffix == ".gz" or path.name.endswith(".json.gz"):
-        return gzip.open(path, "rt", encoding="utf-8")
-    return open(path, encoding="utf-8")
-
-
-def _innings_to_float(ip_str: str) -> float:
-    """Convert MLB innings string (e.g. '1.0', '0.2', '2.1') to decimal innings."""
-    if not ip_str or ip_str in (".--", "-.--"):
-        return 0.0
-    s = str(ip_str).strip()
-    if "." not in s:
-        try:
-            return float(s)
-        except ValueError:
-            return 0.0
-    a, b = s.split(".", 1)
-    try:
-        whole = int(a)
-        partial = int(b)  # 1 = 1 out, 2 = 2 outs
-    except ValueError:
-        return 0.0
-    return whole + partial / 3.0
-
-
-def find_stage_raw_paths(warehouse: Path, season: int, stage: str) -> list[Path]:
-    """
-    Find all raw feed_live paths for a given stage in the given season.
-    Prefers .json over .json.gz when both exist for the same game.
-    """
-    base = warehouse / str(season) / stage / "raw"
-    if not base.exists():
-        return []
-
-    by_key: dict[str, Path] = {}
-    for raw_path in base.glob("game_*_feed_live.json*"):
-        if not (
-            raw_path.name.endswith(".json")
-            or raw_path.name.endswith(".json.gz")
-        ):
-            continue
-        name = raw_path.name
-        if name.endswith(".json.gz"):
-            stem = name[:-7]
-        else:
-            stem = name[:-5]
-        m = re.match(r"game_(\d+)_(\d+)_feed_live", stem)
-        if not m:
-            continue
-        key = m.group(1) + "_" + m.group(2)
-        if key not in by_key or (
-            raw_path.name.endswith(".json")
-            and not raw_path.name.endswith(".json.gz")
-        ):
-            by_key[key] = raw_path
-    return sorted(by_key.values())
-
-
-def aggregate_boxscore_from_raw(warehouse: Path, season: int, stage: str) -> tuple[dict, dict]:
-    """
-    Aggregate batting and pitching stats from all stage raw feed_live files.
-
-    Returns:
-        batting_totals: player_id (str) -> { atBats, hits, homeRuns, rbi, runs, name, team }
-        pitching_totals: player_id (str) -> { ip, strikeOuts, earnedRuns, hits, baseOnBalls, name, team }
-    """
-    paths = find_stage_raw_paths(warehouse, season, stage)
-    batting_totals: dict[str, dict] = {}
-    pitching_totals: dict[str, dict] = {}
-
-    bat_keys = [
-        "atBats",
-        "hits",
-        "homeRuns",
-        "rbi",
-        "runs",
-        "strikeOuts",
-        "baseOnBalls",
-        "hitByPitch",
-        "sacFlies",
-        "doubles",
-        "triples",
-        "plateAppearances",
-        "totalBases",
-        "stolenBases",
-    ]
-
-    for raw_path in paths:
-        try:
-            with _open_raw(raw_path) as f:
-                feed = json.load(f)
-        except Exception:
-            continue
-
-        game_data = feed.get("gameData", {})
-        teams = game_data.get("teams", {})
-        away_abbrev = (teams.get("away") or {}).get("abbreviation") or "?"
-        home_abbrev = (teams.get("home") or {}).get("abbreviation") or "?"
-
-        box = feed.get("liveData", {}).get("boxscore", {}).get("teams", {})
-        for side, abbrev in [("away", away_abbrev), ("home", home_abbrev)]:
-            players = (box.get(side) or {}).get("players") or {}
-            for player_id, p in players.items():
-                person = (p.get("person") or {})
-                full_name = person.get("fullName") or f"ID {player_id}"
-                stats = p.get("stats") or {}
-
-                bat = stats.get("batting") or {}
-                if bat and (bat.get("atBats") or 0) > 0:
-                    agg = batting_totals.setdefault(
-                        player_id,
-                        {k: 0 for k in bat_keys}
-                        | {"name": full_name, "team": abbrev},
-                    )
-                    for k in bat_keys:
-                        v = bat.get(k)
-                        if isinstance(v, (int, float)):
-                            agg[k] = agg.get(k, 0) + v
-                    agg["name"] = full_name
-                    agg["team"] = abbrev
-
-                pit = stats.get("pitching") or {}
-                if pit and (pit.get("inningsPitched") or pit.get("outs", 0)):
-                    ip_val = pit.get("inningsPitched")
-                    if isinstance(ip_val, str):
-                        ip_float = _innings_to_float(ip_val)
-                    else:
-                        ip_float = float(ip_val or 0)
-                    if ip_float <= 0:
-                        continue
-                    agg = pitching_totals.setdefault(
-                        player_id,
-                        {
-                            "ip": 0.0,
-                            "strikeOuts": 0,
-                            "earnedRuns": 0,
-                            "runs": 0,
-                            "hits": 0,
-                            "baseOnBalls": 0,
-                            "battersFaced": 0,
-                            "homeRuns": 0,
-                            "hitByPitch": 0,
-                            "name": full_name,
-                            "team": abbrev,
-                        },
-                    )
-                    agg["ip"] += ip_float
-                    for k in (
-                        "strikeOuts",
-                        "earnedRuns",
-                        "runs",
-                        "hits",
-                        "baseOnBalls",
-                        "battersFaced",
-                        "homeRuns",
-                        "hitByPitch",
-                    ):
-                        v = pit.get(k)
-                        if isinstance(v, (int, float)):
-                            agg[k] = agg.get(k, 0) + v
-                    agg["name"] = full_name
-                    agg["team"] = abbrev
-
-    return batting_totals, pitching_totals
 
 
 def fetch_player_name_team(player_id: str | int) -> tuple[str, str]:

@@ -28,12 +28,20 @@ def _open_raw(path: Path):
     return open(path, encoding="utf-8")
 
 
-def find_raw_paths_for_date(warehouse: Path, date_str: str, years: list[int] | None = None) -> list[Path]:
+def find_raw_paths_for_date(
+    warehouse: Path,
+    date_str: str,
+    years: list[int] | None = None,
+    *,
+    stages: list[str] | None = None,
+) -> list[Path]:
     """
     Find all raw feed_live paths whose filename date segment matches date_str.
 
     date_str: YYYY-MM-DD. Filename segment is YYYYMMDD.
     years: optional list of years to scan (default: year from date_str only).
+    stages: if set (e.g. [\"regular_season\"]), only scan under warehouse/{year}/{stage}/raw/.
+            If None, scan any .../raw/ under each year (spring + regular + playoffs, etc.).
     """
     target_date = date_str.replace("-", "")
     if not target_date.isdigit() or len(target_date) != 8:
@@ -46,7 +54,15 @@ def find_raw_paths_for_date(warehouse: Path, date_str: str, years: list[int] | N
         base = warehouse / str(year)
         if not base.exists():
             continue
-        for raw_path in base.rglob("raw/*_feed_live.json*"):
+        if stages:
+            raw_iter = []
+            for st in stages:
+                rd = base / st / "raw"
+                if rd.exists():
+                    raw_iter.extend(rd.glob("game_*_feed_live.json*"))
+        else:
+            raw_iter = list(base.rglob("raw/*_feed_live.json*"))
+        for raw_path in raw_iter:
             if not (
                 raw_path.name.endswith(".json")
                 or raw_path.name.endswith(".json.gz")
@@ -192,6 +208,8 @@ def get_hrs_for_date(
     warehouse: Path,
     date_str: str,
     years: list[int] | None = None,
+    *,
+    stages: list[str] | None = None,
 ) -> list[dict]:
     """
     Load all raw feeds for the given date and return combined list of HR records.
@@ -208,7 +226,9 @@ def get_hrs_for_date(
     target_ymd = date_str.replace("-", "")
 
     # Raw paths for the target date
-    paths_today = find_raw_paths_for_date(warehouse, date_str, years=years)
+    paths_today = find_raw_paths_for_date(
+        warehouse, date_str, years=years, stages=stages
+    )
 
     # Determine which (year, stage) pairs appear on this date
     stage_pairs: set[tuple[int, str]] = set()
