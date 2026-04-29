@@ -365,6 +365,13 @@ _PITCHER_BOX_LINE_OPEN = re.compile(
 _PITCHER_BANNED_CLOSER = re.compile(
     r"(?i)(will .{0,40}(?:hold|keep working|scale)|is this the new normal|peak form or fluke|real or just a hot night|is he back)\??\s*$"
 )
+_PITCHER_WHIFF_CSW_TEMPLATE_OPEN = re.compile(
+    r"(?i)^\s*(?:\d+\s+whiffs?\s+(?:across|on|over)\s+\d+\s+pitches?|"
+    r"(?:a\s+)?\d+(?:\.\d+)?%\s+CSW\b|CSW\b|whiffs?\b)"
+)
+_PITCHER_CSW_WHIFF_FUELED = re.compile(
+    r"(?i)\b(?:csw|whiffs?)\b[^.!?]{0,90}\bfueled\b|\bfueled\b[^.!?]{0,90}\b(?:csw|whiffs?)\b"
+)
 
 
 def _first_sentence(text: str) -> str:
@@ -389,8 +396,18 @@ def _pitcher_redraft_violations(text: str, meta: dict, recent: list[str]) -> lis
     violations: list[str] = []
     if angle_id != "count_state" and _PITCHER_BANNED_FIRST_SENTENCE.search(first):
         violations.append(f"Opening used banned count-state framing: {first}")
+    if _PITCHER_WHIFF_CSW_TEMPLATE_OPEN.search(first):
+        violations.append(
+            "Opening used the repetitive whiff/CSW template. Do not open with 'N whiffs across Y pitches' "
+            "or a CSW-rate sentence; move whiffs/CSW to support."
+        )
     if _PITCHER_BOX_LINE_OPEN.search(first):
         violations.append(f"Opening is just the box line: {first}")
+    if _PITCHER_CSW_WHIFF_FUELED.search(text):
+        violations.append(
+            "Avoid template/casual causation around CSW or whiffs with 'fueled'. "
+            "State game-wide CSW/whiffs as outing support instead."
+        )
     if _PITCHER_BANNED_CLOSER.search(text.strip()):
         violations.append("Closer used banned rhetorical-doubt/template phrasing.")
     for old in recent:
@@ -622,7 +639,7 @@ def _recent_pitcher_style_context(n: int = 7) -> list[dict]:
         with get_db() as conn:
             rows = conn.execute(
                 "SELECT tweet_text, meta_json FROM content_queue "
-                "WHERE content_type = 'pitcher_card' AND status IN ('posted', 'approved') "
+                "WHERE content_type = 'pitcher_card' AND status IN ('draft', 'approved', 'posted') "
                 "ORDER BY COALESCE(posted_at, reviewed_at, created_at) DESC LIMIT ?",
                 (n,),
             ).fetchall()
@@ -1021,7 +1038,7 @@ def _get_recent_pitcher_tweets(n: int = 3) -> list[str]:
         with get_db() as conn:
             rows = conn.execute(
                 "SELECT tweet_text FROM content_queue "
-                "WHERE content_type = 'pitcher_card' AND status IN ('posted', 'approved') "
+                "WHERE content_type = 'pitcher_card' AND status IN ('draft', 'approved', 'posted') "
                 "ORDER BY created_at DESC LIMIT ?",
                 (n,),
             ).fetchall()
@@ -1070,6 +1087,11 @@ def _pitcher_angle_rotation_guardrail(recent: list[str]) -> str:
             "- Rotation hard-stop: recent posts overused CSW/whiff-first openings. "
             "Use a different primary lead (line score shape, command/efficiency, season context, or game event) "
             "and keep CSW/whiffs as support."
+        )
+    if csw_whiff_hits >= 1:
+        lines.append(
+            "- Hard opener ban: do not start with 'N whiffs across/on/over Y pitches', a raw CSW% sentence, "
+            "or any whiff/CSW-first construction. Find a different doorway into the outing."
         )
     if not lines:
         return "No recent rotation risk detected."
@@ -1135,6 +1157,9 @@ def _prompt_pitcher_card(
         "stifling, electric, filthy, dominant (as a standalone vibe word before any fact), "
         "gem, masterpiece, 'went off', or name + delivered + generic compliment. If you do not have a number or "
         "a concrete process angle in the first 8 words, rewrite the lede. Prefer: stat first, or matchup + one cold fact.\n"
+        "- Never open with the template 'N whiffs across/on/over Y pitches' or 'A X% CSW rate...'. "
+        "Even when selected_angle is whiff_csw, lead through the game shape, opponent problem, pitch-plan tension, "
+        "or box-line contrast, then cite whiffs/CSW as the support beat.\n"
         "- Banned enders (read as template AI, especially for established starters in season): rhetorical 'Was this X or Y?', "
         "'peak form or fluke', 'is he back', 'real or just a hot night', 'Will the X hold as the go-to weapon?', "
         "'Will the X keep working?', 'Is this the new normal?', 'Will it scale?' — unless the JSON explicitly encodes a comeback, "
@@ -1154,7 +1179,8 @@ def _prompt_pitcher_card(
         "Never write a sentence where a pitch type is the subject and whiffs/CSW is the predicate "
         "(e.g. 'The curveball fueled 20 whiffs' or 'It generated a 37% CSW' are BANNED — "
         "those totals are across all pitches). "
-        "Safe framing: 'He racked up 20 whiffs on the night' or '37% CSW across 100 pitches'.\n"
+        "Avoid 'fueled' around CSW/whiffs. Safe support framing: 'He racked up 20 whiffs on the night' "
+        "or '37% CSW across 100 pitches'.\n"
         "- When citing game_fast_swing_pct, call it the card BS75+ rate (swings >=75 mph bat speed / all swings).\n"
         "- BS75+ is a swing-level bat-speed share (denominator = swings). It includes whiffs and fouls — a high rate is NOT "
         "the same as hard contact or 'squaring him up.' Reserve damage/solid-contact language for when JSON supports it "
