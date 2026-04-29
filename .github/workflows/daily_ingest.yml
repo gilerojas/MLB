@@ -2,15 +2,15 @@
 #
 # How data is saved
 # -----------------
-# 1. rclone pulls the existing tree from Drive into the runner:
+# 1. rclone pulls only the target season/date window from Drive into the runner:
 #      ./data/warehouse/mlb/  (ephemeral; same layout as below)
 # 2. load_mlb_warehouse writes new/updated games under:
 #      ./data/warehouse/mlb/{MLB_SEASON}/regular_season/raw/
 #      ./data/warehouse/mlb/{MLB_SEASON}/regular_season/pitches_enriched/
 #      ./data/warehouse/mlb/{MLB_SEASON}/players_registry.json
-# 3. rclone sync pushes ./data/warehouse/mlb back to Drive at:
+# 3. rclone copy pushes new/changed local files back to Drive at:
 #      mallitalytics:MLB/warehouse/mlb/...  (remote name = env RCLONE_REMOTE)
-#    (sync = mirror: local is source of truth for that path after ingest)
+#    (copy = upload/update only; never delete remote files from a partial runner)
 #
 # Drive layout (relative to the Mallitalytics remote root / root_folder_id):
 #   MLB/warehouse/mlb/
@@ -242,26 +242,63 @@ jobs:
               > ~/.config/rclone/rclone.conf
           fi
 
-      - name: Sync warehouse from Google Drive
+      - name: Resolve ingest window
         run: |
-          mkdir -p data/warehouse/mlb
-          REMOTE="${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}"
-          echo "Pulling warehouse from ${REMOTE} ..."
-          rclone sync "$REMOTE" data/warehouse/mlb \
-            --transfers 8 \
-            --progress \
-            --stats-one-line
-          echo "Local files: $(find data/warehouse/mlb -type f | wc -l)"
-
-      - name: Run warehouse ingestion
-        run: |
-          # Manual run with empty season → use MLB_SEASON (2026). Scheduled → MLB_SEASON.
           if [[ -n "${{ github.event.inputs.season }}" ]]; then
             SEASON="${{ github.event.inputs.season }}"
           else
             SEASON="${MLB_SEASON}"
           fi
           echo "SEASON=$SEASON" >> "$GITHUB_ENV"
+
+          DATES=()
+          if [[ -n "${{ github.event.inputs.date }}" ]]; then
+            DATES+=("${{ github.event.inputs.date }}")
+          else
+            DAYS="${{ github.event.inputs.last_days }}"
+            DAYS="${DAYS:-2}"
+            for ((i=DAYS; i>=1; i--)); do
+              DATES+=("$(date -u -d "$i day ago" +%Y-%m-%d)")
+            done
+          fi
+
+          {
+            echo "+ /${SEASON}/"
+            echo "+ /${SEASON}/players_registry.json"
+            echo "+ /${SEASON}/season_context.md"
+            echo "+ /${SEASON}/schedule*"
+            echo "+ /${SEASON}/regular_season/"
+            echo "+ /${SEASON}/regular_season/raw/"
+            echo "+ /${SEASON}/regular_season/pitches_enriched/"
+            for d in "${DATES[@]}"; do
+              ymd="${d//-/}"
+              echo "+ /${SEASON}/regular_season/raw/*_${ymd}_feed_live.json*"
+              echo "+ /${SEASON}/regular_season/pitches_enriched/*_${ymd}_pitches_enriched.parquet"
+            done
+            echo "- /**"
+          } > /tmp/rclone_warehouse_filter.txt
+
+          echo "Ingest season: $SEASON"
+          echo "Ingest dates: ${DATES[*]}"
+          echo "INGEST_DATES=${DATES[*]}" >> "$GITHUB_ENV"
+          echo "RCLONE_WAREHOUSE_FILTER=/tmp/rclone_warehouse_filter.txt" >> "$GITHUB_ENV"
+          cat /tmp/rclone_warehouse_filter.txt
+
+      - name: Copy target warehouse files from Google Drive
+        run: |
+          mkdir -p data/warehouse/mlb
+          REMOTE="${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}"
+          echo "Pulling target warehouse files from ${REMOTE} ..."
+          rclone copy "$REMOTE" data/warehouse/mlb \
+            --filter-from "$RCLONE_WAREHOUSE_FILTER" \
+            --transfers 8 \
+            --checkers 16 \
+            --progress \
+            --stats-one-line
+          echo "Local files: $(find data/warehouse/mlb -type f | wc -l)"
+
+      - name: Run warehouse ingestion
+        run: |
           echo "Using season: $SEASON (regular season, game-type R)"
 
           ARGS=(--season "$SEASON" --game-type R)
@@ -299,12 +336,13 @@ jobs:
             exit 0
           fi
           REMOTE="${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}"
-          echo "Pushing warehouse to ${REMOTE} ..."
-          rclone sync data/warehouse/mlb "$REMOTE" \
+          echo "Uploading new/changed warehouse files to ${REMOTE} ..."
+          rclone copy data/warehouse/mlb "$REMOTE" \
             --transfers 8 \
+            --checkers 16 \
             --progress \
             --stats-one-line
-          echo "Sync complete."
+          echo "Upload complete."
 
       - name: Print summary
         if: always()
