@@ -21,6 +21,19 @@ if str(_REPO_ROOT) not in sys.path:
 
 from src.ingestion.mlb_warehouse_schema import BASE_URL, SPORT_ID_MLB, GAME_TYPE_TO_STAGE
 
+_NON_PLAYED_FINAL_STATES = {
+    "postponed",
+    "suspended",
+    "cancelled",
+    "canceled",
+}
+_PLAYED_FINAL_STATES = {
+    "final",
+    "game over",
+    "completed early",
+    "final: tied",
+}
+
 
 def _stage(game_type: str) -> str:
     return GAME_TYPE_TO_STAGE.get((game_type or "R").strip().upper(), "regular_season")
@@ -36,8 +49,25 @@ def _dates_from_args(args: argparse.Namespace) -> list[str]:
     ]
 
 
-def _fetch_final_games(season: int, game_type: str, dates: list[str]) -> list[dict]:
+def _is_played_final_game(game: dict) -> bool:
+    status = game.get("status") or {}
+    abstract = str(status.get("abstractGameState") or "").strip().lower()
+    detailed = str(status.get("detailedState") or "").strip().lower()
+    status_code = str(status.get("statusCode") or "").strip().upper()
+    coded = str(status.get("codedGameState") or "").strip().upper()
+
+    if detailed in _NON_PLAYED_FINAL_STATES:
+        return False
+    if status_code in {"DR", "DI", "S", "C"} or coded in {"D", "S", "C"}:
+        return False
+    if detailed in _PLAYED_FINAL_STATES:
+        return True
+    return abstract == "final"
+
+
+def _fetch_games(season: int, game_type: str, dates: list[str]) -> tuple[list[dict], list[dict]]:
     games_by_pk: dict[int, dict] = {}
+    skipped_by_pk: dict[int, dict] = {}
     gt = (game_type or "R").strip().upper()
     for d in dates:
         resp = requests.get(
@@ -56,10 +86,14 @@ def _fetch_final_games(season: int, game_type: str, dates: list[str]) -> list[di
                         continue
                 except (TypeError, ValueError):
                     continue
-                if (game.get("status") or {}).get("abstractGameState") != "Final":
+                if _is_played_final_game(game):
+                    games_by_pk[int(game["gamePk"])] = game
                     continue
-                games_by_pk[int(game["gamePk"])] = game
-    return list(games_by_pk.values())
+                status = game.get("status") or {}
+                if str(status.get("abstractGameState") or "").strip().lower() == "final":
+                    skipped_by_pk[int(game["gamePk"])] = game
+                    continue
+    return list(games_by_pk.values()), list(skipped_by_pk.values())
 
 
 def _exists_raw(raw_dir: Path, game_pk: int, ymd: str) -> bool:
@@ -94,7 +128,7 @@ def main() -> int:
 
     dates = _dates_from_args(args)
     stage = _stage(args.game_type)
-    games = _fetch_final_games(args.season, args.game_type, dates)
+    games, skipped_games = _fetch_games(args.season, args.game_type, dates)
     raw_dir = args.warehouse / str(args.season) / stage / "raw"
     pq_dir = args.warehouse / str(args.season) / stage / "pitches_enriched"
 
@@ -127,11 +161,23 @@ def main() -> int:
         f"- Stage: `{stage}`",
         f"- Dates: `{', '.join(dates)}`",
         f"- Final games expected: `{len(games)}`",
+        f"- Skipped postponed/suspended/cancelled finals: `{len(skipped_games)}`",
         f"- Complete raw + parquet: `{ok}`",
         f"- Missing raw: `{len(missing_raw)}`",
         f"- Missing pitches_enriched: `{len(missing_parquet)}`",
         "",
     ]
+    if skipped_games:
+        lines.append("## Skipped Non-Played Final States")
+        for game in sorted(skipped_games, key=lambda g: (g.get("officialDate", ""), int(g.get("gamePk") or 0))):
+            status = game.get("status") or {}
+            reason = status.get("reason")
+            suffix = f" ({reason})" if reason else ""
+            lines.append(
+                f"- `{game.get('officialDate')}` game `{game.get('gamePk')}`: "
+                f"{_team_names(game)} — {status.get('detailedState') or 'non-played final'}{suffix}"
+            )
+        lines.append("")
     if missing_raw:
         lines.append("## Missing Raw Feeds")
         for row in missing_raw:

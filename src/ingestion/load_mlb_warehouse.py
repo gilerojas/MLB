@@ -75,8 +75,19 @@ def get_stage_from_game_type(game_type: str) -> str:
 
 
 def is_game_final(g: dict) -> bool:
-    """True si el juego ya terminó (no Scheduled/Preview). Evita descargar feeds de juegos futuros."""
-    return (g.get("status") or {}).get("abstractGameState") == "Final"
+    """True for played final games; false for scheduled, postponed, suspended, cancelled."""
+    status = g.get("status") or {}
+    abstract = str(status.get("abstractGameState") or "").strip().lower()
+    detailed = str(status.get("detailedState") or "").strip().lower()
+    status_code = str(status.get("statusCode") or "").strip().upper()
+    coded = str(status.get("codedGameState") or "").strip().upper()
+    if detailed in {"postponed", "suspended", "cancelled", "canceled"}:
+        return False
+    if status_code in {"DR", "DI", "S", "C"} or coded in {"D", "S", "C"}:
+        return False
+    if detailed in {"final", "game over", "completed early", "final: tied"}:
+        return True
+    return abstract == "final"
 
 
 def fetch_schedule(season: int, game_type: str) -> list[dict]:
