@@ -1544,7 +1544,12 @@ def _redraft_item_sync(item_id: int, provider: str) -> dict:
                 "model": model,
                 "generated_at": datetime.utcnow().isoformat(),
             }
-            updated_meta = {**parsed, "redraft_style": style}
+            updated_meta = {
+                **parsed,
+                "redraft_style": style,
+                "ai_assisted": True,
+                "creation_mode": "ai_assisted",
+            }
             update_queue_item(item_id, meta_json=json.dumps(updated_meta, default=str))
         return {"tweet_text": out, "model": model, "provider": provider}
     except HTTPException:

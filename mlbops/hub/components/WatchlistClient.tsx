@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 type Player = {
   player_id: number;
@@ -93,7 +93,7 @@ export default function WatchlistClient() {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await fetch(`${base}/watchlist`, {
+      const res = await secureFetch(`${base}/watchlist`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

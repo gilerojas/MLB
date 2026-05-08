@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { MalliBrandMark } from "@/components/MalliBrandMark";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, resetCsrfTokenCache, secureFetch } from "@/lib/api";
 
 /** Subnav: real routes — LIVE = dashboard, SCHEDULE, TRANSACTIONS = intel feed. */
 const SUBNAV = [
@@ -65,7 +65,15 @@ function PipelineReadinessLink() {
 
 export function HubTopBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const crumbLeaf = hubBreadcrumbLeaf(pathname);
+
+  async function logout() {
+    await secureFetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    resetCsrfTokenCache();
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <header className="hidden lg:flex items-center justify-between shrink-0 px-6 py-4 w-full bg-background border-b border-outline">
@@ -135,12 +143,14 @@ export function HubTopBar() {
           >
             notifications
           </span>
-          <span
-            className="material-symbols-outlined text-slate-400 text-xl cursor-default"
-            aria-hidden
+          <button
+            type="button"
+            onClick={logout}
+            className="material-symbols-outlined text-slate-400 text-xl hover:text-foreground"
+            aria-label="Log out"
           >
-            account_circle
-          </span>
+            logout
+          </button>
         </div>
       </div>
     </header>

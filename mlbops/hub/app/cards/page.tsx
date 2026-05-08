@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -197,7 +197,7 @@ export default function CardsPage() {
         };
       }
 
-      const r = await fetch(endpoint, {
+      const r = await secureFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

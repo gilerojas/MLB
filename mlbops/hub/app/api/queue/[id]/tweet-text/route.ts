@@ -4,6 +4,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getQueueItem, updateQueueItem } from "@/lib/db";
+import { auditFromRequest, rateLimit, requireCsrf } from "@/lib/security";
 import {
   getTweetMaxCharsFromEnv,
   truncateTweetTextToCap,
@@ -13,6 +14,11 @@ export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const csrf = await requireCsrf(req);
+  if (csrf instanceof NextResponse) return csrf;
+  const limited = await rateLimit(req, "tweet_text_save", 120, 60_000);
+  if (limited) return limited;
+
   const params = await context.params;
   const id = parseInt(params.id, 10);
   if (isNaN(id)) {
@@ -31,5 +37,6 @@ export async function PATCH(
 
   const cap = getTweetMaxCharsFromEnv();
   updateQueueItem(id, { tweet_text: truncateTweetTextToCap(tweet_text, cap) });
+  await auditFromRequest(req, "tweet_text_save", "success", undefined, id);
   return NextResponse.json({ success: true });
 }

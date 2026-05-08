@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 // ── types (mirror FastAPI schemas in mlbops/api/routers/live.py) ─────────────
 
@@ -154,7 +154,7 @@ export default function LiveEventsClient() {
     setScanning(true);
     setMsg(null);
     try {
-      const res = await fetch(`${api}/live/scan?date=${date}`, { method: "POST" });
+      const res = await secureFetch(`${api}/live/scan?date=${date}`, { method: "POST" });
       if (!res.ok) {
         const body = await res.text();
         throw new Error(body || `scan ${res.status}`);
@@ -182,7 +182,7 @@ export default function LiveEventsClient() {
 
   const queueEvent = async (id: number) => {
     try {
-      const res = await fetch(`${api}/live/events/${id}/queue`, { method: "POST" });
+      const res = await secureFetch(`${api}/live/events/${id}/queue`, { method: "POST" });
       if (!res.ok) throw new Error(`${res.status}`);
       const updated = (await res.json()) as LiveEvent;
       setEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));
@@ -197,7 +197,7 @@ export default function LiveEventsClient() {
 
   const dismissEvent = async (id: number) => {
     try {
-      const res = await fetch(`${api}/live/events/${id}/dismiss`, { method: "POST" });
+      const res = await secureFetch(`${api}/live/events/${id}/dismiss`, { method: "POST" });
       if (!res.ok) throw new Error(`${res.status}`);
       const updated = (await res.json()) as LiveEvent;
       setEvents((prev) => prev.map((e) => (e.id === id ? updated : e)));

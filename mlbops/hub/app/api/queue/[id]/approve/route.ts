@@ -3,13 +3,19 @@
  * Uploads the card image to Twitter, posts the tweet, updates the DB.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getQueueItem, updateQueueItem } from "@/lib/db";
+import { getQueueItem, mergeQueueMeta, updateQueueItem } from "@/lib/db";
+import { auditFromRequest, rateLimit, requireCsrf } from "@/lib/security";
 import { postTweet, uploadMedia } from "@/lib/twitter";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const csrf = await requireCsrf(req);
+  if (csrf instanceof NextResponse) return csrf;
+  const limited = await rateLimit(req, "queue_post", 12, 60_000);
+  if (limited) return limited;
+
   const params = await context.params;
   const id = parseInt(params.id, 10);
   if (isNaN(id)) {
@@ -31,6 +37,7 @@ export async function POST(
   }
 
   try {
+    await auditFromRequest(req, "queue_post_attempt", "success", undefined, id);
     let mediaId: string | undefined;
 
     if (item.image_path) {
@@ -43,6 +50,7 @@ export async function POST(
           error_message: String(uploadErr),
           reviewed_at: new Date().toISOString(),
         });
+        await auditFromRequest(req, "queue_post_media_upload", "failed", { detail: String(uploadErr) }, id);
         return NextResponse.json(
           { error: "Media upload failed", detail: String(uploadErr) },
           { status: 502 }
@@ -61,6 +69,11 @@ export async function POST(
       posted_at: new Date().toISOString(),
       reviewed_at: new Date().toISOString(),
     });
+    mergeQueueMeta(id, {
+      posted_via: req.headers.get("user-agent")?.toLowerCase().includes("mobile") ? "mobile" : "desktop",
+      posted_source: "hub",
+    });
+    await auditFromRequest(req, "queue_post", "success", { tweet_id: tweetId }, id);
 
     return NextResponse.json({ success: true, tweet_id: tweetId, tweet_url: tweetUrl });
   } catch (err) {
@@ -70,6 +83,7 @@ export async function POST(
       error_message: String(err),
       reviewed_at: new Date().toISOString(),
     });
+    await auditFromRequest(req, "queue_post", "failed", { detail: String(err) }, id);
     return NextResponse.json(
       { error: "Tweet post failed", detail: String(err) },
       { status: 502 }

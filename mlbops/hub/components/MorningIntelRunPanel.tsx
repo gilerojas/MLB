@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 type PathsInfo = { intel_run_allowed?: boolean };
 
@@ -57,7 +57,7 @@ export function MorningIntelRunPanel({
         skip_claude: !fullPipeline,
         skip_cards: !fullPipeline,
       };
-      const res = await fetch(`${getApiBase()}/intel/run`, {
+      const res = await secureFetch(`${getApiBase()}/intel/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(body),

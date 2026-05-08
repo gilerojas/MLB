@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 type Severity = "ok" | "warn" | "block";
 type CheckAction = "sync_drive" | "run_intel" | "open_settings" | "open_docs" | "ingest" | null;
@@ -62,7 +62,7 @@ export function PipelineChecklist() {
     setBusy("intel");
     setMsg(null);
     try {
-      const res = await fetch(`${api}/intel/run`, {
+      const res = await secureFetch(`${api}/intel/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
@@ -95,7 +95,7 @@ export function PipelineChecklist() {
     setBusy("sync");
     setMsg(null);
     try {
-      const res = await fetch(`${api}/system/sync-drive`, { method: "POST" });
+      const res = await secureFetch(`${api}/system/sync-drive`, { method: "POST" });
       if (res.status === 403) {
         setMsg("Sync disabled: set MLBOPS_ALLOW_INTEL_RUN=1 on the API.");
         return;

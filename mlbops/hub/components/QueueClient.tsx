@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { QueueItem } from "@/lib/db";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 const STATUS_TABS = ["draft", "all", "approved", "posted", "rejected", "failed"] as const;
 type StatusTab = (typeof STATUS_TABS)[number];
@@ -23,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 function apiDownMessage(apiBase: string): string {
-  return `Cannot reach the MLB Ops API at ${apiBase}. Start FastAPI on port 8000 (e.g. ./start_hub.sh from the MLB repo root). If you only ran npm run dev, the API is not up. Open the hub at http://127.0.0.1:3000 (or your port) so the browser targets 127.0.0.1:8000.`;
+  return `Cannot reach the MLB Ops API through ${apiBase}. Start the full hub from the MLB repo root with ./scripts/start_mlbops.sh, or use ./scripts/start_mlbops_travel.sh before Tailscale Serve.`;
 }
 
 const CONTENT_TYPE_LABEL: Record<string, string> = {
@@ -33,6 +33,7 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   games_of_day:     "Games of Day",
   probables_board:  "Probables board",
   insight_tile:     "Insight",
+  text_only:         "Text post",
   live_event:       "Live event",
 };
 
@@ -47,6 +48,14 @@ function CharCounter({ text, max }: { text: string; max: number }) {
     </span>
   );
 }
+
+type StreakStats = {
+  posted_today: number;
+  weekly_total: number;
+  current_streak: number;
+  longest_streak: number;
+  manual_ratio: number;
+};
 
 function parseMeta(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -64,7 +73,7 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
     setBusy(type);
     setMsg(null);
     try {
-      const res = await fetch(`${api}/cards/${type}`, {
+      const res = await secureFetch(`${api}/cards/${type}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -228,6 +237,11 @@ export default function QueueClient() {
   const [actionStatus, setActionStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [tweetMaxChars, setTweetMaxChars] = useState(10_000);
   const [apiUnreachable, setApiUnreachable] = useState<string | null>(null);
+  const [quickText, setQuickText] = useState("");
+  const [quickBusy, setQuickBusy] = useState(false);
+  const [quickMsg, setQuickMsg] = useState<string | null>(null);
+  const [streaks, setStreaks] = useState<StreakStats | null>(null);
+  const [showPrompts, setShowPrompts] = useState(false);
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
   const selectedMeta = useMemo(() => parseMeta(selectedItem?.meta_json ?? null), [selectedItem?.meta_json]);
@@ -244,6 +258,16 @@ export default function QueueClient() {
     }
   }, [api]);
 
+  const fetchStreaks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/queue/streaks", { cache: "no-store" });
+      if (!res.ok) return;
+      setStreaks((await res.json()) as StreakStats);
+    } catch {
+      /* optional dashboard metric */
+    }
+  }, []);
+
   const fetchItems = useCallback(async (tab: StatusTab, sort: string) => {
     const [col, ord] = sort.split(":");
     const params = new URLSearchParams({ limit: "50", sort_by: col, order: ord });
@@ -259,7 +283,10 @@ export default function QueueClient() {
     }
   }, [api]);
 
-  useEffect(() => { fetchSummary(); }, [fetchSummary]);
+  useEffect(() => {
+    fetchSummary();
+    fetchStreaks();
+  }, [fetchSummary, fetchStreaks]);
 
   useEffect(() => {
     let cancelled = false;
@@ -289,7 +316,7 @@ export default function QueueClient() {
 
   async function saveTweetText() {
     if (!selectedId) return;
-    await fetch(`/api/queue/${selectedId}/tweet-text`, {
+    await secureFetch(`/api/queue/${selectedId}/tweet-text`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tweet_text: tweetText }),
@@ -301,7 +328,7 @@ export default function QueueClient() {
     setRedraftLoading(true);
     setActionStatus(null);
     try {
-      const res = await fetch(`${api}/queue/${selectedId}/redraft?provider=${provider}`, { method: "POST" });
+      const res = await secureFetch(`${api}/queue/${selectedId}/redraft?provider=${provider}`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
         setActionStatus({ type: "error", msg: typeof data.detail === "string" ? data.detail : "Redraft failed." });
@@ -322,12 +349,17 @@ export default function QueueClient() {
     setActionStatus(null);
     try {
       await saveTweetText();
-      const res = await fetch(`/api/queue/${selectedId}/approve`, { method: "POST" });
+      const needsConfirm = Boolean(
+        selectedItem?.image_path || selectedMeta?.ai_assisted === true || selectedMeta?.creation_mode === "ai_assisted"
+      );
+      if (needsConfirm && !window.confirm("Post this reviewed draft to X?")) return;
+      const res = await secureFetch(`/api/queue/${selectedId}/approve`, { method: "POST" });
       const data = await res.json();
       if (res.ok) {
         setActionStatus({ type: "success", msg: `Posted!${data.tweet_url ? " " + data.tweet_url : ""}` });
         await fetchItems(activeTab, sortVal);
         await fetchSummary();
+        await fetchStreaks();
         setSelectedId(null);
       } else {
         setActionStatus({ type: "error", msg: data.error || "Post failed." });
@@ -342,7 +374,7 @@ export default function QueueClient() {
     setLoading(true);
     setActionStatus(null);
     try {
-      const res = await fetch(`/api/queue/${selectedId}/reject`, { method: "POST" });
+      const res = await secureFetch(`/api/queue/${selectedId}/reject`, { method: "POST" });
       const data = await res.json();
       if (res.ok) {
         setActionStatus({ type: "success", msg: "Rejected." });
@@ -362,8 +394,110 @@ export default function QueueClient() {
     fetchSummary();
   }
 
+  async function handleQuickPost() {
+    const text = quickText.trim();
+    if (!text) return;
+    setQuickBusy(true);
+    setQuickMsg(null);
+    try {
+      const res = await secureFetch("/api/queue/quick-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tweet_text: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setQuickMsg(typeof data.error === "string" ? data.error : "Could not save draft.");
+        return;
+      }
+      setQuickText("");
+      setQuickMsg("Saved as a manual draft.");
+      await fetchItems(activeTab, sortVal);
+      await fetchSummary();
+      if (typeof data.id === "number") setSelectedId(data.id);
+    } finally {
+      setQuickBusy(false);
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0 min-h-[calc(100dvh-12rem)] lg:min-h-[calc(100dvh-10rem)]">
+      <section className="border-b border-outline-variant/30 bg-surface-container px-4 lg:px-6 py-4">
+        <div className="max-w-5xl mx-auto grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <div>
+                <p className="text-xs font-mono uppercase tracking-widest text-accent">Write Now</p>
+                <h2 className="text-lg font-headline font-bold text-foreground">Manual-first post</h2>
+              </div>
+              {streaks && (
+                <div className="grid grid-cols-3 gap-2 text-center shrink-0">
+                  <div className="border border-outline-variant/40 bg-surface px-2 py-1">
+                    <p className="text-[10px] font-mono text-dim uppercase">Today</p>
+                    <p className="text-lg font-headline font-bold text-foreground">{streaks.posted_today}</p>
+                  </div>
+                  <div className="border border-outline-variant/40 bg-surface px-2 py-1">
+                    <p className="text-[10px] font-mono text-dim uppercase">Streak</p>
+                    <p className="text-lg font-headline font-bold text-accent">{streaks.current_streak}</p>
+                  </div>
+                  <div className="border border-outline-variant/40 bg-surface px-2 py-1">
+                    <p className="text-[10px] font-mono text-dim uppercase">Manual</p>
+                    <p className="text-lg font-headline font-bold text-success">{streaks.manual_ratio}%</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            <textarea
+              className="w-full min-h-[132px] border border-outline-variant/50 focus:border-accent bg-surface-lowest text-foreground px-3 py-3 text-base leading-relaxed outline-none resize-y"
+              value={quickText}
+              onChange={(e) => setQuickText(e.target.value)}
+              placeholder="What did you notice?"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowPrompts((v) => !v)}
+                className="text-xs font-mono uppercase text-muted hover:text-foreground"
+              >
+                Need a nudge?
+              </button>
+              <div className="flex items-center gap-3">
+                <CharCounter text={quickText} max={tweetMaxChars} />
+                <button
+                  type="button"
+                  onClick={handleQuickPost}
+                  disabled={quickBusy || !quickText.trim() || quickText.length > tweetMaxChars}
+                  className="px-4 py-2 bg-accent text-[#552000] font-headline font-bold uppercase tracking-widest text-xs disabled:opacity-40"
+                >
+                  {quickBusy ? "Saving..." : "Save draft"}
+                </button>
+              </div>
+            </div>
+            {showPrompts && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {["What surprised you?", "One sentence before checking stats.", "What would you tell another fan?", "What changed your mind?"].map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => setQuickText((t) => (t ? `${t}\n\n${prompt} ` : `${prompt} `))}
+                    className="px-2 py-1 border border-outline-variant/50 bg-surface text-xs text-muted hover:text-foreground"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            )}
+            {quickMsg && <p className="mt-2 text-xs font-mono text-success">{quickMsg}</p>}
+          </div>
+          {streaks && (
+            <div className="hidden lg:block border border-outline-variant/40 bg-surface p-3 min-w-44">
+              <p className="text-xs font-mono uppercase text-dim">Week</p>
+              <p className="text-2xl font-headline font-bold text-foreground">{streaks.weekly_total}</p>
+              <p className="text-xs text-dim">Longest streak: {streaks.longest_streak}</p>
+            </div>
+          )}
+        </div>
+      </section>
       <GenerateToolbar onGenerated={handleGenerated} />
 
       {apiUnreachable ? (
@@ -449,24 +583,29 @@ export default function QueueClient() {
                 </div>
                 <div className="flex flex-wrap gap-2 items-start">
                   {selectedItem.status === "draft" && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleRedraft("claude")}
-                        disabled={redraftLoading}
-                        className="px-4 py-2 border border-outline text-sm font-mono uppercase hover:bg-surface-hover transition-colors disabled:opacity-40"
-                      >
-                        {redraftLoading ? "…" : "Redraft (Claude)"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRedraft("grok")}
-                        disabled={redraftLoading}
-                        className="px-4 py-2 border border-outline text-sm font-mono uppercase hover:bg-surface-hover transition-colors disabled:opacity-40"
-                      >
-                        {redraftLoading ? "…" : "Redraft (Grok)"}
-                      </button>
-                    </>
+                    <details className="relative">
+                      <summary className="cursor-pointer px-3 py-2 border border-outline text-sm font-mono uppercase hover:bg-surface-hover transition-colors">
+                        Need a nudge?
+                      </summary>
+                      <div className="absolute right-0 z-10 mt-1 w-48 border border-outline-variant bg-surface p-2 space-y-2 shadow-xl">
+                        <button
+                          type="button"
+                          onClick={() => handleRedraft("claude")}
+                          disabled={redraftLoading}
+                          className="w-full px-3 py-2 border border-outline text-xs font-mono uppercase hover:bg-surface-hover transition-colors disabled:opacity-40"
+                        >
+                          {redraftLoading ? "…" : "Claude redraft"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRedraft("grok")}
+                          disabled={redraftLoading}
+                          className="w-full px-3 py-2 border border-outline text-xs font-mono uppercase hover:bg-surface-hover transition-colors disabled:opacity-40"
+                        >
+                          {redraftLoading ? "…" : "Grok redraft"}
+                        </button>
+                      </div>
+                    </details>
                   )}
                   <span
                     className={`text-xs px-2 py-1 border font-mono uppercase font-bold shrink-0 ${

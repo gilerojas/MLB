@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 
 export type InsightQueuePayload = {
   title: string;
@@ -27,7 +27,7 @@ export function InsightQueueButton({
     try {
       const api = getApiBase();
       const body = buildPayload();
-      const res = await fetch(`${api}/queue/insight-draft`, {
+      const res = await secureFetch(`${api}/queue/insight-draft`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

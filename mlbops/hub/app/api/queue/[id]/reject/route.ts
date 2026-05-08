@@ -4,11 +4,17 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { getQueueItem, updateQueueItem } from "@/lib/db";
+import { auditFromRequest, rateLimit, requireCsrf } from "@/lib/security";
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const csrf = await requireCsrf(req);
+  if (csrf instanceof NextResponse) return csrf;
+  const limited = await rateLimit(req, "queue_reject", 60, 60_000);
+  if (limited) return limited;
+
   const params = await context.params;
   const id = parseInt(params.id, 10);
   if (isNaN(id)) {
@@ -31,5 +37,6 @@ export async function POST(
     reviewed_at: new Date().toISOString(),
   });
 
+  await auditFromRequest(req, "queue_reject", "success", undefined, id);
   return NextResponse.json({ success: true, id });
 }

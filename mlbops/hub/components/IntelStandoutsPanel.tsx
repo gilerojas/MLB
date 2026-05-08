@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchJson, getApiBase } from "@/lib/api";
+import { fetchJson, getApiBase, secureFetch } from "@/lib/api";
 
 type WindowKey = "yesterday" | "7d" | "14d" | "month";
 
@@ -105,7 +105,7 @@ export function IntelStandoutsPanel() {
     setGen((prev) => ({ ...prev, [key]: { status: "generating" } }));
     const base = getApiBase();
     try {
-      const r = await fetch(`${base}/cards/pitcher`, {
+      const r = await secureFetch(`${base}/cards/pitcher`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -165,7 +165,7 @@ export function IntelStandoutsPanel() {
       if (row.feed_path) payload.feed_path = row.feed_path;
       else if (row.parquet_path) payload.parquet_path = row.parquet_path;
       else payload.game_date = row.game_date;
-      const r = await fetch(`${base}/cards/batter`, {
+      const r = await secureFetch(`${base}/cards/batter`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

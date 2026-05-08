@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, secureFetch } from "@/lib/api";
 import type { WatchlistPlayer } from "@/lib/db";
 
 export default function SettingsPage() {
@@ -26,7 +26,7 @@ export default function SettingsPage() {
     setNotifyLoading(true);
     setNotifyStatus(null);
     try {
-      const res = await fetch("/api/notify", {
+      const res = await secureFetch("/api/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "digest" }),
@@ -47,7 +47,7 @@ export default function SettingsPage() {
     setSyncStatus(null);
     setSyncLines([]);
     try {
-      const res = await fetch(`${api}/system/sync-drive`, { method: "POST" });
+      const res = await secureFetch(`${api}/system/sync-drive`, { method: "POST" });
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "Sync failed.");
         setSyncStatus({ ok: false });

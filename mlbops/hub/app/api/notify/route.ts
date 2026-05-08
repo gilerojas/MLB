@@ -7,8 +7,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getQueueCounts, getQueueByStatus, getRecentPosted } from "@/lib/db";
 import { sendMorningDigest } from "@/lib/resend";
 import { sendMorningDigestWhatsApp } from "@/lib/twilio";
+import { auditFromRequest, rateLimit, requireCsrf } from "@/lib/security";
 
 export async function POST(req: NextRequest) {
+  const csrf = await requireCsrf(req);
+  if (csrf instanceof NextResponse) return csrf;
+  const limited = await rateLimit(req, "notify", 6, 60_000);
+  if (limited) return limited;
+
   const { type = "digest" } = await req.json().catch(() => ({}));
 
   if (type === "digest") {
@@ -67,6 +73,7 @@ export async function POST(req: NextRequest) {
         console.error("WhatsApp digest failed:", waErr);
       }
 
+      await auditFromRequest(req, "notify_digest", "success", { type });
       return NextResponse.json({
         success: true,
         email_id: emailId,
@@ -74,6 +81,7 @@ export async function POST(req: NextRequest) {
         drafts_count: drafts.length,
       });
     } catch (err) {
+      await auditFromRequest(req, "notify_digest", "failed", { detail: String(err) });
       return NextResponse.json(
         { error: "Notification failed", detail: String(err) },
         { status: 500 }
@@ -81,5 +89,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  await auditFromRequest(req, "notify_digest", "failed", { type });
   return NextResponse.json({ error: "Unknown type" }, { status: 400 });
 }
