@@ -1391,7 +1391,7 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
     col11  = "BS75+%" if _has_bs75 else "Zone%"
     last_col = "xwOBA*" if _has_xwoba else "HH%*"
 
-    COLS   = ["Pitch", "#", "Pitch%", "Velo", "Spin", "Ext.", "HB", "IVB", "Chase%", "Whiff%", "Str%", col11, last_col]
+    COLS   = ["Pitch", "#", "Pitch%", "Velo", "Spin", "Ext.", "HB", "IVB", "Chase%", "Whiffs", "Str%", col11, last_col]
     WIDTHS = [0.178, 0.044, 0.060, 0.060, 0.056, 0.052, 0.062, 0.062, 0.064, 0.064, 0.064, 0.064, 0.082]
     WIDTHS = [w / sum(WIDTHS) for w in WIDTHS]
 
@@ -1432,9 +1432,10 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
     rows = []
     for _, r in arsenal.iterrows():
         hb_str, ivb_str = _fmt_movement(r['pfx_x'], r['pfx_z'], hand)
-        rows.append(dict(name=r['name'], count=int(r['count']), pct=f"{r['usage_pct']:.1%}", velo=f"{r['velo']:.1f}" if _safe(r['velo']) else "--", spin=f"{r['spin']:.0f}" if _safe(r.get('spin', np.nan)) else "--", ext=f"{r['extension']:.1f}" if _safe(r.get('extension', np.nan)) else "--", hb=hb_str, ivb=ivb_str, raw_whiff=r['whiff_pct'], raw_str=r.get('str_pct', np.nan), raw_chase=r.get('chase_pct', np.nan), raw_zone=r['zone_pct'], raw_xwoba=r['xwoba'], raw_hh_pct=r.get('hard_hit_pct', np.nan), raw_fast_swing=r.get('fast_swing_pct', np.nan), colour=r['colour'], is_all=False))
+        rows.append(dict(name=r['name'], count=int(r['count']), pct=f"{r['usage_pct']:.1%}", velo=f"{r['velo']:.1f}" if _safe(r['velo']) else "--", spin=f"{r['spin']:.0f}" if _safe(r.get('spin', np.nan)) else "--", ext=f"{r['extension']:.1f}" if _safe(r.get('extension', np.nan)) else "--", hb=hb_str, ivb=ivb_str, raw_whiff=r['whiff_pct'], whiffs=int(r.get('whiff', 0) or 0), raw_str=r.get('str_pct', np.nan), raw_chase=r.get('chase_pct', np.nan), raw_zone=r['zone_pct'], raw_xwoba=r['xwoba'], raw_hh_pct=r.get('hard_hit_pct', np.nan), raw_fast_swing=r.get('fast_swing_pct', np.nan), colour=r['colour'], is_all=False))
     # All row: show the full pitch count from the header so numbers stay consistent (even if some rare pitch types are filtered out by MIN_PITCHES)
     rows.append(dict(name='All', count=int(box['total_pitches']), pct='100%', velo='--', spin='--', ext='--', hb='--', ivb='--',
+                     whiffs=int(arsenal['whiff'].sum()) if 'whiff' in arsenal.columns else int(box.get('whiffs', 0) or 0),
                      raw_whiff=aw, raw_str=astr, raw_chase=ach, raw_zone=az, raw_xwoba=axw,
                      raw_hh_pct=ahh, raw_fast_swing=all_fast_swing_pct, colour=PALETTE["text_lo"], is_all=True))
 
@@ -1555,7 +1556,7 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
 
             elif ci == 9:
                 wv = row['raw_whiff']
-                vs = f"{wv:.0%}" if _safe(wv) else "--"
+                vs = str(row.get('whiffs', 0)) if _safe(wv) else "--"
                 if vs != "--" and not row['is_all']:
                     bc = _grad_color(wv, whiff_range[0], whiff_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
                     tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
@@ -1679,7 +1680,7 @@ def plot_footer(ax, card_flags=None):
     else:
         notes.append("* HH%: hard-hit balls in play (EV \u2265 95 mph) as share of BIP \u2014 lower is better")
     notes.append("* Hard contact: EV \u2265 95 mph or xwOBA \u2265 0.350")
-    notes.append("* Chase% & Whiff%: whiffs and chases as a share of swings; Str% & Zone% use pitches")
+    notes.append("* Whiffs: pitch-level whiff count; Chase% and whiff shading use swings; Str% & Zone% use pitches")
     if card_flags.get('has_bs75', True):
         notes.append("* BS75+%: swings with bat speed \u2265 75 mph \u00f7 swings (Statcast)")
 
@@ -2018,6 +2019,7 @@ def _arsenal_rows_json(arsenal: pd.DataFrame) -> list[dict]:
         "pitch_type",
         "name",
         "count",
+        "whiff",
         "usage_pct",
         "velo",
         "whiff_pct",
@@ -2041,6 +2043,8 @@ def _arsenal_rows_json(arsenal: pd.DataFrame) -> list[dict]:
                 d[c] = str(val) if val is not None and not pd.isna(val) else None
             elif c == "count":
                 d[c] = int(val) if not pd.isna(val) else None
+            elif c == "whiff":
+                d["whiffs"] = int(val) if not pd.isna(val) else None
             elif c in ("usage_pct", "whiff_pct", "zone_pct", "chase_pct", "str_pct", "gb_pct", "fast_swing_pct"):
                 d[c] = _json_scalar_float(val, 4)
             else:
