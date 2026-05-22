@@ -282,6 +282,7 @@ jobs:
           echo "Ingest dates: ${DATES[*]}"
           echo "INGEST_DATES=${DATES[*]}" >> "$GITHUB_ENV"
           echo "RCLONE_WAREHOUSE_FILTER=/tmp/rclone_warehouse_filter.txt" >> "$GITHUB_ENV"
+          echo "VALIDATION_REPORT_PATH=data/warehouse/mlb/${SEASON}/regular_season/validation/daily_ingest_validation_report_${{ github.run_id }}.md" >> "$GITHUB_ENV"
           cat /tmp/rclone_warehouse_filter.txt
 
       - name: Copy target warehouse files from Google Drive
@@ -318,15 +319,32 @@ jobs:
 
       - name: Validate daily ingest completeness
         run: |
-          ARGS=(--season "$SEASON" --game-type R --warehouse data/warehouse/mlb)
+          ARGS=(--season "$SEASON" --game-type R --warehouse data/warehouse/mlb --report "$VALIDATION_REPORT_PATH")
           if [[ -n "${{ github.event.inputs.date }}" ]]; then
             ARGS+=(--dates "${{ github.event.inputs.date }}")
           else
             DAYS="${{ github.event.inputs.last_days }}"
             ARGS+=(--last-days "${DAYS:-2}")
+            ARGS+=(--allow-latest-statcast-lag-hours 48)
           fi
           echo "Running: python scripts/validate_daily_ingest.py ${ARGS[*]}"
           python scripts/validate_daily_ingest.py "${ARGS[@]}"
+
+      - name: Publish validation report into warehouse
+        if: always()
+        run: |
+          YEAR="${SEASON:-$(date -u +%Y)}"
+          OUTDIR="data/warehouse/mlb/$YEAR/regular_season/validation"
+          mkdir -p "$OUTDIR"
+          REPORT="${VALIDATION_REPORT_PATH:-data/daily_ingest_validation_report.md}"
+          if [ -f "$REPORT" ]; then
+            cp "$REPORT" "$OUTDIR/latest_daily_ingest_validation_report.md"
+            echo "Validation report available at:"
+            echo "  $REPORT"
+            echo "  $OUTDIR/latest_daily_ingest_validation_report.md"
+          else
+            echo "::warning::Validation report not found at $REPORT"
+          fi
 
       - name: Sync warehouse to Google Drive
         if: always()
@@ -361,7 +379,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          REPORT="data/daily_ingest_validation_report.md"
+          REPORT="${VALIDATION_REPORT_PATH:-data/daily_ingest_validation_report.md}"
           if [ ! -f "$REPORT" ]; then
             REPORT="/tmp/daily_ingest_validation_report.md"
             {
@@ -397,7 +415,7 @@ jobs:
           import pathlib
           import urllib.request
 
-          report_path = pathlib.Path("data/daily_ingest_validation_report.md")
+          report_path = pathlib.Path(os.environ.get("VALIDATION_REPORT_PATH") or "data/daily_ingest_validation_report.md")
           report = report_path.read_text(encoding="utf-8") if report_path.is_file() else "Daily ingest failed before validation report was created."
           run_url = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           body = {
