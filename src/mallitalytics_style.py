@@ -1,7 +1,7 @@
 """
 Mallitalytics brand colors and typography for graphics.
 
-From MALLITALYTICS_STYLE_GUIDE.md — use for HR tracker cards, pitcher cards, etc.
+From MALLITALYTICS_BRAND.md — use for HR tracker cards, pitcher cards, etc.
 """
 
 # Primary (from logo)
