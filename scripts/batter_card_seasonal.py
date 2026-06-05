@@ -247,6 +247,21 @@ _SWING_DESCS = {
 }
 _WHIFF_DESCS = {"swinging_strike", "swinging_strike_blocked"}
 
+_STATCAST_HOME_X = 125.42
+_STATCAST_HOME_Y = 198.27
+_STATCAST_FT_PER_PX = 2.5
+
+
+def _transform_statcast_spray_coords(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert Statcast hc_x/hc_y into field feet with home plate at (0, 0).
+    Formula follows baseball-field-viz: x=2.5*(hc_x-125.42), y=2.5*(198.27-hc_y).
+    """
+    out = df.copy()
+    out["spray_x"] = _STATCAST_FT_PER_PX * (out["hc_x"] - _STATCAST_HOME_X)
+    out["spray_y"] = _STATCAST_FT_PER_PX * (_STATCAST_HOME_Y - out["hc_y"])
+    return out
+
 
 def load_batter_seasonal_data(
     batter_id: int,
@@ -554,16 +569,14 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         "avg_dist": None,
     }
     if not spray_df.empty:
-        spray_df["spray_x"] = spray_df["hc_x"] - 125
-        spray_df["spray_y"] = 200 - spray_df["hc_y"]
+        spray_df = _transform_statcast_spray_coords(spray_df)
         spray_df["hard_hit"] = spray_df["launch_speed"].fillna(0).ge(95)
         batter_stand = str(df["stand"].dropna().mode().iloc[0]) if "stand" in df.columns and df["stand"].dropna().any() else "R"
-        spray_sign = -1 if batter_stand == "R" else 1
-        oriented_x = spray_df["spray_x"] * spray_sign
-        spray_df["direction_bucket"] = np.where(
-            oriented_x <= -18, "pull",
-            np.where(oriented_x >= 18, "oppo", "center")
-        )
+        x = spray_df["spray_x"]
+        if batter_stand == "L":
+            spray_df["direction_bucket"] = np.where(x >= 45, "pull", np.where(x <= -45, "oppo", "center"))
+        else:
+            spray_df["direction_bucket"] = np.where(x <= -45, "pull", np.where(x >= 45, "oppo", "center"))
         direction_rates = spray_df["direction_bucket"].value_counts(normalize=True) * 100
         spray_summary = {
             "pull_pct": round(float(direction_rates.get("pull", 0.0)), 1),
@@ -995,42 +1008,79 @@ def _spray_outcome(event: str) -> str:
     return "out"
 
 
-def _draw_spray_field(ax, wall_r: float = 162):
-    """Draw a cleaner spray-chart field with believable geometry."""
-    grass_col = "#A7D7D6" if LIGHT_MODE else "#2A4C4B"
-    infield_col = "#8AC1BF" if LIGHT_MODE else "#1A3635"
+def _draw_spray_field(ax, outfield_distance: float = 390):
+    """Draw a home-plate-origin baseball field in feet for Statcast spray data."""
+    grass_col = "#A7D7D6" if LIGHT_MODE else "#244A45"
+    outfield_col = "#B8DDD2" if LIGHT_MODE else "#203F3C"
+    dirt_col = "#D8B989" if LIGHT_MODE else "#7E5A34"
     line_col = "#FFFFFF" if LIGHT_MODE else "#E2E8F0"
+    grid_col = PALETTE["border"]
 
-    b1 = np.array([63, 63])
-    b2 = np.array([0, 126])
-    b3 = np.array([-63, 63])
-    
-    foul_r = wall_r
+    foul_distance = min(335, outfield_distance)
     theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 360)
-    wall_x = foul_r * np.cos(theta)
-    wall_y = foul_r * np.sin(theta)
+    wall_x = outfield_distance * np.cos(theta)
+    wall_y = outfield_distance * np.sin(theta)
 
-    ax.fill(np.concatenate([[0], wall_x]), np.concatenate([[0], wall_y]),
-            color=grass_col, zorder=0)
+    ax.fill(
+        np.concatenate([[0], wall_x]),
+        np.concatenate([[0], wall_y]),
+        color=outfield_col,
+        zorder=0,
+    )
 
-    infield_r = 95
-    t_infield = np.linspace(np.deg2rad(45), np.deg2rad(135), 100)
-    ax.fill(np.concatenate([[0], infield_r * np.cos(t_infield)]), 
-            np.concatenate([[0], infield_r * np.sin(t_infield)]), 
-            color=infield_col, zorder=1)
+    infield_arc = np.linspace(np.deg2rad(45), np.deg2rad(135), 180)
+    infield_r = 155
+    ax.fill(
+        np.concatenate([[0], infield_r * np.cos(infield_arc)]),
+        np.concatenate([[0], infield_r * np.sin(infield_arc)]),
+        color=grass_col,
+        zorder=1,
+    )
 
-    ax.plot(wall_x, wall_y, color=line_col, lw=2.1, zorder=2)
-    ax.plot([0, foul_r * np.cos(np.deg2rad(45))], [0, foul_r * np.sin(np.deg2rad(45))],
-            color=line_col, lw=1.2, zorder=2)
-    ax.plot([0, foul_r * np.cos(np.deg2rad(135))], [0, foul_r * np.sin(np.deg2rad(135))],
-            color=line_col, lw=1.2, zorder=2)
+    base = 90 / np.sqrt(2)
+    b1 = np.array([base, base])
+    b2 = np.array([0, base * 2])
+    b3 = np.array([-base, base])
+
+    ax.fill(
+        [0, b1[0], b2[0], b3[0], 0],
+        [0, b1[1], b2[1], b3[1], 0],
+        color=dirt_col,
+        alpha=0.88,
+        zorder=2,
+    )
+    ax.add_patch(mpatches.Circle((0, 60.5), 9.0, facecolor=dirt_col, edgecolor=line_col, lw=0.8, zorder=3))
+
+    ax.plot(wall_x, wall_y, color=line_col, lw=2.0, zorder=4)
+    ax.plot(
+        [0, foul_distance * np.cos(np.deg2rad(45))],
+        [0, foul_distance * np.sin(np.deg2rad(45))],
+        color=line_col,
+        lw=1.2,
+        zorder=4,
+    )
+    ax.plot(
+        [0, foul_distance * np.cos(np.deg2rad(135))],
+        [0, foul_distance * np.sin(np.deg2rad(135))],
+        color=line_col,
+        lw=1.2,
+        zorder=4,
+    )
     ax.plot([0, b1[0], b2[0], b3[0], 0], [0, b1[1], b2[1], b3[1], 0],
-            color=line_col, lw=1.2, zorder=2)
+            color=line_col, lw=1.15, zorder=5)
 
     for bx, by in (b1, b2, b3):
-        ax.add_patch(plt.Rectangle((bx - 2.5, by - 2.5), 5.0, 5.0, angle=45, color=line_col, zorder=3))
-    ax.add_patch(mpatches.RegularPolygon((0, 0), numVertices=5, radius=4.0,
-                                         orientation=np.pi / 5, color=line_col, zorder=3))
+        ax.add_patch(mpatches.RegularPolygon(
+            (bx, by), numVertices=4, radius=5.0, orientation=np.pi / 4,
+            facecolor=line_col, edgecolor="none", zorder=6,
+        ))
+    ax.add_patch(mpatches.RegularPolygon((0, 0), numVertices=5, radius=5.2,
+                                         orientation=np.pi / 5, color=line_col, zorder=6))
+
+    for dist in (200, 300, 400):
+        if dist < outfield_distance:
+            ax.add_patch(mpatches.Arc((0, 0), dist * 2, dist * 2, theta1=45, theta2=135,
+                                      color=grid_col, lw=0.45, alpha=0.35, zorder=1))
 
 
 def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict):
@@ -1039,13 +1089,13 @@ def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict
 
     non_hr = spray_df[spray_df["events"] != "home_run"]
     if not non_hr.empty:
-        nr = np.sqrt((non_hr["hc_x"] - 125) ** 2 + (200 - non_hr["hc_y"]) ** 2)
-        wall_r = float(nr.quantile(0.99)) + 8
-        wall_r = max(120, min(wall_r, 185))
+        nr = np.sqrt(non_hr["spray_x"] ** 2 + non_hr["spray_y"] ** 2)
+        wall_r = float(nr.quantile(0.99)) + 30
+        wall_r = max(360, min(wall_r, 430))
     else:
-        wall_r = 162
+        wall_r = 390
 
-    _draw_spray_field(ax_spray, wall_r=wall_r)
+    _draw_spray_field(ax_spray, outfield_distance=wall_r)
 
     _OUTCOME_STYLE = {
         "home_run": ("#E03282", 50, 1.0),
@@ -1060,15 +1110,15 @@ def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict
         if sub.empty:
             continue
         col, sz, al = _OUTCOME_STYLE[outcome]
-        hx = sub["spray_x"] if "spray_x" in sub.columns else sub["hc_x"] - 125
-        hy = sub["spray_y"] if "spray_y" in sub.columns else 200 - sub["hc_y"]
+        hx = sub["spray_x"]
+        hy = sub["spray_y"]
         ax_spray.scatter(hx, hy, marker="o", s=sz, color=col, alpha=al,
                          linewidths=0.6 if outcome != "out" else 0,
                          edgecolors="#111111" if outcome != "out" else "none",
                          zorder=5 if outcome == "home_run" else 4)
 
-    ax_spray.set_xlim(-(wall_r * 1.15), wall_r * 1.15)
-    ax_spray.set_ylim(-15, wall_r * 1.40)
+    ax_spray.set_xlim(-365, 365)
+    ax_spray.set_ylim(-25, 430)
 
     legend_elements = [
         ("HOME RUN", "#E03282"),
@@ -1076,8 +1126,8 @@ def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict
         ("DOUBLE", "#7D6EE7"),
         ("SINGLE", "#FF6B00"),
     ]
-    leg_x = wall_r * 0.65
-    leg_y = wall_r * 1.20
+    leg_x = 228
+    leg_y = 388
     for i, (lbl, col) in enumerate(legend_elements):
         ax_spray.scatter(leg_x, leg_y - i*18, marker="o", s=45, color=col, edgecolors="#111111", linewidths=0.8, zorder=6)
         ax_spray.text(leg_x + 10, leg_y - i*18, lbl, color=PALETTE["text_primary"], fontsize=8.0, fontweight="black",
