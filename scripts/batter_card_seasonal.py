@@ -1551,13 +1551,9 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
         logo_ax.axis("off")
 
     if headshot:
-        img_ax = ax.inset_axes([0.035, 0.12, 0.16, 0.68])
+        img_ax = ax.inset_axes([0.040, 0.12, 0.145, 0.68])
         img_ax.imshow(np.array(headshot))
         img_ax.axis("off")
-        img_ax.add_patch(mpatches.Circle(
-            (0.5, 0.5), 0.49, transform=img_ax.transAxes,
-            fill=False, lw=2.2, edgecolor=SEASONAL_ACCENT,
-        ))
 
     team = sd.get("batter_team") or bio.get("team", "MLB")
     player_meta = "  ·  ".join([
@@ -1572,10 +1568,6 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.text(0.226, 0.47, player_meta,
             color=SEASONAL_ACCENT, fontsize=9.5, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.226, 0.27,
-            "Rolling form · spray tendencies · contact quality · pitch-type results",
-            color=PALETTE["text_secondary"], fontsize=8.4, fontweight="bold",
-            ha="left", va="center", transform=ax.transAxes)
 
 
 def plot_batted_ball_quality(ax, sd: dict):
@@ -1585,35 +1577,35 @@ def plot_batted_ball_quality(ax, sd: dict):
     ax.set_ylim(0, 1)
     _panel_title(ax, "BATTED-BALL QUALITY", f"{sd.get('total_bip', 0)} BIP")
 
+    avg_dist = sd.get("spray_summary", {}).get("avg_dist")
     metrics = [
-        ("AVG EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", PALETTE["accent_orange"]),
-        ("MAX EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", PALETTE["text_primary"]),
-        ("HARD HIT", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", PALETTE["accent_red"]),
-        ("BARREL", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", PALETTE["accent_red"]),
-        ("SWEET SPOT", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", SEASONAL_ACCENT),
-        ("AVG DIST", f"{int(round(sd.get('spray_summary', {}).get('avg_dist')))}" if sd.get("spray_summary", {}).get("avg_dist") is not None else "--", "ft", PALETTE["accent_gold"]),
+        ("Avg EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", PALETTE["accent_orange"]),
+        ("Max EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", PALETTE["text_secondary"]),
+        ("Hard Hit", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", SEASONAL_ACCENT),
+        ("Barrel", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", SEASONAL_ACCENT),
+        ("Sweet Spot", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", PALETTE["accent_gold"]),
+        ("Avg Dist", f"{int(round(avg_dist))}" if avg_dist is not None else "--", "ft", PALETTE["text_secondary"]),
     ]
 
+    ax.plot([0.045, 0.955], [0.760, 0.760], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
     for i, (label, value, sub, color) in enumerate(metrics):
-        row = i // 3
-        col = i % 3
-        x0 = 0.045 + col * 0.315
-        y0 = 0.53 - row * 0.34
-        ax.add_patch(FancyBboxPatch(
-            (x0, y0), 0.285, 0.23,
-            boxstyle="round,pad=0.012,rounding_size=0.012",
-            lw=1.0, edgecolor=PALETTE["border"], facecolor=PALETTE["table_bg"],
-            transform=ax.transAxes, zorder=1,
-        ))
-        ax.text(x0 + 0.018, y0 + 0.162, label,
-                color=PALETTE["text_lo"], fontsize=6.7, fontweight="black",
-                ha="left", va="center", transform=ax.transAxes, zorder=2)
-        ax.text(x0 + 0.018, y0 + 0.090, value,
-                color=color, fontsize=12.6, fontweight="black",
-                ha="left", va="center", transform=ax.transAxes, zorder=2)
-        ax.text(x0 + 0.018, y0 + 0.032, sub,
-                color=PALETTE["text_secondary"], fontsize=6.2, fontweight="bold",
-                ha="left", va="center", transform=ax.transAxes, zorder=2)
+        col = i // 3
+        row = i % 3
+        x_label = 0.065 + col * 0.500
+        y_label = 0.650 - row * 0.200
+        y_value = y_label - 0.070
+        if row > 0:
+            ax.plot([x_label, x_label + 0.385], [y_label + 0.060, y_label + 0.060],
+                    color=PALETTE["grid"], lw=0.7, alpha=0.7, transform=ax.transAxes)
+        ax.text(x_label, y_label, label.upper(),
+                color=PALETTE["text_lo"], fontsize=6.1, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+        ax.text(x_label, y_value, value,
+                color=color, fontsize=11.0, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+        ax.text(x_label + 0.175, y_value, sub,
+                color=PALETTE["text_secondary"], fontsize=5.9, fontweight="bold",
+                ha="left", va="center", transform=ax.transAxes)
 
 
 def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
@@ -1767,10 +1759,15 @@ def plot_counting_snapshot(ax, sd: dict):
     ]
     _panel_title(ax, "COUNTING SNAPSHOT", "basic production")
     for i, (label, value) in enumerate(metrics):
-        x0 = 0.025 + i * (0.95 / len(metrics))
-        ax.text(x0, 0.61, str(value), color=PALETTE["text_primary"], fontsize=10.5,
+        row = 0 if i < 7 else 1
+        pos = i if row == 0 else i - 7
+        count = 7 if row == 0 else 6
+        x0 = 0.040 + pos * (0.90 / max(count - 1, 1))
+        yv = 0.640 if row == 0 else 0.260
+        yl = yv - 0.150
+        ax.text(x0, yv, str(value), color=PALETTE["text_primary"], fontsize=11.0,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes)
-        ax.text(x0, 0.30, label, color=PALETTE["text_lo"], fontsize=6.5,
+        ax.text(x0, yl, label, color=PALETTE["text_lo"], fontsize=6.8,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes)
 
 
@@ -1828,7 +1825,7 @@ def generate_batter_profile(
 
     outer_gs = gridspec.GridSpec(
         6, 1, figure=fig,
-        height_ratios=[1.12, 1.55, 3.10, 2.10, 0.80, 0.28],
+        height_ratios=[1.02, 1.55, 3.02, 2.02, 1.02, 0.28],
         hspace=0.105,
         left=0.045, right=0.955, top=0.975, bottom=0.030,
     )
