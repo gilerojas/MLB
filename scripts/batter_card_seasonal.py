@@ -3,14 +3,14 @@ Mallitalytics Seasonal Batter Profile Card
 ==========================================
 
 Aggregates enriched parquet data across multiple games for a batter and
-renders a 1200×675 season/tournament profile card.
+renders a vertical season/tournament profile card.
 
 Sections:
-  - Header:  headshot · name · context badge (WBC 2026 · 5 G · 22 PA) · xwOBA hero
-  - Left:    Zone Damage Map (9-zone xwOBA grid + chase border + pitch-mix strip)
-  - Center:  Batted Ball Profile (spray chart + GB/FB/LD/PU% distribution bars)
-  - Right:   Plate Discipline (K%, BB%, Chase%, Whiff%, SwStr%, Zone% bars)
-  - Footer:  AVG · OBP · SLG · Avg EV · Bat Speed · RE24 tiles
+  - Header:  headshot · name · season context · primary production line
+  - Story:   rolling xwOBA + batted-ball quality
+  - Field:   full-width spray chart
+  - Attack:  most common pitch types received and hitter performance vs each
+  - Footer:  counting snapshot · Mallitalytics branding
 
 CLI examples
 ------------
@@ -30,6 +30,7 @@ import matplotlib as mpl
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import matplotlib.font_manager as font_manager
 import numpy as np
 import pandas as pd
 import requests
@@ -150,6 +151,32 @@ _PITCH_COLORS_DARK = {
     "Knuckle Curve":   "#76E4F7",
 }
 PITCH_COLORS = _PITCH_COLORS_LIGHT if LIGHT_MODE else _PITCH_COLORS_DARK
+
+_FONT_PATH_CANDIDATES = [
+    "/Library/Fonts/Montserrat-Regular.ttf",
+    "/Library/Fonts/Montserrat-Bold.ttf",
+    "/System/Library/Fonts/Supplemental/Montserrat-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Montserrat-Bold.ttf",
+    "/usr/share/fonts/truetype/montserrat/Montserrat-Regular.ttf",
+    "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf",
+]
+
+
+def _configure_brand_fonts():
+    for path in _FONT_PATH_CANDIDATES:
+        if Path(path).exists():
+            try:
+                font_manager.fontManager.addfont(path)
+            except Exception:
+                pass
+    try:
+        font_manager.findfont("Montserrat", fallback_to_default=False)
+        brand_font = "Montserrat"
+    except Exception:
+        brand_font = "DejaVu Sans"
+    mpl.rcParams["font.family"] = brand_font
+    mpl.rcParams["font.sans-serif"] = [brand_font, "DejaVu Sans"]
+
 
 _PITCH_ABBREV_MAP = {
     "4-Seam Fastball": "FF", "Four-Seam Fastball": "FF",
@@ -616,9 +643,9 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
     pitch_mix: dict[str, int] = defaultdict(int)
     if "pitch_name" in df.columns:
         for pt in df["pitch_name"].dropna():
-            ab = _pitch_abbrev(pt)
-            if ab != "?":
-                pitch_mix[ab] += 1
+            pitch_abbr = _pitch_abbrev(pt)
+            if pitch_abbr != "?":
+                pitch_mix[pitch_abbr] += 1
 
     # ── Batter's team (take first non-null from correct half-inning) ──────────
     batter_team = ""
@@ -1486,6 +1513,282 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
     ax.set_xlabel(f"GAMES PLAYED (1-{len(xs)})", fontsize=8.5, fontweight="bold", color=PALETTE["text_lo"], labelpad=4)
 
 
+def _metric_value_text(value, kind: str = "raw", digits: int = 1) -> str:
+    if value is None:
+        return "--"
+    if kind == "rate":
+        return _fmt_slash(float(value))
+    if kind == "pct":
+        return f"{float(value):.{digits}f}%"
+    if kind == "mph":
+        return f"{float(value):.{digits}f}"
+    if kind == "signed":
+        return f"{float(value):+.{digits}f}"
+    return f"{value}"
+
+
+def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label: str):
+    _clean(ax, PALETTE["header_bg"])
+    _border(ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    ax.text(0.035, 0.88, "MALLITALYTICS",
+            color=PALETTE["accent_orange"], fontsize=11, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(0.965, 0.88, context_label.upper(),
+            color=PALETTE["text_lo"], fontsize=7.5, fontweight="bold",
+            ha="right", va="center", transform=ax.transAxes)
+
+    if logo:
+        logo_ax = ax.inset_axes([0.82, 0.04, 0.13, 0.56])
+        logo_ax.imshow(np.array(logo), alpha=0.10)
+        logo_ax.axis("off")
+
+    if headshot:
+        img_ax = ax.inset_axes([0.035, 0.12, 0.16, 0.68])
+        img_ax.imshow(np.array(headshot))
+        img_ax.axis("off")
+        img_ax.add_patch(mpatches.Circle(
+            (0.5, 0.5), 0.49, transform=img_ax.transAxes,
+            fill=False, lw=2.2, edgecolor=SEASONAL_ACCENT,
+        ))
+
+    team = sd.get("batter_team") or bio.get("team", "MLB")
+    player_meta = "  ·  ".join([
+        team,
+        bio.get("position") or "B",
+        f"Bats {bio.get('hand', '--')}",
+        f"Age {bio.get('age', '--')}",
+    ])
+    ax.text(0.225, 0.66, bio.get("name", "Unknown Batter").upper(),
+            color=PALETTE["text_primary"], fontsize=23, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(0.226, 0.47, player_meta,
+            color=SEASONAL_ACCENT, fontsize=9.5, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(0.226, 0.26,
+            f"{sd.get('games', 0)} G  ·  {sd.get('total_pa', 0)} PA  ·  {sd.get('hr', 0)} HR  ·  {sd.get('xbh', 0)} XBH",
+            color=PALETTE["text_primary"], fontsize=12.5, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+
+    hero_x = 0.73
+    ax.text(hero_x, 0.62, "xwOBA",
+            color=PALETTE["text_lo"], fontsize=8.5, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(hero_x, 0.40, _metric_value_text(sd.get("xwoba"), "rate"),
+            color=SEASONAL_ACCENT, fontsize=31, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(hero_x, 0.20,
+            f"OPS {_metric_value_text(sd.get('ops'), 'rate')}  ·  wOBA {_metric_value_text(sd.get('woba'), 'rate')}",
+            color=PALETTE["text_secondary"], fontsize=8.5, fontweight="bold",
+            ha="left", va="center", transform=ax.transAxes)
+
+
+def plot_batted_ball_quality(ax, sd: dict):
+    _clean(ax, PALETTE["panel_bg"])
+    _border(ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    _panel_title(ax, "BATTED-BALL QUALITY", f"{sd.get('total_bip', 0)} BIP")
+
+    metrics = [
+        ("AVG EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", PALETTE["accent_orange"]),
+        ("MAX EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", PALETTE["text_primary"]),
+        ("HARD HIT", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", PALETTE["accent_red"]),
+        ("BARREL", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", PALETTE["accent_red"]),
+        ("SWEET SPOT", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", SEASONAL_ACCENT),
+        ("AVG DIST", f"{int(round(sd.get('spray_summary', {}).get('avg_dist')))}" if sd.get("spray_summary", {}).get("avg_dist") is not None else "--", "ft", PALETTE["accent_gold"]),
+    ]
+
+    for i, (label, value, sub, color) in enumerate(metrics):
+        row = i // 3
+        col = i % 3
+        x0 = 0.045 + col * 0.315
+        y0 = 0.53 - row * 0.34
+        ax.add_patch(FancyBboxPatch(
+            (x0, y0), 0.275, 0.22,
+            boxstyle="round,pad=0.012,rounding_size=0.012",
+            lw=1.0, edgecolor=PALETTE["border"], facecolor=PALETTE["table_bg"],
+            transform=ax.transAxes, zorder=1,
+        ))
+        ax.text(x0 + 0.018, y0 + 0.155, label,
+                color=PALETTE["text_lo"], fontsize=6.7, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes, zorder=2)
+        ax.text(x0 + 0.018, y0 + 0.082, value,
+                color=color, fontsize=14, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes, zorder=2)
+        ax.text(x0 + 0.018, y0 + 0.032, sub,
+                color=PALETTE["text_secondary"], fontsize=6.5, fontweight="bold",
+                ha="left", va="center", transform=ax.transAxes, zorder=2)
+
+
+def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
+    _clean(ax, PALETTE["panel_bg"])
+    _border(ax)
+
+    non_hr = spray_df[spray_df["events"] != "home_run"]
+    if not non_hr.empty:
+        nr = np.sqrt(non_hr["spray_x"] ** 2 + non_hr["spray_y"] ** 2)
+        wall_r = float(nr.quantile(0.99)) + 30
+        wall_r = max(370, min(wall_r, 430))
+    else:
+        wall_r = 395
+    _draw_spray_field(ax, outfield_distance=wall_r)
+
+    outcome_style = {
+        "out": ("#B9B9B2", 18, 0.45, 2),
+        "single": ("#E8712B", 35, 0.92, 4),
+        "double": ("#5D6D7E", 44, 0.95, 5),
+        "triple": ("#F0A830", 48, 0.98, 6),
+        "home_run": ("#E03282", 54, 1.0, 7),
+    }
+    for outcome in ("out", "single", "double", "triple", "home_run"):
+        sub = spray_df[spray_df["events"].map(_spray_outcome) == outcome]
+        if sub.empty:
+            continue
+        color, size, alpha, z = outcome_style[outcome]
+        ax.scatter(
+            sub["spray_x"], sub["spray_y"],
+            marker="o", s=size, color=color, alpha=alpha,
+            linewidths=0.5 if outcome != "out" else 0,
+            edgecolors=PALETTE["text_primary"] if outcome != "out" else "none",
+            zorder=z,
+        )
+
+    ax.set_xlim(-375, 375)
+    ax.set_ylim(-32, 430)
+    summary = sd.get("spray_summary", {})
+    subtitle = (
+        f"Pull {_fmt_pct(summary.get('pull_pct'))}  ·  "
+        f"Center {_fmt_pct(summary.get('center_pct'))}  ·  "
+        f"Oppo {_fmt_pct(summary.get('oppo_pct'))}"
+    )
+    _panel_title(ax, "SPRAY CHART", subtitle)
+
+    legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B"), ("OUT", "#B9B9B2")]
+    for i, (label, color) in enumerate(legend):
+        x = 0.72 + i * 0.052
+        ax.scatter(x, 0.93, s=30, color=color, transform=ax.transAxes, zorder=9,
+                   edgecolors=PALETTE["text_primary"] if label != "OUT" else "none", linewidths=0.4)
+        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=6.5,
+                fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
+
+
+def _pitch_read(item: dict) -> str:
+    xw = item.get("xwoba")
+    whiff = item.get("whiff_pct")
+    if xw is None:
+        return "limited contact"
+    if whiff is not None and whiff >= 40 and xw >= 0.420:
+        return "damage / whiff"
+    if xw >= 0.540:
+        return "crushes it"
+    if xw >= 0.400:
+        return "strong damage"
+    if xw >= 0.350:
+        return "solid damage"
+    if whiff is not None and whiff >= 35:
+        return "swing-miss risk"
+    if xw <= 0.260:
+        return "weak spot"
+    return "neutral"
+
+
+def plot_pitch_type_performance(ax, sd: dict):
+    _clean(ax, PALETTE["panel_bg"])
+    _border(ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    _panel_title(ax, "PITCH TYPE PERFORMANCE", "Most common pitch types received")
+
+    rows = sorted(
+        [p for p in sd.get("pitch_profile", []) if p.get("count", 0) > 0],
+        key=lambda p: (-p.get("count", 0), p.get("abbr", "")),
+    )[:6]
+    headers = [("PITCH", 0.045), ("SEEN", 0.190), ("USAGE", 0.315), ("xwOBA", 0.455), ("WHIFF", 0.610), ("AVG EV", 0.755), ("READ", 0.860)]
+    y_header = 0.80
+    for label, x in headers:
+        ax.text(x, y_header, label, color=PALETTE["text_lo"], fontsize=7.0, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+    ax.plot([0.035, 0.965], [0.735, 0.735], color=PALETTE["border"], lw=1.1, transform=ax.transAxes)
+
+    if not rows:
+        ax.text(0.5, 0.46, "Pitch-type split unavailable",
+                color=PALETTE["text_lo"], fontsize=11, fontweight="bold",
+                ha="center", va="center", transform=ax.transAxes)
+        return
+
+    row_h = 0.105
+    for i, item in enumerate(rows):
+        y = 0.665 - i * row_h
+        if i % 2 == 0:
+            ax.add_patch(mpatches.Rectangle(
+                (0.035, y - 0.042), 0.93, 0.076,
+                facecolor=PALETTE["table_alt"], edgecolor="none", alpha=0.62,
+                transform=ax.transAxes, zorder=0,
+            ))
+        full = next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
+        pitch_color = PITCH_COLORS.get(full, SEASONAL_ACCENT)
+        xw = item.get("xwoba")
+        xw_color = PALETTE["accent_red"] if xw is not None and xw >= 0.380 else (SEASONAL_ACCENT if xw is not None and xw >= 0.320 else PALETTE["text_secondary"])
+        values = [
+            (item.get("abbr", "--"), 0.045, pitch_color, "black"),
+            (f"{item.get('count', 0)}", 0.190, PALETTE["text_primary"], "bold"),
+            (_metric_value_text(item.get("usage_pct"), "pct"), 0.315, PALETTE["text_secondary"], "bold"),
+            (_metric_value_text(xw, "rate"), 0.455, xw_color, "black"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.610, PALETTE["text_secondary"], "bold"),
+            (f"{item.get('avg_ev'):.1f}" if item.get("avg_ev") is not None else "--", 0.755, PALETTE["text_secondary"], "bold"),
+            (_pitch_read(item), 0.860, PALETTE["text_primary"], "bold"),
+        ]
+        for text, x, color, weight in values:
+            fs = 8.0 if x >= 0.850 else 8.8
+            ax.text(x, y, text, color=color, fontsize=fs, fontweight=weight,
+                    ha="left", va="center", transform=ax.transAxes)
+
+
+def plot_counting_snapshot(ax, sd: dict):
+    _clean(ax, PALETTE["panel_bg"])
+    _border(ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    metrics = [
+        ("PA", sd.get("total_pa", 0)),
+        ("AB", sd.get("ab", 0)),
+        ("H", sd.get("h", 0)),
+        ("2B", sd.get("doubles", 0)),
+        ("3B", sd.get("triples", 0)),
+        ("HR", sd.get("hr", 0)),
+        ("XBH", sd.get("xbh", 0)),
+        ("BB", sd.get("bb", 0)),
+        ("K", sd.get("k", 0)),
+        ("AVG", _metric_value_text(sd.get("avg"), "rate")),
+        ("OBP", _metric_value_text(sd.get("obp"), "rate")),
+        ("SLG", _metric_value_text(sd.get("slg"), "rate")),
+        ("OPS", _metric_value_text(sd.get("ops"), "rate")),
+    ]
+    _panel_title(ax, "COUNTING SNAPSHOT", "basic production")
+    for i, (label, value) in enumerate(metrics):
+        x0 = 0.025 + i * (0.95 / len(metrics))
+        ax.text(x0, 0.61, str(value), color=PALETTE["text_primary"], fontsize=10.5,
+                fontweight="black", ha="left", va="center", transform=ax.transAxes)
+        ax.text(x0, 0.30, label, color=PALETTE["text_lo"], fontsize=6.5,
+                fontweight="black", ha="left", va="center", transform=ax.transAxes)
+
+
+def plot_brand_footer(ax):
+    _clean(ax, PALETTE["card_bg"])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.text(0.02, 0.50, "Data: MLB · Statcast warehouse",
+            color=PALETTE["text_lo"], fontsize=7.2, fontweight="bold",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(0.98, 0.50, "@Mallitalytics",
+            color=SEASONAL_ACCENT, fontsize=11, fontweight="black",
+            ha="right", va="center", transform=ax.transAxes)
+
+
 # ─────────────────────────────── MAIN RENDER ────────────────────────────────
 
 def generate_batter_profile(
@@ -1496,7 +1799,7 @@ def generate_batter_profile(
     output_path: str = "batter_profile.png",
 ):
     mpl.rcParams["figure.dpi"]  = 200
-    mpl.rcParams["font.family"] = "DejaVu Sans"
+    _configure_brand_fonts()
 
     print(f"  Loading parquet data for batter {batter_id} ({season})…")
     pdir = Path(parquet_dir) if parquet_dir else None
@@ -1523,62 +1826,42 @@ def generate_batter_profile(
     else:
         logo, is_flag = fetch_team_logo(bio["team"]), False
 
-    fig = plt.figure(figsize=(16, 9))
+    fig = plt.figure(figsize=(8, 10))
     fig.patch.set_facecolor(PALETTE["card_bg"])
 
     outer_gs = gridspec.GridSpec(
-        3, 1, figure=fig,
-        height_ratios=[1.65, 4.2, 1.35],
-        hspace=0.08,
-        left=0.02, right=0.98, top=0.97, bottom=0.03,
+        6, 1, figure=fig,
+        height_ratios=[1.18, 1.55, 3.15, 2.05, 0.78, 0.28],
+        hspace=0.075,
+        left=0.045, right=0.955, top=0.975, bottom=0.030,
     )
 
     ax_hdr = fig.add_subplot(outer_gs[0])
 
-    body_gs = gridspec.GridSpecFromSubplotSpec(
-        1, 3,
-        subplot_spec=outer_gs[1],
-        width_ratios=[1.10, 1.05, 0.85],
-        wspace=0.05,
-    )
-    ax_zone = fig.add_subplot(body_gs[0])
-    center_gs = gridspec.GridSpecFromSubplotSpec(
-        2, 1,
-        subplot_spec=body_gs[1],
-        height_ratios=[2.6, 1.1],
-        hspace=0.08,
-    )
-    ax_spray = fig.add_subplot(center_gs[0])
-    ax_bars  = fig.add_subplot(center_gs[1])
-    ax_disc = fig.add_subplot(body_gs[2])
-
-    bottom_gs = gridspec.GridSpecFromSubplotSpec(
+    story_gs = gridspec.GridSpecFromSubplotSpec(
         1, 2,
-        subplot_spec=outer_gs[2],
-        width_ratios=[1.25, 1.0],
-        wspace=0.06,
+        subplot_spec=outer_gs[1],
+        width_ratios=[1.18, 1.0],
+        wspace=0.075,
     )
-    ax_spark = fig.add_subplot(bottom_gs[0])
-    ax_foot = fig.add_subplot(bottom_gs[1])
+    ax_spark = fig.add_subplot(story_gs[0])
+    ax_quality = fig.add_subplot(story_gs[1])
+    ax_spray = fig.add_subplot(outer_gs[2])
+    ax_pitch = fig.add_subplot(outer_gs[3])
+    ax_counts = fig.add_subplot(outer_gs[4])
+    ax_brand = fig.add_subplot(outer_gs[5])
 
-    plot_header(ax_hdr, bio, sd, headshot, logo, context_label, is_flag=is_flag)
-    plot_zone_damage_map(
-        ax_zone,
-        sd["zone_damage"],
-        sd.get("outer_damage", {}),
-        sd.get("attack_damage"),
-        sd.get("median_sz_top", _SZ_TOP),
-        sd.get("median_sz_bot", _SZ_BOT),
-    )
-    plot_batted_ball_profile(ax_spray, ax_bars, sd["spray_df"], sd)
-    plot_plate_discipline(ax_disc, sd)
+    plot_seasonal_header(ax_hdr, bio, sd, headshot, logo, context_label)
     plot_rolling_xwoba(ax_spark, sd.get("rolling_xwoba", []), sd.get("xwoba"), sd.get("rolling_hard_hit"))
-    plot_footer(ax_foot, sd)
+    plot_batted_ball_quality(ax_quality, sd)
+    plot_spray_chart_card(ax_spray, sd["spray_df"], sd)
+    plot_pitch_type_performance(ax_pitch, sd)
+    plot_counting_snapshot(ax_counts, sd)
+    plot_brand_footer(ax_brand)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     fig.canvas.draw()
-    fig.savefig(output_path, dpi=200, bbox_inches="tight",
-                facecolor=PALETTE["card_bg"], edgecolor="none")
+    fig.savefig(output_path, dpi=200, facecolor=PALETTE["card_bg"], edgecolor="none")
     plt.close()
     print(f"  → Saved: {output_path}")
 
