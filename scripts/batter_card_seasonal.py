@@ -449,7 +449,34 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
 
     # ── Four-part outside-zone damage map ─────────────────────────────────────
     outer_damage: dict[str, dict] = {k: {"xwoba": None, "n": 0, "n_pitches": 0} for k in ("up_left", "up_right", "down_left", "down_right")}
+    attack_damage: dict[str, dict] = {k: {"xwoba": None, "n": 0, "n_pitches": 0} for k in ("heart", "shadow", "chase", "waste")}
+    median_sz_top = float(df["sz_top"].dropna().median()) if "sz_top" in df.columns and df["sz_top"].notna().any() else _SZ_TOP
+    median_sz_bot = float(df["sz_bot"].dropna().median()) if "sz_bot" in df.columns and df["sz_bot"].notna().any() else _SZ_BOT
     if {"plate_x", "plate_z"}.issubset(df.columns):
+        loc_df = df[df["plate_x"].notna() & df["plate_z"].notna()].copy()
+        if not loc_df.empty:
+            loc_sz_top = loc_df["sz_top"].fillna(median_sz_top) if "sz_top" in loc_df.columns else pd.Series(median_sz_top, index=loc_df.index)
+            loc_sz_bot = loc_df["sz_bot"].fillna(median_sz_bot) if "sz_bot" in loc_df.columns else pd.Series(median_sz_bot, index=loc_df.index)
+            loc_df["attack_zone"] = [
+                _attack_zone_key(px, pz, bot, top)
+                for px, pz, bot, top in zip(loc_df["plate_x"], loc_df["plate_z"], loc_sz_bot, loc_sz_top)
+            ]
+            for key in attack_damage:
+                attack_damage[key]["n_pitches"] = int((loc_df["attack_zone"] == key).sum())
+
+            contact_attack = loc_df[
+                (loc_df["type"] == "X") &
+                loc_df["attack_zone"].notna() &
+                loc_df["estimated_woba_using_speedangle"].notna()
+            ]
+            for key, grp in contact_attack.groupby("attack_zone"):
+                if key in attack_damage:
+                    attack_damage[key] = {
+                        "xwoba": round(float(grp["estimated_woba_using_speedangle"].mean()), 3),
+                        "n": int(len(grp)),
+                        "n_pitches": attack_damage[key]["n_pitches"],
+                    }
+
         px_all = df["plate_x"]
         pz_all = df["plate_z"]
         sz_top_all = df["sz_top"].fillna(_SZ_TOP) if "sz_top" in df.columns else pd.Series(_SZ_TOP, index=df.index)
@@ -633,6 +660,9 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         "zone_damage": zone_damage,
         "outer_damage": outer_damage,
         "chase_xwoba": chase_xwoba,
+        "attack_damage": attack_damage,
+        "median_sz_top": median_sz_top,
+        "median_sz_bot": median_sz_bot,
         # Spray
         "spray_df": spray_df,
         "spray_summary": spray_summary,
@@ -860,17 +890,88 @@ _SZ_TOP   =  3.5
 _SZ_W     = _SZ_RIGHT - _SZ_LEFT
 _SZ_H     = _SZ_TOP   - _SZ_BOT
 
+_ATTACK_ZONE_TEMPLATE = {
+    "heart": (-0.558, 0.558, 1.833, 3.166),
+    "shadow": (-1.108, 1.108, 1.166, 3.833),
+    "chase": (-1.666, 1.666, 0.500, 4.500),
+}
 
-def plot_zone_damage_map(ax, zone_damage: dict, outer_damage: dict, pitch_profile: list[dict] | None = None):
+
+def _scale_attack_zone_bounds(bounds: tuple[float, float, float, float], sz_bot: float, sz_top: float) -> tuple[float, float, float, float]:
+    """Scale Statcast attack-zone template coordinates to the hitter's median zone height."""
+    x0, x1, y0, y1 = bounds
+    template_mid = (_SZ_TOP + _SZ_BOT) / 2
+    hitter_mid = (sz_top + sz_bot) / 2
+    scale = (sz_top - sz_bot) / (_SZ_TOP - _SZ_BOT)
+    return (
+        x0,
+        x1,
+        hitter_mid + (y0 - template_mid) * scale,
+        hitter_mid + (y1 - template_mid) * scale,
+    )
+
+
+def _attack_zone_key(px: float, pz: float, sz_bot: float, sz_top: float) -> str | None:
+    heart = _scale_attack_zone_bounds(_ATTACK_ZONE_TEMPLATE["heart"], sz_bot, sz_top)
+    shadow = _scale_attack_zone_bounds(_ATTACK_ZONE_TEMPLATE["shadow"], sz_bot, sz_top)
+    chase = _scale_attack_zone_bounds(_ATTACK_ZONE_TEMPLATE["chase"], sz_bot, sz_top)
+    if heart[0] <= px <= heart[1] and heart[2] <= pz <= heart[3]:
+        return "heart"
+    if shadow[0] <= px <= shadow[1] and shadow[2] <= pz <= shadow[3]:
+        return "shadow"
+    if chase[0] <= px <= chase[1] and chase[2] <= pz <= chase[3]:
+        return "chase"
+    return "waste"
+
+
+def _draw_home_plate_axes(ax, y0: float = 0.08, line_color: str | None = None):
+    line_color = line_color or PALETTE["text_secondary"]
+    plate = np.array([
+        [-0.708, y0],
+        [0.708, y0],
+        [0.708, y0 - 0.30],
+        [0.0, y0 - 0.60],
+        [-0.708, y0 - 0.30],
+        [-0.708, y0],
+    ])
+    ax.plot(plate[:, 0], plate[:, 1], color=line_color, lw=1.0, zorder=8)
+
+
+def _draw_attack_zone_frames(ax, sz_bot: float, sz_top: float):
+    colors = {
+        "chase": PALETTE["text_lo"],
+        "shadow": PALETTE["accent_orange"],
+        "heart": SEASONAL_ACCENT,
+    }
+    for key in ("chase", "shadow", "heart"):
+        x0, x1, y0, y1 = _scale_attack_zone_bounds(_ATTACK_ZONE_TEMPLATE[key], sz_bot, sz_top)
+        ax.add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0,
+            facecolor="none",
+            edgecolor=colors[key],
+            linewidth=2.4 if key == "heart" else 1.7,
+            alpha=0.88 if key == "heart" else 0.58,
+            zorder=7,
+        ))
+
+
+def plot_zone_damage_map(
+    ax,
+    zone_damage: dict,
+    outer_damage: dict,
+    attack_damage: dict | None = None,
+    sz_top: float = _SZ_TOP,
+    sz_bot: float = _SZ_BOT,
+):
     _clean(ax)
     _border(ax)
-    _panel_title(ax, "ZONE DAMAGE MAP", "xwOBA on contact · catcher view")
+    _panel_title(ax, "ATTACK ZONE DAMAGE", "xwOBA on contact · catcher view")
 
-    ax.set_xlim(-1.45, 1.45)
-    ax.set_ylim(0.40, 4.50)
+    ax.set_xlim(-1.85, 1.85)
+    ax.set_ylim(-0.62, 4.68)
 
     zone_w = _SZ_W / 3
-    zone_h = _SZ_H / 3
+    zone_h = (sz_top - sz_bot) / 3
 
     inner_vals = [
         zone_damage[z]["xwoba"]
@@ -878,55 +979,40 @@ def plot_zone_damage_map(ax, zone_damage: dict, outer_damage: dict, pitch_profil
         if zone_damage.get(z) and zone_damage[z]["xwoba"] is not None
     ]
     outer_vals = [v["xwoba"] for v in (outer_damage or {}).values() if v.get("xwoba") is not None]
-    all_vals = inner_vals + outer_vals
+    attack_vals = [v["xwoba"] for v in (attack_damage or {}).values() if v.get("xwoba") is not None]
+    all_vals = inner_vals + outer_vals + attack_vals
     norm = TwoSlopeNorm(vmin=min(0.150, min(all_vals + [0.150])), vcenter=0.320, vmax=max(0.650, max(all_vals + [0.650]))) if all_vals else None
 
-    cmap = LinearSegmentedColormap.from_list("savant_zone", ["#3373C4", "#F2E8E8", "#D22D49"])
+    cmap = LinearSegmentedColormap.from_list("malli_zone", [PALETTE["table_alt"], "#F1D6BF", PALETTE["accent_red"]])
 
-    chase_w = zone_w * 0.75
-    chase_bot_h = zone_h
-    chase_top_h = zone_h
+    attack_damage = attack_damage or {}
+    zone_order = ("waste", "chase", "shadow", "heart")
+    for key in zone_order:
+        if key == "waste":
+            x0, x1, y0, y1 = -1.84, 1.84, -0.58, 4.66
+        else:
+            x0, x1, y0, y1 = _scale_attack_zone_bounds(_ATTACK_ZONE_TEMPLATE[key], sz_bot, sz_top)
+        xw = attack_damage.get(key, {}).get("xwoba")
+        color = cmap(norm(xw)) if xw is not None and norm else PALETTE["panel_bg"]
+        alpha = {"waste": 0.20, "chase": 0.34, "shadow": 0.42, "heart": 0.52}[key]
+        ax.add_patch(mpatches.Rectangle(
+            (x0, y0), x1 - x0, y1 - y0,
+            facecolor=color,
+            edgecolor="none",
+            alpha=alpha,
+            zorder=1,
+        ))
 
-    mid_z = (_SZ_BOT + _SZ_TOP) / 2
-    out_left = _SZ_LEFT - chase_w
-    out_right = _SZ_RIGHT + chase_w
-    out_bot = _SZ_BOT - chase_bot_h
-    out_top = _SZ_TOP + chase_top_h
-
-    # x, y, w, h
-    outer_bounds = {
-        "up_left":    (out_left, mid_z, abs(out_left), out_top - mid_z),
-        "up_right":   (0.0, mid_z, out_right, out_top - mid_z),
-        "down_left":  (out_left, out_bot, abs(out_left), mid_z - out_bot),
-        "down_right": (0.0, out_bot, out_right, mid_z - out_bot),
-    }
-
-    sz_border_col = "#A9A9A9"
-
-    if outer_damage:
-        for key, (ox, oy, w, h) in outer_bounds.items():
-            xw = outer_damage.get(key, {}).get("xwoba")
-            color = cmap(norm(xw)) if xw is not None and norm else PALETTE["panel_bg"]
-            ax.add_patch(mpatches.Rectangle(
-                (ox, oy), w, h,
-                facecolor=color, edgecolor="white", linewidth=1.2, zorder=1
-            ))
-            if xw is not None:
-                tx = out_left + chase_w / 2 if 'left' in key else _SZ_RIGHT + chase_w / 2
-                ty = _SZ_TOP + chase_top_h / 2 if 'up' in key else out_bot + chase_bot_h / 2
-                mapped_lum = _lum(mpl.colors.to_hex(color))
-                tc = "#111111" if mapped_lum > 0.45 else "#FFFFFF"
-                ax.text(tx, ty, _fmt_slash(xw), color=tc, fontsize=12.5, fontweight="black",
-                        ha="center", va="center", zorder=3)
+    _draw_attack_zone_frames(ax, sz_bot, sz_top)
 
     for z, (row, col) in _ZONE_RC.items():
         xw = zone_damage.get(z, {}).get("xwoba")
         color = cmap(norm(xw)) if xw is not None and norm else PALETTE["panel_bg"]
         zx = _SZ_LEFT + col * zone_w
-        zy = _SZ_BOT + row * zone_h
+        zy = sz_bot + row * zone_h
         ax.add_patch(mpatches.Rectangle(
             (zx, zy), zone_w, zone_h,
-            facecolor=color, edgecolor=sz_border_col, linewidth=0.9, zorder=2
+            facecolor=color, edgecolor=PALETTE["border"], linewidth=0.8, zorder=3
         ))
         if xw is not None:
             cx = zx + zone_w / 2
@@ -938,66 +1024,24 @@ def plot_zone_damage_map(ax, zone_damage: dict, outer_damage: dict, pitch_profil
                     ha="center", va="center", zorder=4)
 
     ax.add_patch(mpatches.Rectangle(
-        (_SZ_LEFT, _SZ_BOT), _SZ_W, _SZ_H,
-        linewidth=2.5, edgecolor=sz_border_col, facecolor="none", zorder=6,
+        (_SZ_LEFT, sz_bot), _SZ_W, sz_top - sz_bot,
+        linewidth=2.4, edgecolor=PALETTE["text_secondary"], facecolor="none", zorder=7,
     ))
 
-    hp_w = 0.40
-    hp_y = 0.25
-    hp = mpatches.Polygon(
-        [(-hp_w / 2, hp_y), (hp_w / 2, hp_y),
-         (hp_w / 2, hp_y - 0.12), (0, hp_y - 0.22),
-         (-hp_w / 2, hp_y - 0.12)]
-    )
-    hp.set_facecolor("#FFFFFF")
-    hp.set_edgecolor("#999999")
-    hp.set_linewidth(1.0)
-    hp.set_zorder(2)
-    ax.add_patch(hp)
+    _draw_home_plate_axes(ax)
 
-    ribbon = ax.inset_axes([0.00, -0.08, 1.0, 0.11])
-    _clean(ribbon, PALETTE["table_alt"])
-    for sp in ribbon.spines.values():
-        sp.set_visible(False)
-    ribbon.set_xlim(0, 1)
-    ribbon.set_ylim(0, 1)
-
-    prof = pitch_profile or []
-    pitch_mix = sorted(
-        [v for v in prof if v.get("count", 0) > 0],
-        key=lambda x: x.get("count", 0), reverse=True
-    )
-    total_pitches = sum(x.get("count", 0) for x in pitch_mix)
-
-    ribbon.text(0.02, 0.5, "HOW HE DAMAGES PITCHES",
-                color=PALETTE["text_lo"], fontsize=5.8, fontweight="black",
-                ha="left", va="center", transform=ribbon.transAxes)
-
-    if pitch_mix and total_pitches > 0:
-        x_start = 0.41
-        step = 0.58 / max(len(pitch_mix[:6]), 1)
-        for i, item in enumerate(pitch_mix[:6]):
-            x0 = x_start + i * step
-            full = next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item["abbr"]), None)
-            col = PITCH_COLORS.get(full, PALETTE["text_secondary"])
-            ribbon.text(x0, 0.65, item["abbr"], color=col, fontsize=10.5, fontweight="black",
-                        ha="center", va="center", transform=ribbon.transAxes)
-            ribbon.text(x0, 0.25, _fmt_slash(item["xwoba"]) if item.get("xwoba") is not None else "—",
-                        color=PALETTE["text_primary"], fontsize=8.5, fontweight="bold",
-                        ha="center", va="center", transform=ribbon.transAxes)
-    else:
-        ribbon.text(0.5, 0.5, "Pitch-type split unavailable",
-                    color=PALETTE["text_lo"], fontsize=8,
-                    ha="center", va="center", transform=ribbon.transAxes)
-    for i, item in enumerate(prof):
-        x0 = 0.20 + i * step
-        full = next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item["abbr"]), None)
-        col = PITCH_COLORS.get(full, PALETTE["text_secondary"])
-        ribbon.text(x0, 0.65, item["abbr"], color=col, fontsize=10.5, fontweight="black",
-                    ha="center", va="center", transform=ribbon.transAxes)
-        ribbon.text(x0, 0.25, _fmt_slash(item["xwoba"]) if item.get("xwoba") is not None else "—",
-                    color=PALETTE["text_primary"], fontsize=8.5, fontweight="bold",
-                    ha="center", va="center", transform=ribbon.transAxes)
+    label_rows = [
+        ("HEART", "heart", SEASONAL_ACCENT, 0.09),
+        ("SHADOW", "shadow", PALETTE["accent_orange"], 0.32),
+        ("CHASE", "chase", PALETTE["text_lo"], 0.57),
+    ]
+    for label, key, col, x in label_rows:
+        item = attack_damage.get(key, {})
+        text = _fmt_slash(item.get("xwoba")) if item.get("xwoba") is not None else "—"
+        ax.text(x, 0.055, label, color=col, fontsize=6.6, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes, zorder=9)
+        ax.text(x + 0.12, 0.055, text, color=PALETTE["text_primary"], fontsize=7.4, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
 # ─────────────────────────────── PANEL 3 — BATTED BALL PROFILE ──────────────
@@ -1518,7 +1562,14 @@ def generate_batter_profile(
     ax_foot = fig.add_subplot(bottom_gs[1])
 
     plot_header(ax_hdr, bio, sd, headshot, logo, context_label, is_flag=is_flag)
-    plot_zone_damage_map(ax_zone, sd["zone_damage"], sd.get("outer_damage", {}), sd.get("pitch_profile"))
+    plot_zone_damage_map(
+        ax_zone,
+        sd["zone_damage"],
+        sd.get("outer_damage", {}),
+        sd.get("attack_damage"),
+        sd.get("median_sz_top", _SZ_TOP),
+        sd.get("median_sz_bot", _SZ_BOT),
+    )
     plot_batted_ball_profile(ax_spray, ax_bars, sd["spray_df"], sd)
     plot_plate_discipline(ax_disc, sd)
     plot_rolling_xwoba(ax_spark, sd.get("rolling_xwoba", []), sd.get("xwoba"), sd.get("rolling_hard_hit"))
