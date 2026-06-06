@@ -575,7 +575,9 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
             bip_pt = grp[grp["type"] == "X"]
             ev_pt = bip_pt["launch_speed"].dropna()
             xw_pt = bip_pt["estimated_woba_using_speedangle"].dropna()
+            lsa_pt = bip_pt["launch_speed_angle"].dropna() if "launch_speed_angle" in bip_pt.columns else pd.Series(dtype=float)
             pitch_profile.append({
+                "name": str(pt),
                 "abbr": abbr,
                 "count": int(len(grp)),
                 "usage_pct": round(len(grp) / total_pitches * 100, 1) if total_pitches else 0.0,
@@ -583,6 +585,8 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
                 "whiff_pct": _pct(int(grp["description"].isin(_WHIFF_DESCS).sum()), int(swings_pt.sum())),
                 "chase_pct": _pct(int((swings_pt & out_zone_pt).sum()), int(out_zone_pt.sum())),
                 "avg_ev": round(float(ev_pt.mean()), 1) if len(ev_pt) else None,
+                "hard_hit_pct": _pct(int((ev_pt >= 95).sum()), int(len(ev_pt))),
+                "barrel_pct": _pct(int((lsa_pt == 6).sum()), int(len(lsa_pt))),
             })
         pitch_profile = sorted(pitch_profile, key=lambda x: (-x["count"], x["abbr"]))
 
@@ -737,16 +741,17 @@ def _fmt_pct(v: float | None, digits: int = 1) -> str:
 
 
 def _panel_title(ax, title: str, subtitle: str | None = None, watermark: bool = False):
-    ax.set_title(
-        title,
-        loc="left", fontsize=10.5, fontweight="black",
-        color=PALETTE["text_secondary"], pad=5,
+    ax.set_title("")
+    ax.text(
+        0.012, 0.982, title,
+        color=PALETTE["text_secondary"], fontsize=9.2, fontweight="black",
+        ha="left", va="top", transform=ax.transAxes, zorder=20,
     )
     if subtitle:
-        ax.set_title(
-            subtitle,
-            loc="right", fontsize=7, fontweight="normal",
-            color=PALETTE["text_lo"], pad=5,
+        ax.text(
+            0.988, 0.982, subtitle,
+            color=PALETTE["text_lo"], fontsize=6.4, fontweight="normal",
+            ha="right", va="top", transform=ax.transAxes, zorder=20,
         )
 
 
@@ -1502,15 +1507,15 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
                 ha="right", va="center", transform=ax.transAxes)
 
     ax.set_xticks([1, max(1, len(xs) // 2), len(xs)])
-    ax.set_xticklabels([1, max(1, len(xs) // 2), len(xs)], fontsize=8, color=PALETTE["text_secondary"])
+    ax.set_xticklabels([f"G1", f"G{max(1, len(xs) // 2)}", f"G{len(xs)}"], fontsize=6.8, color=PALETTE["text_secondary"])
     y_ticks = sorted(set([round(y_min, 3), 0.320, round(y_max, 3)]))
     ax.set_yticks(y_ticks)
-    ax.set_yticklabels([_fmt_slash(v) for v in y_ticks], fontsize=7, color=PALETTE["text_secondary"])
+    ax.set_yticklabels([_fmt_slash(v) for v in y_ticks], fontsize=6.4, color=PALETTE["text_secondary"])
     ax.margins(y=0.06)
     for sp in ax.spines.values():
         sp.set_edgecolor(PALETTE["border"])
     ax.tick_params(axis="both", colors=PALETTE["text_secondary"], length=0)
-    ax.set_xlabel(f"GAMES PLAYED (1-{len(xs)})", fontsize=8.5, fontweight="bold", color=PALETTE["text_lo"], labelpad=4)
+    ax.set_xlabel("")
 
 
 def _metric_value_text(value, kind: str = "raw", digits: int = 1) -> str:
@@ -1533,16 +1538,16 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    ax.text(0.035, 0.88, "MALLITALYTICS",
-            color=PALETTE["accent_orange"], fontsize=11, fontweight="black",
+    ax.text(0.035, 0.88, "SEASON BATTER PROFILE",
+            color=PALETTE["text_lo"], fontsize=8.5, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
     ax.text(0.965, 0.88, context_label.upper(),
             color=PALETTE["text_lo"], fontsize=7.5, fontweight="bold",
             ha="right", va="center", transform=ax.transAxes)
 
     if logo:
-        logo_ax = ax.inset_axes([0.82, 0.04, 0.13, 0.56])
-        logo_ax.imshow(np.array(logo), alpha=0.10)
+        logo_ax = ax.inset_axes([0.765, 0.06, 0.185, 0.78])
+        logo_ax.imshow(np.array(logo), alpha=0.065)
         logo_ax.axis("off")
 
     if headshot:
@@ -1567,21 +1572,9 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.text(0.226, 0.47, player_meta,
             color=SEASONAL_ACCENT, fontsize=9.5, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.226, 0.26,
-            f"{sd.get('games', 0)} G  ·  {sd.get('total_pa', 0)} PA  ·  {sd.get('hr', 0)} HR  ·  {sd.get('xbh', 0)} XBH",
-            color=PALETTE["text_primary"], fontsize=12.5, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
-
-    hero_x = 0.73
-    ax.text(hero_x, 0.62, "xwOBA",
-            color=PALETTE["text_lo"], fontsize=8.5, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
-    ax.text(hero_x, 0.40, _metric_value_text(sd.get("xwoba"), "rate"),
-            color=SEASONAL_ACCENT, fontsize=31, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
-    ax.text(hero_x, 0.20,
-            f"OPS {_metric_value_text(sd.get('ops'), 'rate')}  ·  wOBA {_metric_value_text(sd.get('woba'), 'rate')}",
-            color=PALETTE["text_secondary"], fontsize=8.5, fontweight="bold",
+    ax.text(0.226, 0.27,
+            "Rolling form · spray tendencies · contact quality · pitch-type results",
+            color=PALETTE["text_secondary"], fontsize=8.4, fontweight="bold",
             ha="left", va="center", transform=ax.transAxes)
 
 
@@ -1607,19 +1600,19 @@ def plot_batted_ball_quality(ax, sd: dict):
         x0 = 0.045 + col * 0.315
         y0 = 0.53 - row * 0.34
         ax.add_patch(FancyBboxPatch(
-            (x0, y0), 0.275, 0.22,
+            (x0, y0), 0.285, 0.23,
             boxstyle="round,pad=0.012,rounding_size=0.012",
             lw=1.0, edgecolor=PALETTE["border"], facecolor=PALETTE["table_bg"],
             transform=ax.transAxes, zorder=1,
         ))
-        ax.text(x0 + 0.018, y0 + 0.155, label,
+        ax.text(x0 + 0.018, y0 + 0.162, label,
                 color=PALETTE["text_lo"], fontsize=6.7, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes, zorder=2)
-        ax.text(x0 + 0.018, y0 + 0.082, value,
-                color=color, fontsize=14, fontweight="black",
+        ax.text(x0 + 0.018, y0 + 0.090, value,
+                color=color, fontsize=12.6, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes, zorder=2)
         ax.text(x0 + 0.018, y0 + 0.032, sub,
-                color=PALETTE["text_secondary"], fontsize=6.5, fontweight="bold",
+                color=PALETTE["text_secondary"], fontsize=6.2, fontweight="bold",
                 ha="left", va="center", transform=ax.transAxes, zorder=2)
 
 
@@ -1627,14 +1620,23 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
     _clean(ax, PALETTE["panel_bg"])
     _border(ax)
 
-    non_hr = spray_df[spray_df["events"] != "home_run"]
-    if not non_hr.empty:
-        nr = np.sqrt(non_hr["spray_x"] ** 2 + non_hr["spray_y"] ** 2)
-        wall_r = float(nr.quantile(0.99)) + 30
-        wall_r = max(370, min(wall_r, 430))
-    else:
-        wall_r = 395
+    wall_r = 390
     _draw_spray_field(ax, outfield_distance=wall_r)
+
+    plot_df = spray_df.copy()
+    plot_df["plot_x"] = plot_df["spray_x"]
+    plot_df["plot_y"] = plot_df["spray_y"]
+    hr_mask = (
+        (plot_df["events"] == "home_run") &
+        plot_df["hit_distance_sc"].notna()
+    ) if "hit_distance_sc" in plot_df.columns else pd.Series(False, index=plot_df.index)
+    if hr_mask.any():
+        hx = plot_df.loc[hr_mask, "spray_x"]
+        hy = plot_df.loc[hr_mask, "spray_y"]
+        current_r = np.sqrt(hx ** 2 + hy ** 2).replace(0, np.nan)
+        projected_r = plot_df.loc[hr_mask, "hit_distance_sc"].clip(lower=wall_r + 8, upper=450)
+        plot_df.loc[hr_mask, "plot_x"] = hx / current_r * projected_r
+        plot_df.loc[hr_mask, "plot_y"] = hy / current_r * projected_r
 
     outcome_style = {
         "out": ("#B9B9B2", 18, 0.45, 2),
@@ -1644,27 +1646,22 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
         "home_run": ("#E03282", 54, 1.0, 7),
     }
     for outcome in ("out", "single", "double", "triple", "home_run"):
-        sub = spray_df[spray_df["events"].map(_spray_outcome) == outcome]
+        sub = plot_df[plot_df["events"].map(_spray_outcome) == outcome]
         if sub.empty:
             continue
         color, size, alpha, z = outcome_style[outcome]
         ax.scatter(
-            sub["spray_x"], sub["spray_y"],
+            sub["plot_x"], sub["plot_y"],
             marker="o", s=size, color=color, alpha=alpha,
             linewidths=0.5 if outcome != "out" else 0,
             edgecolors=PALETTE["text_primary"] if outcome != "out" else "none",
             zorder=z,
         )
 
-    ax.set_xlim(-375, 375)
-    ax.set_ylim(-32, 430)
-    summary = sd.get("spray_summary", {})
-    subtitle = (
-        f"Pull {_fmt_pct(summary.get('pull_pct'))}  ·  "
-        f"Center {_fmt_pct(summary.get('center_pct'))}  ·  "
-        f"Oppo {_fmt_pct(summary.get('oppo_pct'))}"
-    )
-    _panel_title(ax, "SPRAY CHART", subtitle)
+    ax.set_xlim(-365, 365)
+    ax.set_ylim(-28, 455)
+    ax.set_aspect("equal", adjustable="box")
+    _panel_title(ax, "SPRAY CHART", "hits by outcome")
 
     legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B"), ("OUT", "#B9B9B2")]
     for i, (label, color) in enumerate(legend):
@@ -1675,24 +1672,16 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
-def _pitch_read(item: dict) -> str:
-    xw = item.get("xwoba")
-    whiff = item.get("whiff_pct")
-    if xw is None:
-        return "limited contact"
-    if whiff is not None and whiff >= 40 and xw >= 0.420:
-        return "damage / whiff"
-    if xw >= 0.540:
-        return "crushes it"
-    if xw >= 0.400:
-        return "strong damage"
-    if xw >= 0.350:
-        return "solid damage"
-    if whiff is not None and whiff >= 35:
-        return "swing-miss risk"
-    if xw <= 0.260:
-        return "weak spot"
-    return "neutral"
+def _short_pitch_name(name: str | None) -> str:
+    if not name:
+        return "--"
+    aliases = {
+        "4-Seam Fastball": "4-Seam Fastball",
+        "Four-Seam Fastball": "4-Seam Fastball",
+        "Split-Finger": "Splitter",
+        "Knuckle Curve": "Knuckle Curve",
+    }
+    return aliases.get(name, name)
 
 
 def plot_pitch_type_performance(ax, sd: dict):
@@ -1700,13 +1689,21 @@ def plot_pitch_type_performance(ax, sd: dict):
     _border(ax)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    _panel_title(ax, "PITCH TYPE PERFORMANCE", "Most common pitch types received")
+    _panel_title(ax, "PITCH TYPE PERFORMANCE", "xwOBAcon = contact only")
 
     rows = sorted(
         [p for p in sd.get("pitch_profile", []) if p.get("count", 0) > 0],
         key=lambda p: (-p.get("count", 0), p.get("abbr", "")),
     )[:6]
-    headers = [("PITCH", 0.045), ("SEEN", 0.190), ("USAGE", 0.315), ("xwOBA", 0.455), ("WHIFF", 0.610), ("AVG EV", 0.755), ("READ", 0.860)]
+    headers = [
+        ("PITCH", 0.045),
+        ("SEEN", 0.305),
+        ("SEEN %", 0.395),
+        ("xwOBAcon", 0.500),
+        ("WHIFF", 0.640),
+        ("HH%", 0.755),
+        ("BRL%", 0.865),
+    ]
     y_header = 0.80
     for label, x in headers:
         ax.text(x, y_header, label, color=PALETTE["text_lo"], fontsize=7.0, fontweight="black",
@@ -1728,21 +1725,21 @@ def plot_pitch_type_performance(ax, sd: dict):
                 facecolor=PALETTE["table_alt"], edgecolor="none", alpha=0.62,
                 transform=ax.transAxes, zorder=0,
             ))
-        full = next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
+        full = item.get("name") or next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
         pitch_color = PITCH_COLORS.get(full, SEASONAL_ACCENT)
         xw = item.get("xwoba")
         xw_color = PALETTE["accent_red"] if xw is not None and xw >= 0.380 else (SEASONAL_ACCENT if xw is not None and xw >= 0.320 else PALETTE["text_secondary"])
         values = [
-            (item.get("abbr", "--"), 0.045, pitch_color, "black"),
-            (f"{item.get('count', 0)}", 0.190, PALETTE["text_primary"], "bold"),
-            (_metric_value_text(item.get("usage_pct"), "pct"), 0.315, PALETTE["text_secondary"], "bold"),
-            (_metric_value_text(xw, "rate"), 0.455, xw_color, "black"),
-            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.610, PALETTE["text_secondary"], "bold"),
-            (f"{item.get('avg_ev'):.1f}" if item.get("avg_ev") is not None else "--", 0.755, PALETTE["text_secondary"], "bold"),
-            (_pitch_read(item), 0.860, PALETTE["text_primary"], "bold"),
+            (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
+            (f"{item.get('count', 0)}", 0.305, PALETTE["text_primary"], "bold"),
+            (_metric_value_text(item.get("usage_pct"), "pct"), 0.395, PALETTE["text_secondary"], "bold"),
+            (_metric_value_text(xw, "rate"), 0.500, xw_color, "black"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.640, PALETTE["text_secondary"], "bold"),
+            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.755, PALETTE["text_secondary"], "bold"),
+            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.865, PALETTE["text_secondary"], "bold"),
         ]
         for text, x, color, weight in values:
-            fs = 8.0 if x >= 0.850 else 8.8
+            fs = 7.7 if x == 0.045 else 8.0
             ax.text(x, y, text, color=color, fontsize=fs, fontweight=weight,
                     ha="left", va="center", transform=ax.transAxes)
 
@@ -1831,8 +1828,8 @@ def generate_batter_profile(
 
     outer_gs = gridspec.GridSpec(
         6, 1, figure=fig,
-        height_ratios=[1.18, 1.55, 3.15, 2.05, 0.78, 0.28],
-        hspace=0.075,
+        height_ratios=[1.12, 1.55, 3.10, 2.10, 0.80, 0.28],
+        hspace=0.105,
         left=0.045, right=0.955, top=0.975, bottom=0.030,
     )
 
