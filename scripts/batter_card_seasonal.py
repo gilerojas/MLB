@@ -1086,77 +1086,94 @@ def _spray_outcome(event: str) -> str:
 
 def _draw_spray_field(ax, outfield_distance: float = 390):
     """Draw a home-plate-origin baseball field in feet for Statcast spray data."""
-    grass_col = "#A7D7D6" if LIGHT_MODE else "#244A45"
-    outfield_col = "#B8DDD2" if LIGHT_MODE else "#203F3C"
-    dirt_col = "#D8B989" if LIGHT_MODE else "#7E5A34"
+    grass_col = "#BBD9CF" if LIGHT_MODE else "#244A45"
+    deep_grass_col = "#A8CFC4" if LIGHT_MODE else "#203F3C"
+    track_col = "#D2BE95" if LIGHT_MODE else "#7E6A44"
+    dirt_col = "#D6BC8C" if LIGHT_MODE else "#7E5A34"
     line_col = "#FFFFFF" if LIGHT_MODE else "#E2E8F0"
-    grid_col = PALETTE["border"]
+    ring_col = PALETTE["border"]
 
-    foul_distance = min(335, outfield_distance)
-    theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 360)
-    wall_x = outfield_distance * np.cos(theta)
-    wall_y = outfield_distance * np.sin(theta)
+    theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 320)
+    wall_r = outfield_distance
+    track_r = wall_r - 18
+    wall_x = wall_r * np.cos(theta)
+    wall_y = wall_r * np.sin(theta)
+    track_x = track_r * np.cos(theta)
+    track_y = track_r * np.sin(theta)
 
     ax.fill(
         np.concatenate([[0], wall_x]),
         np.concatenate([[0], wall_y]),
-        color=outfield_col,
+        color=deep_grass_col,
         zorder=0,
     )
-
-    infield_arc = np.linspace(np.deg2rad(45), np.deg2rad(135), 180)
-    infield_r = 155
     ax.fill(
-        np.concatenate([[0], infield_r * np.cos(infield_arc)]),
-        np.concatenate([[0], infield_r * np.sin(infield_arc)]),
-        color=grass_col,
+        np.concatenate([track_x, wall_x[::-1]]),
+        np.concatenate([track_y, wall_y[::-1]]),
+        color=track_col,
+        alpha=0.58,
         zorder=1,
     )
 
     base = 90 / np.sqrt(2)
-    b1 = np.array([base, base])
-    b2 = np.array([0, base * 2])
-    b3 = np.array([-base, base])
+    home = np.array([0.0, 0.0])
+    first = np.array([base, base])
+    second = np.array([0.0, base * 2])
+    third = np.array([-base, base])
 
+    infield_r = 142
+    infield_theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 180)
     ax.fill(
-        [0, b1[0], b2[0], b3[0], 0],
-        [0, b1[1], b2[1], b3[1], 0],
-        color=dirt_col,
-        alpha=0.88,
+        np.concatenate([[0], infield_r * np.cos(infield_theta)]),
+        np.concatenate([[0], infield_r * np.sin(infield_theta)]),
+        color=grass_col,
         zorder=2,
     )
-    ax.add_patch(mpatches.Circle((0, 60.5), 9.0, facecolor=dirt_col, edgecolor=line_col, lw=0.8, zorder=3))
-
-    ax.plot(wall_x, wall_y, color=line_col, lw=2.0, zorder=4)
-    ax.plot(
-        [0, foul_distance * np.cos(np.deg2rad(45))],
-        [0, foul_distance * np.sin(np.deg2rad(45))],
-        color=line_col,
-        lw=1.2,
-        zorder=4,
+    ax.fill(
+        [home[0], first[0], second[0], third[0], home[0]],
+        [home[1], first[1], second[1], third[1], home[1]],
+        color=dirt_col,
+        alpha=0.96,
+        zorder=3,
     )
-    ax.plot(
-        [0, foul_distance * np.cos(np.deg2rad(135))],
-        [0, foul_distance * np.sin(np.deg2rad(135))],
-        color=line_col,
-        lw=1.2,
-        zorder=4,
-    )
-    ax.plot([0, b1[0], b2[0], b3[0], 0], [0, b1[1], b2[1], b3[1], 0],
-            color=line_col, lw=1.15, zorder=5)
+    ax.add_patch(mpatches.Circle((0, 60.5), 9.0, facecolor=dirt_col, edgecolor=line_col, lw=0.9, zorder=4))
 
-    for bx, by in (b1, b2, b3):
+    foul_r = wall_r + 8
+    for angle in (45, 135):
+        ax.plot(
+            [0, foul_r * np.cos(np.deg2rad(angle))],
+            [0, foul_r * np.sin(np.deg2rad(angle))],
+            color=line_col,
+            lw=1.4,
+            alpha=0.96,
+            zorder=6,
+        )
+    ax.plot(wall_x, wall_y, color=line_col, lw=2.0, alpha=0.95, zorder=7)
+    ax.plot(track_x, track_y, color=line_col, lw=0.75, alpha=0.45, zorder=6)
+
+    ax.plot(
+        [home[0], first[0], second[0], third[0], home[0]],
+        [home[1], first[1], second[1], third[1], home[1]],
+        color=line_col,
+        lw=1.1,
+        zorder=8,
+    )
+    for bx, by in (first, second, third):
         ax.add_patch(mpatches.RegularPolygon(
-            (bx, by), numVertices=4, radius=5.0, orientation=np.pi / 4,
-            facecolor=line_col, edgecolor="none", zorder=6,
+            (bx, by), numVertices=4, radius=4.8, orientation=np.pi / 4,
+            facecolor=line_col, edgecolor="none", zorder=9,
         ))
-    ax.add_patch(mpatches.RegularPolygon((0, 0), numVertices=5, radius=5.2,
-                                         orientation=np.pi / 5, color=line_col, zorder=6))
+    ax.add_patch(mpatches.RegularPolygon(
+        (0, 0), numVertices=5, radius=5.4, orientation=np.pi / 5,
+        facecolor=line_col, edgecolor="none", zorder=9,
+    ))
 
-    for dist in (200, 300, 400):
-        if dist < outfield_distance:
-            ax.add_patch(mpatches.Arc((0, 0), dist * 2, dist * 2, theta1=45, theta2=135,
-                                      color=grid_col, lw=0.45, alpha=0.35, zorder=1))
+    for dist in (200, 300):
+        ax.add_patch(mpatches.Arc(
+            (0, 0), dist * 2, dist * 2,
+            theta1=45, theta2=135,
+            color=ring_col, lw=0.55, alpha=0.28, zorder=2,
+        ))
 
 
 def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict):
