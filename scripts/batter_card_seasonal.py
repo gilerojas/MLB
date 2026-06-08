@@ -1797,7 +1797,7 @@ def plot_counting_snapshot(ax, sd: dict):
         ("SLG", _metric_value_text(sd.get("slg"), "rate")),
         ("OPS", _metric_value_text(sd.get("ops"), "rate")),
     ]
-    _panel_title(ax, "SEASON PROFILE")
+    _panel_title(ax, "BATTING LINE")
     for i, (label, value) in enumerate(metrics):
         x0 = 0.030 + i * (0.940 / max(len(metrics) - 1, 1))
         ax.text(x0, 0.580, str(value), color=PALETTE["text_primary"], fontsize=9.0,
