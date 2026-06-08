@@ -1086,33 +1086,28 @@ def _spray_outcome(event: str) -> str:
 
 def _draw_spray_field(ax, outfield_distance: float = 390):
     """Draw a home-plate-origin baseball field in feet for Statcast spray data."""
-    grass_col = "#BBD9CF" if LIGHT_MODE else "#244A45"
-    deep_grass_col = "#A8CFC4" if LIGHT_MODE else "#203F3C"
-    track_col = "#D2BE95" if LIGHT_MODE else "#7E6A44"
+    grass_col = "#B7DED8" if LIGHT_MODE else "#244A45"
+    field_col = "#A9D7D1" if LIGHT_MODE else "#203F3C"
     dirt_col = "#D6BC8C" if LIGHT_MODE else "#7E5A34"
     line_col = "#FFFFFF" if LIGHT_MODE else "#E2E8F0"
-    ring_col = PALETTE["border"]
+    outline_col = "#D8D8D3" if LIGHT_MODE else "#536270"
+    label_col = "#9FD5D1" if LIGHT_MODE else "#75BDB7"
 
-    theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 320)
-    wall_r = outfield_distance
-    track_r = wall_r - 18
+    anchor_angles = np.array([45, 60, 75, 90, 105, 120, 135], dtype=float)
+    anchor_distances = np.array([330, 356, 387, 410, 387, 356, 330], dtype=float)
+    theta_deg = np.linspace(45, 135, 360)
+    wall_r = np.interp(theta_deg, anchor_angles, anchor_distances)
+    theta = np.deg2rad(theta_deg)
     wall_x = wall_r * np.cos(theta)
     wall_y = wall_r * np.sin(theta)
-    track_x = track_r * np.cos(theta)
-    track_y = track_r * np.sin(theta)
 
+    ax.plot(wall_x, wall_y, color=outline_col, lw=1.15, alpha=0.82, zorder=1)
     ax.fill(
         np.concatenate([[0], wall_x]),
         np.concatenate([[0], wall_y]),
-        color=deep_grass_col,
-        zorder=0,
-    )
-    ax.fill(
-        np.concatenate([track_x, wall_x[::-1]]),
-        np.concatenate([track_y, wall_y[::-1]]),
-        color=track_col,
-        alpha=0.58,
-        zorder=1,
+        color=field_col,
+        alpha=0.92,
+        zorder=2,
     )
 
     base = 100 / np.sqrt(2)
@@ -1121,35 +1116,33 @@ def _draw_spray_field(ax, outfield_distance: float = 390):
     second = np.array([0.0, base * 2])
     third = np.array([-base, base])
 
-    infield_r = 160
+    infield_r = 162
     infield_theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 180)
     ax.fill(
         np.concatenate([[0], infield_r * np.cos(infield_theta)]),
         np.concatenate([[0], infield_r * np.sin(infield_theta)]),
         color=grass_col,
-        zorder=2,
+        zorder=3,
     )
     ax.fill(
         [home[0], first[0], second[0], third[0], home[0]],
         [home[1], first[1], second[1], third[1], home[1]],
         color=dirt_col,
-        alpha=0.96,
-        zorder=3,
+        alpha=0.95,
+        zorder=4,
     )
-    ax.add_patch(mpatches.Circle((0, 60.5), 9.0, facecolor=dirt_col, edgecolor=line_col, lw=0.9, zorder=4))
+    ax.add_patch(mpatches.Circle((0, 60.5), 9.0, facecolor=dirt_col, edgecolor=line_col, lw=0.9, zorder=5))
 
-    foul_r = wall_r + 8
     for angle in (45, 135):
+        foul_r = np.interp(angle, anchor_angles, anchor_distances) + 8
         ax.plot(
             [0, foul_r * np.cos(np.deg2rad(angle))],
             [0, foul_r * np.sin(np.deg2rad(angle))],
-            color=line_col,
-            lw=1.4,
-            alpha=0.96,
+            color=outline_col,
+            lw=1.15,
+            alpha=0.82,
             zorder=6,
         )
-    ax.plot(wall_x, wall_y, color=line_col, lw=2.0, alpha=0.95, zorder=7)
-    ax.plot(track_x, track_y, color=line_col, lw=0.75, alpha=0.45, zorder=6)
 
     ax.plot(
         [home[0], first[0], second[0], third[0], home[0]],
@@ -1172,8 +1165,14 @@ def _draw_spray_field(ax, outfield_distance: float = 390):
         ax.add_patch(mpatches.Arc(
             (0, 0), dist * 2, dist * 2,
             theta1=45, theta2=135,
-            color=ring_col, lw=0.55, alpha=0.28, zorder=2,
+            color=outline_col, lw=0.55, alpha=0.28, zorder=3,
         ))
+
+    for angle, dist, label in [(45, 330, "330"), (70, 387, "387"), (90, 410, "410"), (110, 387, "387"), (135, 330, "330")]:
+        tx = (dist + 24) * np.cos(np.deg2rad(angle))
+        ty = (dist + 24) * np.sin(np.deg2rad(angle))
+        ax.text(tx, ty, label, color=label_col, fontsize=10.5, fontweight="black",
+                ha="center", va="center", alpha=0.68, zorder=3)
 
 
 def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict):
