@@ -1115,13 +1115,13 @@ def _draw_spray_field(ax, outfield_distance: float = 390):
         zorder=1,
     )
 
-    base = 90 / np.sqrt(2)
+    base = 100 / np.sqrt(2)
     home = np.array([0.0, 0.0])
     first = np.array([base, base])
     second = np.array([0.0, base * 2])
     third = np.array([-base, base])
 
-    infield_r = 142
+    infield_r = 160
     infield_theta = np.linspace(np.deg2rad(45), np.deg2rad(135), 180)
     ax.fill(
         np.concatenate([[0], infield_r * np.cos(infield_theta)]),
@@ -1579,11 +1579,11 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
         f"Bats {bio.get('hand', '--')}",
         f"Age {bio.get('age', '--')}",
     ])
-    ax.text(0.225, 0.66, bio.get("name", "Unknown Batter").upper(),
+    ax.text(0.225, 0.64, bio.get("name", "Unknown Batter").upper(),
             color=PALETTE["text_primary"], fontsize=23, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.226, 0.47, player_meta,
-            color=SEASONAL_ACCENT, fontsize=9.5, fontweight="black",
+    ax.text(0.226, 0.39, player_meta,
+            color=PALETTE["text_secondary"], fontsize=9.5, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
 
 
@@ -1595,13 +1595,14 @@ def plot_batted_ball_quality(ax, sd: dict):
     _panel_title(ax, "BATTED-BALL QUALITY", f"{sd.get('total_bip', 0)} BIP")
 
     avg_dist = sd.get("spray_summary", {}).get("avg_dist")
+    quality_highlight = PALETTE["accent_orange"]
     metrics = [
-        ("Avg EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", PALETTE["accent_orange"]),
-        ("Max EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", PALETTE["text_secondary"]),
-        ("Hard Hit", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", SEASONAL_ACCENT),
-        ("Barrel", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", SEASONAL_ACCENT),
-        ("Sweet Spot", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", PALETTE["accent_gold"]),
-        ("Avg Dist", f"{int(round(avg_dist))}" if avg_dist is not None else "--", "ft", PALETTE["text_secondary"]),
+        ("Avg EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", quality_highlight),
+        ("Max EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", quality_highlight),
+        ("Hard Hit", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", quality_highlight),
+        ("Barrel", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", quality_highlight),
+        ("Sweet Spot", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", quality_highlight),
+        ("Avg Dist", f"{int(round(avg_dist))}" if avg_dist is not None else "--", "ft", quality_highlight),
     ]
 
     ax.plot([0.045, 0.955], [0.760, 0.760], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
@@ -1629,7 +1630,7 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
     _clean(ax, PALETTE["panel_bg"])
     _border(ax)
 
-    wall_r = 390
+    wall_r = 380
     _draw_spray_field(ax, outfield_distance=wall_r)
 
     plot_df = spray_df.copy()
@@ -1643,18 +1644,17 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
         hx = plot_df.loc[hr_mask, "spray_x"]
         hy = plot_df.loc[hr_mask, "spray_y"]
         current_r = np.sqrt(hx ** 2 + hy ** 2).replace(0, np.nan)
-        projected_r = plot_df.loc[hr_mask, "hit_distance_sc"].clip(lower=wall_r + 8, upper=450)
+        projected_r = plot_df.loc[hr_mask, "hit_distance_sc"].clip(lower=wall_r + 8, upper=440)
         plot_df.loc[hr_mask, "plot_x"] = hx / current_r * projected_r
         plot_df.loc[hr_mask, "plot_y"] = hy / current_r * projected_r
 
     outcome_style = {
-        "out": ("#B9B9B2", 18, 0.45, 2),
         "single": ("#E8712B", 35, 0.92, 4),
         "double": ("#5D6D7E", 44, 0.95, 5),
         "triple": ("#F0A830", 48, 0.98, 6),
         "home_run": ("#E03282", 54, 1.0, 7),
     }
-    for outcome in ("out", "single", "double", "triple", "home_run"):
+    for outcome in ("single", "double", "triple", "home_run"):
         sub = plot_df[plot_df["events"].map(_spray_outcome) == outcome]
         if sub.empty:
             continue
@@ -1667,16 +1667,16 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
             zorder=z,
         )
 
-    ax.set_xlim(-365, 365)
-    ax.set_ylim(-28, 455)
+    ax.set_xlim(-350, 350)
+    ax.set_ylim(-24, 442)
     ax.set_aspect("equal", adjustable="box")
-    _panel_title(ax, "SPRAY CHART", "hits by outcome")
+    _panel_title(ax, "SPRAY CHART")
 
-    legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B"), ("OUT", "#B9B9B2")]
+    legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B")]
     for i, (label, color) in enumerate(legend):
-        x = 0.72 + i * 0.052
+        x = 0.735 + i * 0.065
         ax.scatter(x, 0.93, s=30, color=color, transform=ax.transAxes, zorder=9,
-                   edgecolors=PALETTE["text_primary"] if label != "OUT" else "none", linewidths=0.4)
+                   edgecolors=PALETTE["text_primary"], linewidths=0.4)
         ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=6.5,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
@@ -1776,16 +1776,11 @@ def plot_counting_snapshot(ax, sd: dict):
     ]
     _panel_title(ax, "COUNTING SNAPSHOT", "basic production")
     for i, (label, value) in enumerate(metrics):
-        row = 0 if i < 7 else 1
-        pos = i if row == 0 else i - 7
-        count = 7 if row == 0 else 6
-        x0 = 0.040 + pos * (0.90 / max(count - 1, 1))
-        yv = 0.640 if row == 0 else 0.260
-        yl = yv - 0.150
-        ax.text(x0, yv, str(value), color=PALETTE["text_primary"], fontsize=11.0,
-                fontweight="black", ha="left", va="center", transform=ax.transAxes)
-        ax.text(x0, yl, label, color=PALETTE["text_lo"], fontsize=6.8,
-                fontweight="black", ha="left", va="center", transform=ax.transAxes)
+        x0 = 0.030 + i * (0.940 / max(len(metrics) - 1, 1))
+        ax.text(x0, 0.580, str(value), color=PALETTE["text_primary"], fontsize=9.0,
+                fontweight="black", ha="center", va="center", transform=ax.transAxes)
+        ax.text(x0, 0.315, label, color=PALETTE["text_lo"], fontsize=5.8,
+                fontweight="black", ha="center", va="center", transform=ax.transAxes)
 
 
 def plot_brand_footer(ax):
@@ -1842,7 +1837,7 @@ def generate_batter_profile(
 
     outer_gs = gridspec.GridSpec(
         6, 1, figure=fig,
-        height_ratios=[1.02, 1.55, 3.02, 2.02, 1.02, 0.28],
+        height_ratios=[1.02, 1.55, 3.16, 2.04, 0.82, 0.28],
         hspace=0.105,
         left=0.045, right=0.955, top=0.975, bottom=0.030,
     )
