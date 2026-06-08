@@ -1550,6 +1550,7 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
     for sp in ax.spines.values():
         sp.set_edgecolor(PALETTE["border"])
     ax.tick_params(axis="both", colors=PALETTE["text_secondary"], length=0)
+    ax.tick_params(axis="x", pad=-8)
     ax.set_xlabel("")
 
 
@@ -1721,7 +1722,7 @@ def plot_pitch_type_performance(ax, sd: dict):
     _border(ax)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    _panel_title(ax, "PITCH TYPE PERFORMANCE", "BY PITCH SEEN")
+    _panel_title(ax, "PITCH TYPE PERFORMANCE")
 
     rows = sorted(
         [p for p in sd.get("pitch_profile", []) if p.get("count", 0) > 0],
@@ -1729,10 +1730,9 @@ def plot_pitch_type_performance(ax, sd: dict):
     )[:6]
     headers = [
         ("PITCH", 0.045),
-        ("SEEN", 0.305),
-        ("SEEN %", 0.395),
-        ("xwOBAcon", 0.500),
-        ("WHIFF", 0.640),
+        ("SEEN (%)", 0.305),
+        ("xwOBAcon", 0.470),
+        ("WHIFF", 0.625),
         ("HH%", 0.755),
         ("BRL%", 0.865),
     ]
@@ -1761,12 +1761,12 @@ def plot_pitch_type_performance(ax, sd: dict):
         pitch_color = PITCH_COLORS.get(full, SEASONAL_ACCENT)
         xw = item.get("xwoba")
         xw_color = PALETTE["accent_red"] if xw is not None and xw >= 0.380 else (SEASONAL_ACCENT if xw is not None and xw >= 0.320 else PALETTE["text_secondary"])
+        seen_text = f"{item.get('count', 0)} ({_metric_value_text(item.get('usage_pct'), 'pct')})"
         values = [
             (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
-            (f"{item.get('count', 0)}", 0.305, PALETTE["text_primary"], "bold"),
-            (_metric_value_text(item.get("usage_pct"), "pct"), 0.395, PALETTE["text_secondary"], "bold"),
-            (_metric_value_text(xw, "rate"), 0.500, xw_color, "black"),
-            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.640, PALETTE["text_secondary"], "bold"),
+            (seen_text, 0.305, PALETTE["text_primary"], "bold"),
+            (_metric_value_text(xw, "rate"), 0.470, xw_color, "black"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.625, PALETTE["text_secondary"], "bold"),
             (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.755, PALETTE["text_secondary"], "bold"),
             (_metric_value_text(item.get("barrel_pct"), "pct"), 0.865, PALETTE["text_secondary"], "bold"),
         ]
@@ -1797,7 +1797,7 @@ def plot_counting_snapshot(ax, sd: dict):
         ("SLG", _metric_value_text(sd.get("slg"), "rate")),
         ("OPS", _metric_value_text(sd.get("ops"), "rate")),
     ]
-    _panel_title(ax, "COUNTING SNAPSHOT", "basic production")
+    _panel_title(ax, "SEASON PROFILE")
     for i, (label, value) in enumerate(metrics):
         x0 = 0.030 + i * (0.940 / max(len(metrics) - 1, 1))
         ax.text(x0, 0.580, str(value), color=PALETTE["text_primary"], fontsize=9.0,
