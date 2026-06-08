@@ -1384,6 +1384,10 @@ _PCT_THRESHOLDS: dict[str, list[tuple[float, int]]] = {
                   (35.0, 60), (37.0, 70), (39.0, 80), (41.0, 90), (43.0, 95)],
     "xwoba":     [(0.245,10), (0.278,25), (0.298,40), (0.312,50),
                   (0.328,60), (0.348,70), (0.368,80), (0.388,90), (0.408,95)],
+    "max_ev":    [(99.0, 10), (102.0, 25), (105.0, 40), (107.0, 50),
+                  (109.0, 60), (111.0, 70), (113.0, 80), (115.0, 90), (117.0, 95)],
+    "avg_dist":  [(145.0, 10), (165.0, 25), (180.0, 40), (190.0, 50),
+                  (200.0, 60), (210.0, 70), (220.0, 80), (235.0, 90), (250.0, 95)],
 }
 
 
@@ -1404,6 +1408,21 @@ def _pct_color(pct: int) -> str:
     if pct >= 80: return PALETTE["accent_green"]
     if pct >= 50: return PALETTE["accent_gold"]
     return PALETTE["accent_red"]
+
+
+def _quality_value_color(metric: str, value: float | None) -> str:
+    pct = _percentile(metric, value)
+    if pct is None:
+        return PALETTE["accent_orange"]
+    if pct >= 90:
+        return "#8E3D16"
+    if pct >= 80:
+        return "#A94B1D"
+    if pct >= 60:
+        return "#C96A2B"
+    if pct >= 40:
+        return "#D8844D"
+    return "#E0A276"
 
 
 def plot_footer(ax, sd: dict):
@@ -1591,21 +1610,20 @@ def plot_batted_ball_quality(ax, sd: dict):
     _border(ax)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    _panel_title(ax, "BATTED-BALL QUALITY", f"{sd.get('total_bip', 0)} BIP")
+    _panel_title(ax, f"BATTED-BALL QUALITY · {sd.get('total_bip', 0)} BIP")
 
     avg_dist = sd.get("spray_summary", {}).get("avg_dist")
-    quality_highlight = PALETTE["accent_orange"]
     metrics = [
-        ("Avg EV", _metric_value_text(sd.get("avg_ev"), "mph"), "mph", quality_highlight),
-        ("Max EV", _metric_value_text(sd.get("max_ev"), "mph"), "mph", quality_highlight),
-        ("Hard Hit", _metric_value_text(sd.get("hard_pct"), "pct"), f"{sd.get('hard_hit_ct', 0)} balls", quality_highlight),
-        ("Barrel", _metric_value_text(sd.get("barrel_pct"), "pct"), f"{sd.get('barrel_ct', 0)} barrels", quality_highlight),
-        ("Sweet Spot", _metric_value_text(sd.get("swsp_pct"), "pct"), "8-32 deg", quality_highlight),
-        ("Avg Dist", f"{int(round(avg_dist))}" if avg_dist is not None else "--", "ft", quality_highlight),
+        ("Avg EV (mph)", _metric_value_text(sd.get("avg_ev"), "mph"), "avg_ev", sd.get("avg_ev")),
+        ("Max EV (mph)", _metric_value_text(sd.get("max_ev"), "mph"), "max_ev", sd.get("max_ev")),
+        ("Hard Hit %", _metric_value_text(sd.get("hard_pct"), "pct"), "hard_pct", sd.get("hard_pct")),
+        ("Barrel %", _metric_value_text(sd.get("barrel_pct"), "pct"), "barrel_pct", sd.get("barrel_pct")),
+        ("Sweet Spot %", _metric_value_text(sd.get("swsp_pct"), "pct"), "swsp_pct", sd.get("swsp_pct")),
+        ("Avg Dist (ft)", f"{int(round(avg_dist))}" if avg_dist is not None else "--", "avg_dist", avg_dist),
     ]
 
     ax.plot([0.045, 0.955], [0.760, 0.760], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
-    for i, (label, value, sub, color) in enumerate(metrics):
+    for i, (label, value, metric_key, raw_value) in enumerate(metrics):
         col = i // 3
         row = i % 3
         x_label = 0.065 + col * 0.500
@@ -1618,10 +1636,7 @@ def plot_batted_ball_quality(ax, sd: dict):
                 color=PALETTE["text_lo"], fontsize=6.1, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
         ax.text(x_label, y_value, value,
-                color=color, fontsize=11.0, fontweight="black",
-                ha="left", va="center", transform=ax.transAxes)
-        ax.text(x_label + 0.175, y_value, sub,
-                color=PALETTE["text_secondary"], fontsize=5.9, fontweight="bold",
+                color=_quality_value_color(metric_key, raw_value), fontsize=11.0, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
 
 
