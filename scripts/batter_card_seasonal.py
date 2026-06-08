@@ -743,14 +743,14 @@ def _fmt_pct(v: float | None, digits: int = 1) -> str:
 def _panel_title(ax, title: str, subtitle: str | None = None, watermark: bool = False):
     ax.set_title("")
     ax.text(
-        0.012, 0.982, title,
+        0.026, 0.948, title,
         color=PALETTE["text_secondary"], fontsize=9.2, fontweight="black",
         ha="left", va="top", transform=ax.transAxes, zorder=20,
     )
     if subtitle:
         ax.text(
-            0.988, 0.982, subtitle,
-            color=PALETTE["text_lo"], fontsize=6.4, fontweight="normal",
+            0.974, 0.948, subtitle,
+            color=PALETTE["text_lo"], fontsize=6.8, fontweight="bold",
             ha="right", va="top", transform=ax.transAxes, zorder=20,
         )
 
@@ -1573,21 +1573,27 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    ax.text(0.035, 0.88, "SEASON BATTER PROFILE",
-            color=PALETTE["text_lo"], fontsize=8.5, fontweight="black",
+    ax.text(0.040, 0.860, "SEASON BATTER PROFILE",
+            color=PALETTE["text_secondary"], fontsize=10.0, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.965, 0.88, context_label.upper(),
-            color=PALETTE["text_lo"], fontsize=7.5, fontweight="bold",
+    ax.text(0.955, 0.860, context_label.upper(),
+            color=PALETTE["text_secondary"], fontsize=8.8, fontweight="black",
             ha="right", va="center", transform=ax.transAxes)
 
     if logo:
-        logo_ax = ax.inset_axes([0.765, 0.06, 0.185, 0.78])
-        logo_ax.imshow(np.array(logo), alpha=0.065)
+        logo_ax = ax.inset_axes([0.735, 0.020, 0.220, 0.840])
+        logo_ax.imshow(np.array(logo), alpha=0.115)
         logo_ax.axis("off")
 
     if headshot:
-        img_ax = ax.inset_axes([0.040, 0.12, 0.145, 0.68])
-        img_ax.imshow(np.array(headshot))
+        img_ax = ax.inset_axes([0.055, 0.185, 0.125, 0.610])
+        img = img_ax.imshow(np.array(headshot))
+        clip = mpatches.Circle((0.5, 0.5), 0.49, transform=img_ax.transAxes)
+        img.set_clip_path(clip)
+        img_ax.add_patch(mpatches.Circle(
+            (0.5, 0.5), 0.49, transform=img_ax.transAxes,
+            fill=False, lw=1.2, edgecolor=PALETTE["border"],
+        ))
         img_ax.axis("off")
 
     team = sd.get("batter_team") or bio.get("team", "MLB")
@@ -1597,11 +1603,11 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
         f"Bats {bio.get('hand', '--')}",
         f"Age {bio.get('age', '--')}",
     ])
-    ax.text(0.225, 0.64, bio.get("name", "Unknown Batter").upper(),
+    ax.text(0.225, 0.600, bio.get("name", "Unknown Batter").upper(),
             color=PALETTE["text_primary"], fontsize=23, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.226, 0.39, player_meta,
-            color=PALETTE["text_secondary"], fontsize=9.5, fontweight="black",
+    ax.text(0.228, 0.335, player_meta,
+            color=PALETTE["text_secondary"], fontsize=9.2, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
 
 
@@ -1610,7 +1616,7 @@ def plot_batted_ball_quality(ax, sd: dict):
     _border(ax)
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    _panel_title(ax, f"BATTED-BALL QUALITY · {sd.get('total_bip', 0)} BIP")
+    _panel_title(ax, "BATTED-BALL QUALITY", f"{sd.get('total_bip', 0)} BIP")
 
     avg_dist = sd.get("spray_summary", {}).get("avg_dist")
     metrics = [
