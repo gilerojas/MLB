@@ -258,6 +258,40 @@ def fetch_team_logo(team_abb: str):
         return None
 
 
+def fetch_live_hitting_totals(player_id: int, season: int) -> dict:
+    """Fetch current MLB Stats API season hitting totals for production stats."""
+    url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats"
+    params = {"stats": "season", "group": "hitting", "season": season, "sportId": 1}
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        splits = resp.json().get("stats", [{}])[0].get("splits", [])
+        if not splits:
+            return {}
+        stat = splits[0].get("stat", {})
+        doubles = int(stat.get("doubles", 0) or 0)
+        triples = int(stat.get("triples", 0) or 0)
+        hr = int(stat.get("homeRuns", 0) or 0)
+        return {
+            "total_pa": int(stat.get("plateAppearances", 0) or 0),
+            "ab": int(stat.get("atBats", 0) or 0),
+            "h": int(stat.get("hits", 0) or 0),
+            "doubles": doubles,
+            "triples": triples,
+            "hr": hr,
+            "xbh": doubles + triples + hr,
+            "bb": int(stat.get("baseOnBalls", 0) or 0),
+            "k": int(stat.get("strikeOuts", 0) or 0),
+            "avg": float(str(stat.get("avg", "0")).replace("--", "0")),
+            "obp": float(str(stat.get("obp", "0")).replace("--", "0")),
+            "slg": float(str(stat.get("slg", "0")).replace("--", "0")),
+            "ops": float(str(stat.get("ops", "0")).replace("--", "0")),
+            "batting_line_source": "mlb_stats_api",
+        }
+    except Exception:
+        return {}
+
+
 # ─────────────────────────────── DATA LOADING & AGGREGATION ─────────────────
 
 _NO_AB_EVENTS = {
@@ -1425,6 +1459,21 @@ def _quality_value_color(metric: str, value: float | None) -> str:
     return "#E0A276"
 
 
+def _pitch_metric_color(metric: str, value: float | None) -> str:
+    if value is None:
+        return PALETTE["text_secondary"]
+    if metric == "whiff_pct":
+        if value <= 18:
+            return PALETTE["accent_green"]
+        if value <= 27:
+            return PALETTE["accent_gold"]
+        return PALETTE["accent_red"]
+    pct = _percentile(metric, value)
+    if pct is None:
+        return PALETTE["text_secondary"]
+    return _pct_color(pct)
+
+
 def plot_footer(ax, sd: dict):
     _clean(ax, PALETTE["panel_bg"])
     _border(ax)
@@ -1515,9 +1564,10 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
     ys = np.array([pt[1] for pt in rolling_xwoba], dtype=float)
     y_min = min(0.220, float(np.nanmin(ys)) - 0.025)
     y_max = max(0.420, float(np.nanmax(ys)) + 0.025)
+    y_max = y_max + (y_max - y_min) * 0.16
 
     _panel_title(ax, "10-GAME ROLLING xwOBA")
-    ax.set_xlim(1, len(xs))
+    ax.set_xlim(0.8, len(xs) + 0.2)
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_label_position("left")
     ax.tick_params(axis="y", pad=2)
@@ -1550,7 +1600,7 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
     for sp in ax.spines.values():
         sp.set_edgecolor(PALETTE["border"])
     ax.tick_params(axis="both", colors=PALETTE["text_secondary"], length=0)
-    ax.tick_params(axis="x", pad=-8)
+    ax.tick_params(axis="x", pad=3)
     ax.set_xlabel("")
 
 
@@ -1574,12 +1624,9 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    ax.text(0.040, 0.860, "SEASON BATTER PROFILE",
+    ax.text(0.040, 0.860, f"SEASON BATTER PROFILE · {context_label.upper()}",
             color=PALETTE["text_secondary"], fontsize=10.0, fontweight="black",
             ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.965, 0.875, context_label.upper(),
-            color=PALETTE["text_secondary"], fontsize=8.8, fontweight="black",
-            ha="right", va="center", transform=ax.transAxes)
 
     if logo:
         logo_ax = ax.inset_axes([0.780, 0.060, 0.170, 0.670])
@@ -1691,8 +1738,8 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
             zorder=z,
         )
 
-    ax.set_xlim(-350, 350)
-    ax.set_ylim(-24, 442)
+    ax.set_xlim(-372, 372)
+    ax.set_ylim(-30, 462)
     ax.set_aspect("equal", adjustable="box")
     _panel_title(ax, "SPRAY CHART")
 
@@ -1766,9 +1813,9 @@ def plot_pitch_type_performance(ax, sd: dict):
             (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
             (seen_text, 0.305, PALETTE["text_primary"], "bold"),
             (_metric_value_text(xw, "rate"), 0.470, xw_color, "black"),
-            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.625, PALETTE["text_secondary"], "bold"),
-            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.755, PALETTE["text_secondary"], "bold"),
-            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.865, PALETTE["text_secondary"], "bold"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.625, _pitch_metric_color("whiff_pct", item.get("whiff_pct")), "black"),
+            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.755, _pitch_metric_color("hard_pct", item.get("hard_hit_pct")), "black"),
+            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.865, _pitch_metric_color("barrel_pct", item.get("barrel_pct")), "black"),
         ]
         for text, x, color, weight in values:
             fs = 7.7 if x == 0.045 else 8.0
@@ -1810,7 +1857,7 @@ def plot_brand_footer(ax):
     _clean(ax, PALETTE["card_bg"])
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.text(0.02, 0.50, "Data: MLB · Statcast warehouse",
+    ax.text(0.02, 0.50, "Data: MLB Stats API · Statcast warehouse",
             color=PALETTE["text_lo"], fontsize=7.2, fontweight="bold",
             ha="left", va="center", transform=ax.transAxes)
     ax.text(0.98, 0.50, "@Mallitalytics",
@@ -1839,6 +1886,10 @@ def generate_batter_profile(
 
     print(f"  Aggregating {len(df):,} pitch rows across {df['game_pk'].nunique()} games…")
     sd = compute_season_stats(df)
+    live_totals = fetch_live_hitting_totals(batter_id, season)
+    if live_totals:
+        sd.update(live_totals)
+        print("  Batting line source: MLB Stats API season totals")
 
     if context_label is None:
         context_label = f"{season} Regular Season"
