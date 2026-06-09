@@ -1480,6 +1480,8 @@ _PCT_THRESHOLDS: dict[str, list[tuple[float, int]]] = {
                   (35.0, 60), (37.0, 70), (39.0, 80), (41.0, 90), (43.0, 95)],
     "xwoba":     [(0.245,10), (0.278,25), (0.298,40), (0.312,50),
                   (0.328,60), (0.348,70), (0.368,80), (0.388,90), (0.408,95)],
+    "whiff_pct": [(16.0, 10), (19.0, 25), (22.0, 40), (24.0, 50),
+                  (26.0, 60), (29.0, 70), (32.0, 80), (36.0, 90), (40.0, 95)],
     "max_ev":    [(99.0, 10), (102.0, 25), (105.0, 40), (107.0, 50),
                   (109.0, 60), (111.0, 70), (113.0, 80), (115.0, 90), (117.0, 95)],
     "avg_dist":  [(145.0, 10), (165.0, 25), (180.0, 40), (190.0, 50),
@@ -1522,16 +1524,6 @@ def _quality_value_color(metric: str, value: float | None) -> str:
 def _pitch_metric_color(metric: str, value: float | None) -> str:
     if value is None:
         return PALETTE["text_secondary"]
-    if metric == "whiff_pct":
-        if value >= 34:
-            return _pct_color(95)
-        if value >= 27:
-            return _pct_color(80)
-        if value >= 20:
-            return _pct_color(55)
-        if value >= 14:
-            return _pct_color(30)
-        return _pct_color(10)
     pct = _percentile(metric, value)
     if pct is None:
         return PALETTE["text_secondary"]
@@ -1786,10 +1778,10 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
         plot_df.loc[hr_mask, "plot_y"] = hy / current_r * projected_r
 
     outcome_style = {
-        "single": ("#E8712B", 35, 0.92, 4),
-        "double": ("#5D6D7E", 44, 0.95, 5),
-        "triple": ("#F0A830", 48, 0.98, 6),
-        "home_run": ("#E03282", 54, 1.0, 7),
+        "single": ("#C96A2B", 35, 0.92, 4),
+        "double": ("#4F76A3", 44, 0.95, 5),
+        "triple": ("#7C5D8F", 48, 0.98, 6),
+        "home_run": ("#B33F2F", 54, 1.0, 7),
     }
     for outcome in ("single", "double", "triple", "home_run"):
         sub = plot_df[plot_df["events"].map(_spray_outcome) == outcome]
@@ -1809,12 +1801,12 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
     ax.set_aspect("equal", adjustable="box")
     _panel_title(ax, "SPRAY CHART")
 
-    legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B")]
-    legend_xs = [0.710, 0.835, 0.900, 0.960]
+    legend = [("HR", "#B33F2F"), ("3B", "#7C5D8F"), ("2B", "#4F76A3"), ("1B", "#C96A2B")]
+    legend_xs = [0.735, 0.800, 0.865, 0.930]
     for x, (label, color) in zip(legend_xs, legend):
         ax.scatter(x, 0.93, s=30, color=color, transform=ax.transAxes, zorder=9,
                    edgecolors=PALETTE["text_primary"], linewidths=0.4)
-        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=5.9,
+        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=6.5,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
