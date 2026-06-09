@@ -138,17 +138,17 @@ _ZONE_CMAP = LinearSegmentedColormap.from_list(
 
 _PITCH_COLORS_LIGHT = {
     "4-Seam Fastball": "#C53030", "Sinker":        "#C05621",
-    "Cutter":          "#B7791F", "Slider":        "#276749",
-    "Sweeper":         "#1D4044", "Curveball":     "#2A4365",
+    "Cutter":          "#B7791F", "Slider":        "#345C8C",
+    "Sweeper":         "#394B63", "Curveball":     "#2A4365",
     "Changeup":        "#553C9A", "Splitter":      "#B83280",
-    "Knuckle Curve":   "#2C7A7B",
+    "Knuckle Curve":   "#365F91",
 }
 _PITCH_COLORS_DARK = {
     "4-Seam Fastball": "#FC8181", "Sinker":        "#F6AD55",
-    "Cutter":          "#F6E05E", "Slider":        "#68D391",
-    "Sweeper":         "#4FD1C5", "Curveball":     "#63B3ED",
+    "Cutter":          "#F6E05E", "Slider":        "#8EB5E5",
+    "Sweeper":         "#A7B4C8", "Curveball":     "#63B3ED",
     "Changeup":        "#B794F4", "Splitter":      "#F687B3",
-    "Knuckle Curve":   "#76E4F7",
+    "Knuckle Curve":   "#9BC1EF",
 }
 PITCH_COLORS = _PITCH_COLORS_LIGHT if LIGHT_MODE else _PITCH_COLORS_DARK
 
@@ -290,6 +290,68 @@ def fetch_live_hitting_totals(player_id: int, season: int) -> dict:
         }
     except Exception:
         return {}
+
+
+def fetch_live_home_run_spray(player_id: int, season: int) -> pd.DataFrame:
+    """Fetch current-season HR hit coordinates from MLB live feeds."""
+    game_log_url = f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats"
+    params = {"stats": "gameLog", "group": "hitting", "season": season, "sportId": 1}
+    rows: list[dict] = []
+    try:
+        resp = requests.get(game_log_url, params=params, timeout=15)
+        resp.raise_for_status()
+        splits = resp.json().get("stats", [{}])[0].get("splits", [])
+    except Exception:
+        return pd.DataFrame()
+
+    hr_games = [
+        int(s.get("game", {}).get("gamePk"))
+        for s in splits
+        if int(s.get("stat", {}).get("homeRuns", 0) or 0) > 0 and s.get("game", {}).get("gamePk")
+    ]
+    for game_pk in hr_games:
+        try:
+            feed = requests.get(
+                f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live",
+                timeout=15,
+            ).json()
+        except Exception:
+            continue
+        for play in feed.get("liveData", {}).get("plays", {}).get("allPlays", []):
+            if play.get("matchup", {}).get("batter", {}).get("id") != player_id:
+                continue
+            if play.get("result", {}).get("eventType") != "home_run":
+                continue
+            in_play = next(
+                (ev for ev in play.get("playEvents", [])
+                 if ev.get("details", {}).get("isInPlay") and ev.get("hitData")),
+                None,
+            )
+            if not in_play:
+                continue
+            hit = in_play.get("hitData", {})
+            coords = hit.get("coordinates", {})
+            coord_x = coords.get("coordX")
+            coord_y = coords.get("coordY")
+            if coord_x is None or coord_y is None:
+                continue
+            rows.append({
+                "game_pk": game_pk,
+                "at_bat_number": play.get("about", {}).get("atBatIndex"),
+                "events": "home_run",
+                "type": "X",
+                "hc_x": float(coord_x),
+                "hc_y": float(coord_y),
+                "hit_distance_sc": hit.get("totalDistance"),
+                "launch_speed": hit.get("launchSpeed"),
+                "launch_angle": hit.get("launchAngle"),
+                "play_id": in_play.get("playId"),
+                "spray_source": "mlb_stats_api_live",
+            })
+
+    if not rows:
+        return pd.DataFrame()
+    return _transform_statcast_spray_coords(pd.DataFrame(rows))
 
 
 # ─────────────────────────────── DATA LOADING & AGGREGATION ─────────────────
@@ -1439,35 +1501,37 @@ def _percentile(metric: str, value: float | None) -> int | None:
 
 
 def _pct_color(pct: int) -> str:
-    if pct >= 80: return PALETTE["accent_green"]
-    if pct >= 50: return PALETTE["accent_gold"]
-    return PALETTE["accent_red"]
+    if pct >= 90:
+        return "#B33F2F" if LIGHT_MODE else "#FF806E"
+    if pct >= 75:
+        return "#C96A2B" if LIGHT_MODE else "#F6AD55"
+    if pct >= 50:
+        return PALETTE["accent_gold"]
+    if pct >= 25:
+        return "#6E90B6" if LIGHT_MODE else "#90B7E0"
+    return "#2F6597" if LIGHT_MODE else "#63A6E8"
 
 
 def _quality_value_color(metric: str, value: float | None) -> str:
     pct = _percentile(metric, value)
     if pct is None:
         return PALETTE["accent_orange"]
-    if pct >= 90:
-        return "#8E3D16"
-    if pct >= 80:
-        return "#A94B1D"
-    if pct >= 60:
-        return "#C96A2B"
-    if pct >= 40:
-        return "#D8844D"
-    return "#E0A276"
+    return _pct_color(pct)
 
 
 def _pitch_metric_color(metric: str, value: float | None) -> str:
     if value is None:
         return PALETTE["text_secondary"]
     if metric == "whiff_pct":
-        if value <= 18:
-            return PALETTE["accent_green"]
-        if value <= 27:
-            return PALETTE["accent_gold"]
-        return PALETTE["accent_red"]
+        if value >= 34:
+            return _pct_color(95)
+        if value >= 27:
+            return _pct_color(80)
+        if value >= 20:
+            return _pct_color(55)
+        if value >= 14:
+            return _pct_color(30)
+        return _pct_color(10)
     pct = _percentile(metric, value)
     if pct is None:
         return PALETTE["text_secondary"]
@@ -1576,10 +1640,12 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
 
     ax.axhline(0.320, color=PALETTE["text_lo"], lw=0.9, ls="--", alpha=0.75)
 
-    ax.fill_between(xs, ys, 0.320, where=ys >= 0.320, color=SEASONAL_ACCENT, alpha=0.16)
-    ax.fill_between(xs, ys, 0.320, where=ys < 0.320, color=PALETTE["accent_red"], alpha=0.14)
-    ax.plot(xs, ys, color=SEASONAL_ACCENT, lw=2.2, zorder=3)
-    ax.scatter(xs[-1], ys[-1], s=26, color=SEASONAL_ACCENT, zorder=4)
+    hot_line = "#B33F2F" if LIGHT_MODE else "#FF806E"
+    cold_fill = "#2F6597" if LIGHT_MODE else "#63A6E8"
+    ax.fill_between(xs, ys, 0.320, where=ys >= 0.320, color=hot_line, alpha=0.15)
+    ax.fill_between(xs, ys, 0.320, where=ys < 0.320, color=cold_fill, alpha=0.15)
+    ax.plot(xs, ys, color=hot_line, lw=2.2, zorder=3)
+    ax.scatter(xs[-1], ys[-1], s=26, color=hot_line, zorder=4)
 
     if xwoba_season is not None:
         ax.axhline(xwoba_season, color=PALETTE["accent_gold"], lw=1.0, ls=":", alpha=0.9)
@@ -1744,11 +1810,11 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
     _panel_title(ax, "SPRAY CHART")
 
     legend = [("HR", "#E03282"), ("3B", "#F0A830"), ("2B", "#5D6D7E"), ("1B", "#E8712B")]
-    for i, (label, color) in enumerate(legend):
-        x = 0.735 + i * 0.065
+    legend_xs = [0.710, 0.835, 0.900, 0.960]
+    for x, (label, color) in zip(legend_xs, legend):
         ax.scatter(x, 0.93, s=30, color=color, transform=ax.transAxes, zorder=9,
                    edgecolors=PALETTE["text_primary"], linewidths=0.4)
-        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=6.5,
+        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=5.9,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
@@ -1805,9 +1871,9 @@ def plot_pitch_type_performance(ax, sd: dict):
                 transform=ax.transAxes, zorder=0,
             ))
         full = item.get("name") or next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
-        pitch_color = PITCH_COLORS.get(full, SEASONAL_ACCENT)
+        pitch_color = PITCH_COLORS.get(full, PALETTE["text_secondary"])
         xw = item.get("xwoba")
-        xw_color = PALETTE["accent_red"] if xw is not None and xw >= 0.380 else (SEASONAL_ACCENT if xw is not None and xw >= 0.320 else PALETTE["text_secondary"])
+        xw_color = _pitch_metric_color("xwoba", xw)
         seen_text = f"{item.get('count', 0)} ({_metric_value_text(item.get('usage_pct'), 'pct')})"
         values = [
             (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
@@ -1890,6 +1956,12 @@ def generate_batter_profile(
     if live_totals:
         sd.update(live_totals)
         print("  Batting line source: MLB Stats API season totals")
+    live_hr_spray = fetch_live_home_run_spray(batter_id, season)
+    if not live_hr_spray.empty and "spray_df" in sd:
+        local_non_hr = sd["spray_df"][sd["spray_df"]["events"].map(_spray_outcome) != "home_run"].copy()
+        sd["spray_df"] = pd.concat([local_non_hr, live_hr_spray], ignore_index=True, sort=False)
+        sd["spray_hr_plotted"] = int(len(live_hr_spray))
+        print(f"  Spray chart HR source: MLB Stats API live feeds ({len(live_hr_spray)} HR)")
 
     if context_label is None:
         context_label = f"{season} Regular Season"
