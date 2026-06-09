@@ -16,8 +16,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "tweet_text required" }, { status: 400 });
   }
   const userAgent = req.headers.get("user-agent") || "";
-  const id = insertQuickPost(tweetText, {
+  const id = await insertQuickPost(tweetText, {
     source: "quick_post",
+    source_module: "quick_post",
+    content_pillar: "text_only",
+    hook_type: "debate_prompt",
+    intended_kpi: "replies",
+    priority_score: 50,
+    campaign: "daily_mlb",
+    manual_or_ai: "manual",
+    experiment_tag: "",
     creation_mode: "manual",
     ai_assisted: false,
     device: /mobile|iphone|android/i.test(userAgent) ? "mobile" : "desktop",
@@ -25,4 +33,3 @@ export async function POST(req: NextRequest) {
   await auditFromRequest(req, "quick_post_create", "success", undefined, id);
   return NextResponse.json({ success: true, id });
 }
-

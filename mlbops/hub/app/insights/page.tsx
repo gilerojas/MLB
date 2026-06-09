@@ -18,18 +18,30 @@ interface StatcastBundle {
   [key: string]: unknown;
 }
 
+interface StatcastThresholds {
+  team_games?: number;
+  bip?: number;
+  bbe?: number;
+  pitches?: number;
+  breaking_pitches?: number;
+  tracked_swings?: number;
+  pitch_type_pitches?: number;
+}
+
 interface StatcastResponse {
   season: number;
   stage: string;
   n_pitches_total: number;
   pitcher_role?: string;
   pitcher_role_filter_supported?: boolean;
+  sample_thresholds?: StatcastThresholds;
   bundles: {
     fastball_whiff: StatcastBundle[];
     hardest_throwers: StatcastBundle[];
     pitcher_luck: StatcastBundle[];
     exit_velocity: StatcastBundle[];
     barrel_leaders: StatcastBundle[];
+    farthest_home_runs: StatcastBundle[];
     spin_rate: StatcastBundle[];
     chase_kings: StatcastBundle[];
     bs75_leaders: StatcastBundle[];
@@ -45,9 +57,23 @@ interface TileState {
   status: TileStatus;
   rows: LeaderRow[];
   error?: string;
+  min_pa?: number;
+  min_ip?: number;
+  qualification?: {
+    team_games?: number;
+    min_pa?: number;
+    min_ip?: number;
+    batting_rule?: string;
+    pitching_rule?: string;
+  } | null;
 }
 
 type PitcherRoleFilter = "all" | "starter" | "reliever";
+
+function rowThresholds(rows?: StatcastBundle[]): StatcastThresholds | undefined {
+  const meta = rows?.find((row) => row._sample_thresholds)?.["_sample_thresholds"];
+  return meta && typeof meta === "object" ? (meta as StatcastThresholds) : undefined;
+}
 
 // ── formatters ────────────────────────────────────────────────────────────────
 
@@ -100,6 +126,8 @@ function serializableLeaderRows(rows: LeaderRow[], statKey: string, limit: numbe
   return rows.slice(0, limit).map((r) => ({
     player_name: r.player_name ?? null,
     player_id: r.player_id ?? null,
+    team_abbrev: r.team_abbrev ?? null,
+    team_id: r.team_id ?? null,
     [statKey]: r[statKey],
   }));
 }
@@ -128,7 +156,22 @@ function serializableScRows(rows: StatcastBundle[], statKey: string, limit: numb
       player_id: r.player_id,
       [statKey]: r[statKey],
     };
-    const extra = ["pitch_type", "pitch_name", "n_pitches", "avg_velo", "n_bip", "n_tracked_swings", "n_fast_swings"] as const;
+    const extra = [
+      "pitch_type",
+      "pitch_name",
+      "n_pitches",
+      "avg_velo",
+      "n_bip",
+      "n_tracked_swings",
+      "n_fast_swings",
+      "launch_speed",
+      "launch_angle",
+      "game_date",
+      "game_pk",
+      "pitcher_name",
+      "pitcher_id",
+      "description",
+    ] as const;
     for (const k of extra) {
       if (r[k] != null) base[k] = r[k];
     }
@@ -335,6 +378,7 @@ function LeaderTile({
                 sublabel,
                 stat_key: statKey,
                 pitcher_role: pitcherRole ?? null,
+                qualification: state.qualification ?? null,
                 rows: serializableLeaderRows(state.rows, statKey, 12),
               },
             };
@@ -549,6 +593,9 @@ function BatterLuckSection({
                 season,
                 meta: {
                   insight_key: "batter_luck_lucky",
+                  label: "Lucky hitters",
+                  sublabel: "wOBA on BIP ahead of xwOBA — outcomes beating contact",
+                  stat_key: "luck_delta",
                   rows: lucky.slice(0, 12).map((r) => ({
                     player_name: r.player_name,
                     player_id: r.player_id,
@@ -582,6 +629,9 @@ function BatterLuckSection({
                 season,
                 meta: {
                   insight_key: "batter_luck_unlucky",
+                  label: "Unlucky hitters",
+                  sublabel: "xwOBA on BIP ahead of wOBA — loud contact, quiet box score",
+                  stat_key: "luck_delta",
                   rows: unlucky.slice(0, 12).map((r) => ({
                     player_name: r.player_name,
                     player_id: r.player_id,
@@ -662,6 +712,9 @@ function LuckSection({
                 season,
                 meta: {
                   insight_key: "pitcher_luck_lucky",
+                  label: "Lucky pitchers",
+                  sublabel: "xwOBA allowed > wOBA — results better than contact quality",
+                  stat_key: "luck_delta",
                   pitcher_role: pitcherRole,
                   rows: lucky.slice(0, 12).map((r) => ({
                     player_name: r.player_name,
@@ -696,6 +749,9 @@ function LuckSection({
                 season,
                 meta: {
                   insight_key: "pitcher_luck_unlucky",
+                  label: "Unlucky pitchers",
+                  sublabel: "wOBA allowed > xwOBA — results worse than contact quality",
+                  stat_key: "luck_delta",
                   pitcher_role: pitcherRole,
                   rows: unlucky.slice(0, 12).map((r) => ({
                     player_name: r.player_name,
@@ -735,6 +791,7 @@ export default function InsightsPage() {
   const [sc, setSc] = useState<StatcastResponse | null>(null);
   const [scLoading, setScLoading] = useState(false);
   const [scError, setScError] = useState<string | null>(null);
+  const [scRequested, setScRequested] = useState(false);
 
   const fetchLeader = useCallback(
     async (
@@ -746,6 +803,7 @@ export default function InsightsPage() {
       limit: number,
       set: (s: TileState) => void,
       role?: PitcherRoleFilter,
+      qualified = false,
     ) => {
       set({ status: "loading", rows: [] });
       try {
@@ -755,9 +813,9 @@ export default function InsightsPage() {
             : "";
         const url =
           kind === "batting"
-            ? `${api}/leaderboards/batting?season=${season}&sort_by=${sortBy}&min_pa=${minPa}&limit=${limit}`
-            : `${api}/leaderboards/pitching?season=${season}&sort_by=${sortBy}&min_ip=${minIp}&limit=${limit}&ascending=${ascending}${roleParam}`;
-        const res = await fetch(url);
+            ? `${api}/leaderboards/batting?season=${season}&sort_by=${sortBy}&min_pa=${minPa}&limit=${limit}&qualified=${qualified}`
+            : `${api}/leaderboards/pitching?season=${season}&sort_by=${sortBy}&min_ip=${minIp}&limit=${limit}&ascending=${ascending}${roleParam}&qualified=${qualified}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail ?? "Failed");
         if (kind === "pitching") {
@@ -766,7 +824,13 @@ export default function InsightsPage() {
           );
           setPitchingFilterSupported(data.pitcher_role_filter_supported === true);
         }
-        set({ status: "ok", rows: data.leaders ?? [] });
+        set({
+          status: "ok",
+          rows: data.leaders ?? [],
+          min_pa: typeof data.min_pa === "number" ? data.min_pa : undefined,
+          min_ip: typeof data.min_ip === "number" ? data.min_ip : undefined,
+          qualification: data.qualification ?? null,
+        });
       } catch (e) {
         set({ status: "error", rows: [], error: String(e) });
       }
@@ -775,12 +839,14 @@ export default function InsightsPage() {
   );
 
   const fetchSc = useCallback(async () => {
+    setScRequested(true);
     setScLoading(true);
     setScError(null);
-    setSc(null);
     try {
       const roleQ = `&pitcher_role=${encodeURIComponent(pitcherRole)}`;
-      const res = await fetch(`${api}/insights/statcast?season=${season}${roleQ}`);
+      const res = await fetch(`${api}/insights/statcast?season=${season}${roleQ}`, {
+        signal: AbortSignal.timeout(120_000),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? "Statcast fetch failed");
       setSc(data);
@@ -792,12 +858,26 @@ export default function InsightsPage() {
   }, [api, season, pitcherRole]);
 
   useEffect(() => {
-    fetchLeader("batting", "hr", false, 1, 0, 10, setHrState);
-    fetchLeader("batting", "ops", false, 5, 0, 10, setOpsState);
-    fetchLeader("pitching", "strikeouts", false, 0, 0, 10, setKState, pitcherRole);
-    fetchLeader("pitching", "era", true, 0, 8, 10, setEraState, pitcherRole);
-    fetchSc();
-  }, [fetchLeader, fetchSc, pitcherRole]);
+    void fetchSc();
+  }, [fetchSc]);
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      await fetchLeader("batting", "hr", false, 1, 0, 10, setHrState);
+      if (!active) return;
+      await fetchLeader("batting", "ops", false, 0, 0, 10, setOpsState, undefined, true);
+      if (!active) return;
+      await fetchLeader("pitching", "strikeouts", false, 0, 0, 10, setKState, pitcherRole);
+      if (!active) return;
+      await fetchLeader("pitching", "era", true, 0, 0, 10, setEraState, pitcherRole, true);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [fetchLeader, pitcherRole]);
 
   const pitchSublabel = (base: string) => {
     if (pitchingFilterSupported !== true) return base;
@@ -805,8 +885,34 @@ export default function InsightsPage() {
     if (pitcherRole === "reliever") return `${base} · relievers (more relief apps than GS)`;
     return base;
   };
-
   const b = sc?.bundles;
+  const statcastTileError =
+    scRequested || scLoading || sc ? scError : "Statcast not loaded yet.";
+  const st =
+    sc?.sample_thresholds ??
+    rowThresholds(b?.barrel_leaders) ??
+    rowThresholds(b?.fastball_whiff) ??
+    rowThresholds(b?.bs75_leaders) ??
+    rowThresholds(b?.pitch_rv100_best);
+  const opsSublabel =
+    typeof opsState.min_pa === "number" && opsState.min_pa > 0
+      ? `OBP + SLG · qualified (${opsState.min_pa} PA min)`
+      : typeof st?.team_games === "number" && st.team_games > 0
+        ? `OBP + SLG · qualified (${Math.ceil(st.team_games * 3.1)} PA min)`
+      : "OBP + SLG · qualified";
+  const eraSublabel =
+    typeof eraState.min_ip === "number" && eraState.min_ip > 0
+      ? pitchSublabel(`Lowest ERA · qualified (${eraState.min_ip.toFixed(0)} IP min)`)
+      : typeof st?.team_games === "number" && st.team_games > 0
+        ? pitchSublabel(`Lowest ERA · qualified (${st.team_games.toFixed(0)} IP min)`)
+      : pitchSublabel("Lowest ERA · qualified");
+
+  const bipMin = st?.bip ?? 8;
+  const bbeMin = st?.bbe ?? 25;
+  const pitchMin = st?.pitches ?? 20;
+  const breakingPitchMin = st?.breaking_pitches ?? 10;
+  const trackedSwingMin = st?.tracked_swings ?? 40;
+  const pitchTypeMin = st?.pitch_type_pitches ?? 150;
 
   return (
     <div className="p-6 max-w-[1800px] mx-auto px-8 2xl:px-12">
@@ -824,12 +930,25 @@ export default function InsightsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void fetchSc()}
+            disabled={scLoading}
+            className="rounded border border-border bg-surface px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:bg-surface-hover hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+          >
+            {scLoading ? "Loading Statcast..." : sc ? "Refresh Statcast" : "Load Statcast"}
+          </button>
           <div className="flex rounded border border-border overflow-hidden">
             {([2024, 2025, 2026] as const).map((y) => (
               <button
                 key={y}
                 type="button"
-                onClick={() => setSeason(y)}
+                onClick={() => {
+                  setSeason(y);
+                  setSc(null);
+                  setScError(null);
+                  setScRequested(false);
+                }}
                 className={`px-4 py-1.5 text-sm font-medium transition-colors ${
                   season === y
                     ? "bg-info text-white"
@@ -874,7 +993,7 @@ export default function InsightsPage() {
         <LeaderTile
           state={opsState}
           label="OPS leaders"
-          sublabel="OBP + SLG · min 5 PA"
+          sublabel={opsSublabel}
           accent="border-sky-700"
           statKey="ops"
           format={(v) => f(v, 3)}
@@ -886,11 +1005,31 @@ export default function InsightsPage() {
       <Section tag="&#9679; Statcast" label="contact quality" />
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <ScTile
+          rows={b?.farthest_home_runs ?? []}
+          loading={scLoading}
+          error={statcastTileError}
+          label="Farthest home runs"
+          sublabel="Longest HR distance this season"
+          accent="border-red-600"
+          statKey="hit_distance"
+          format={(v) => (v == null ? "—" : `${Math.round(Number(v))} ft`)}
+          sub={(r) => {
+            const parts = [];
+            if (r.launch_speed != null) parts.push(`${mph(r.launch_speed)} mph`);
+            if (r.launch_angle != null) parts.push(`${f(r.launch_angle, 0)}° LA`);
+            if (r.game_date != null) parts.push(String(r.game_date));
+            return parts.join(" · ");
+          }}
+          season={season}
+          insightKey="farthest_home_runs"
+          pitcherRole={pitcherRole}
+        />
+        <ScTile
           rows={b?.barrel_leaders ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Barrel %"
-          sublabel="Barrels per BIP · min 8 BIP"
+          sublabel={`Barrels per BIP · qualified (${bipMin} BIP min)`}
           accent="border-rose-600"
           statKey="barrel_pct"
           format={pct}
@@ -902,9 +1041,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.exit_velocity ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Exit velocity"
-          sublabel="Avg EV on contact · min 8 BIP"
+          sublabel={`Avg EV on contact · qualified (${bipMin} BIP min)`}
           accent="border-orange-600"
           statKey="avg_ev"
           format={(v) => `${mph(v)} mph`}
@@ -916,9 +1055,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.batter_xwoba ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="xwOBA on contact"
-          sublabel="Mean xwOBA on BIP · min 25 BBE"
+          sublabel={`Mean xwOBA on BIP · qualified (${bbeMin} BBE min)`}
           accent="border-sky-600"
           statKey="xwoba"
           format={(v) => f(v, 3)}
@@ -927,16 +1066,15 @@ export default function InsightsPage() {
           insightKey="batter_xwoba"
           pitcherRole={pitcherRole}
         />
-        <div className="hidden xl:block" />
       </div>
       <p className="mt-2 text-xs text-dim max-w-3xl">
-        Batter luck compares mean wOBA vs mean xwOBA on balls in play (min 25 BBE).
+        Batter luck compares mean wOBA vs mean xwOBA on balls in play (qualified BBE floor).
       </p>
       <div className="mt-4">
         <BatterLuckSection
           rows={b?.batter_luck ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           season={season}
         />
       </div>
@@ -973,7 +1111,12 @@ export default function InsightsPage() {
                     ? "More relief appearances than starts"
                     : "All pitchers"
               }
-              onClick={() => setPitcherRole(val)}
+              onClick={() => {
+                setPitcherRole(val);
+                setSc(null);
+                setScError(null);
+                setScRequested(false);
+              }}
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                 pitcherRole === val
                   ? "bg-surface-hover text-foreground border-x border-border first:border-l-0 last:border-r-0"
@@ -1017,7 +1160,7 @@ export default function InsightsPage() {
             <LeaderTile
               state={eraState}
               label="ERA leaders"
-              sublabel={pitchSublabel("Lowest ERA · min 8 IP")}
+              sublabel={eraSublabel}
               accent="border-teal-700"
               statKey="era"
               format={(v) => f(v, 2)}
@@ -1034,9 +1177,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.fastball_whiff ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Fastball whiff %"
-          sublabel={pitchSublabel("FF / SI swing-and-miss rate")}
+          sublabel={pitchSublabel(`FF / SI swing-and-miss rate · qualified (${pitchMin} pitches min)`)}
           accent="border-sky-600"
           statKey="whiff_pct"
           format={pct}
@@ -1048,9 +1191,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.hardest_throwers ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Hardest throwers"
-          sublabel={pitchSublabel("Avg FF / SI velocity")}
+          sublabel={pitchSublabel(`Avg FF / SI velocity · qualified (${pitchMin} pitches min)`)}
           accent="border-amber-600"
           statKey="avg_velo"
           format={(v) => `${mph(v)} mph`}
@@ -1062,9 +1205,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.chase_kings ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Chase rate"
-          sublabel={pitchSublabel("Out-of-zone swing % induced")}
+          sublabel={pitchSublabel(`Out-of-zone swing % induced · qualified (${pitchMin} OOZ pitches min)`)}
           accent="border-teal-600"
           statKey="chase_pct"
           format={pct}
@@ -1076,9 +1219,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.spin_rate ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Spin rate"
-          sublabel={pitchSublabel("Highest avg spin · breaking balls")}
+          sublabel={pitchSublabel(`Highest avg spin · breaking balls (${breakingPitchMin} pitch min)`)}
           accent="border-purple-600"
           statKey="avg_spin"
           format={(v) => `${rpm(v)} rpm`}
@@ -1093,9 +1236,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.bs75_leaders ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="BS75+% (tracked swings)"
-          sublabel={pitchSublabel("Share of swings ≥ 75 mph bat speed · min 40 tracked swings")}
+          sublabel={pitchSublabel(`Share of swings ≥ 75 mph bat speed · qualified (${trackedSwingMin} tracked min)`)}
           accent="border-lime-600"
           statKey="bs75_pct"
           format={pct}
@@ -1107,9 +1250,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.pitch_rv100_best ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Best pitches (RV/100)"
-          sublabel={pitchSublabel("Highest run value per 100 pitches · min 150 per type")}
+          sublabel={pitchSublabel(`Highest run value per 100 pitches · qualified (${pitchTypeMin} per type)`)}
           accent="border-emerald-600"
           statKey="rv100"
           format={(v) => (v == null ? "—" : `${Number(v).toFixed(1)} RV/100`)}
@@ -1123,9 +1266,9 @@ export default function InsightsPage() {
         <ScTile
           rows={b?.pitch_rv100_worst ?? []}
           loading={scLoading}
-          error={scError}
+          error={statcastTileError}
           label="Worst pitches (RV/100)"
-          sublabel={pitchSublabel("Lowest RV/100 (same pitch-count floor)")}
+          sublabel={pitchSublabel(`Lowest RV/100 · qualified (${pitchTypeMin} per type)`)}
           accent="border-rose-600"
           statKey="rv100"
           format={(v) => (v == null ? "—" : `${Number(v).toFixed(1)} RV/100`)}
@@ -1149,7 +1292,7 @@ export default function InsightsPage() {
       <LuckSection
         rows={b?.pitcher_luck ?? []}
         loading={scLoading}
-        error={scError}
+        error={statcastTileError}
         season={season}
         pitcherRole={pitcherRole}
       />

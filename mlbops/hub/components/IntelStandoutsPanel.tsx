@@ -73,6 +73,35 @@ function rowKey(kind: "p" | "b", r: PitcherRow | BatterRow) {
   return `${kind}-${r.player_id}-${r.game_pk}-${r.game_date}`;
 }
 
+function StatLine({ children }: { children: string[] }) {
+  return (
+    <span className="flex min-w-[15rem] flex-wrap items-center gap-1 leading-tight">
+      {children.map((part, i) => (
+        <span
+          key={`${part}-${i}`}
+          className="whitespace-nowrap border border-outline-variant/30 bg-surface-lowest px-1.5 py-0.5 font-mono text-[11px] text-muted"
+        >
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function PitcherLine({ line }: { line: string }) {
+  const m = line.match(/^(.+?) IP · (\d+)-(\d+)-(\d+) · (\d+) ER$/);
+  if (!m) return <span>{line}</span>;
+  const [, ip, strikeouts, hits, walks, earnedRuns] = m;
+  return <StatLine>{[`${ip} IP`, `${strikeouts} K`, `${hits} H`, `${walks} BB`, `${earnedRuns} ER`]}</StatLine>;
+}
+
+function BatterLine({ line }: { line: string }) {
+  const m = line.match(/^(\d+)-(\d+) · (\d+) HR · (\d+) RBI · (\d+) R · (\d+) BB$/);
+  if (!m) return <span>{line}</span>;
+  const [, atBats, hits, homers, rbi, runs, walks] = m;
+  return <StatLine>{[`${hits}-for-${atBats}`, `${homers} HR`, `${rbi} RBI`, `${runs} R`, `${walks} BB`]}</StatLine>;
+}
+
 export function IntelStandoutsPanel() {
   const [window, setWindow] = useState<WindowKey>("yesterday");
   const [data, setData] = useState<StandoutsPayload | null>(null);
@@ -344,8 +373,8 @@ export function IntelStandoutsPanel() {
                         <td className="px-2 py-1.5 font-mono text-muted whitespace-nowrap">
                           {row.game_date}
                         </td>
-                        <td className="px-2 py-1.5 text-muted leading-tight max-w-[10rem] sm:max-w-none">
-                          {row.line}
+                        <td className="px-2 py-1.5 text-muted leading-tight">
+                          <PitcherLine line={row.line} />
                         </td>
                         <td className="px-2 py-1.5 align-top">
                           <div className="flex flex-col gap-0.5 items-start">
@@ -425,8 +454,8 @@ export function IntelStandoutsPanel() {
                         <td className="px-2 py-1.5 font-mono text-muted whitespace-nowrap">
                           {row.game_date}
                         </td>
-                        <td className="px-2 py-1.5 text-muted leading-tight max-w-[10rem] sm:max-w-none">
-                          {row.line}
+                        <td className="px-2 py-1.5 text-muted leading-tight">
+                          <BatterLine line={row.line} />
                         </td>
                         <td className="px-2 py-1.5 align-top">
                           <div className="flex flex-col gap-0.5 items-start">

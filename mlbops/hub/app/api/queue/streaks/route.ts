@@ -5,6 +5,5 @@ import { requireSessionJson } from "@/lib/security";
 export async function GET() {
   const session = await requireSessionJson();
   if (session instanceof NextResponse) return session;
-  return NextResponse.json(getPostingStreakStats());
+  return NextResponse.json(await getPostingStreakStats());
 }
-

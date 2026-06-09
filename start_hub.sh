@@ -42,6 +42,12 @@ fi
 export MLBOPS_ALLOW_INTEL_RUN="${MLBOPS_ALLOW_INTEL_RUN:-1}"
 
 echo "Starting mlbops…"
+if [ "${MLBOPS_SKIP_DOCTOR:-0}" != "1" ]; then
+  echo ""
+  echo "Preflight:"
+  ./mlb_env/bin/python scripts/mlbops_doctor.py || true
+  echo ""
+fi
 
 # FastAPI — cwd mlbops so package api resolves; inherits HUB_CORS_ORIGINS
 mlb_env/bin/pip install -q -r mlbops/api/requirements-api.txt 2>/dev/null || true

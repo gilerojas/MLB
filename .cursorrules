@@ -44,3 +44,22 @@
 - `scripts/batter_card_daily.py` — batter cards
 - Both respect `MLB_WAREHOUSE_DIR` env var for the warehouse root
 - FastAPI card endpoints: `POST /cards/pitcher` and `POST /cards/batter`
+
+## VPS ship workflow (agents + Gil)
+
+Production Hub/API runs on Hostinger VPS (`/srv/mlbops/app`), accessed via Tailscale `http://100.111.41.78`.
+The VPS copy is **not** a git repo — deploy by rsync from Mac, not `git pull` on the server.
+
+**After completing changes to hub, api, or `deploy/`**, the agent must:
+
+1. Update `TRACKING.md` if the task status changed.
+2. Run **`./deploy/ship.sh "message"`** from repo root (commit → push → rsync → rebuild hub/api).
+   - Or separately: `git commit` + `git push` + `./deploy/sync_app_to_vps.sh`
+3. Report commit hash and whether VPS deploy succeeded.
+4. If deploy fails (SSH/Tailscale down), say so and leave Mac + GitHub updated; user can rerun sync when online.
+
+**Prerequisites:** Tailscale ON on Mac; SSH to `100.111.41.78:22` with Hermes key; `authorized_keys` on VPS.
+
+**Do not commit:** `mlbops/.env`, warehouse parquets, `data/hub.db`, secrets.
+
+See `deploy/README.md` for warehouse sync, SSH, and env setup.

@@ -10,9 +10,16 @@ type StatusTab = (typeof STATUS_TABS)[number];
 const SORT_OPTIONS = [
   { value: "created_at:desc", label: "Newest" },
   { value: "created_at:asc", label: "Oldest" },
+  { value: "priority_score:desc", label: "Priority ↓" },
   { value: "game_date:desc", label: "Game date ↓" },
   { value: "game_date:asc", label: "Game date ↑" },
 ] as const;
+
+const DEFAULT_TAXONOMY = {
+  content_pillars: ["probables", "pitcher_to_watch", "player_card", "leaderboard_watch", "statcast_signal", "pitching_index", "hr_tracker", "buy_sell", "matchup_edge", "live_event", "text_only"],
+  hook_types: ["hidden_edge", "what_changed", "one_chart_one_takeaway", "signal_vs_noise", "box_score_missed", "bookmark_utility", "debate_prompt", "rare_air", "live_reaction"],
+  intended_kpis: ["bookmarks", "replies", "reposts", "profile_visits", "follows", "impressions"],
+};
 
 const STATUS_COLORS: Record<string, string> = {
   draft:    "bg-accent-bg-active text-accent border border-accent/35",
@@ -30,11 +37,13 @@ const CONTENT_TYPE_LABEL: Record<string, string> = {
   batter_card:      "Batter card",
   pitcher_card:     "Pitcher card",
   hr_tracker:       "HR Tracker",
+  pitching_index:   "Pitching Index",
   games_of_day:     "Games of Day",
   probables_board:  "Probables board",
   insight_tile:     "Insight",
   text_only:         "Text post",
   live_event:       "Live event",
+  fantasy_streamer: "Pitching projection",
 };
 
 function CharCounter({ text, max }: { text: string; max: number }) {
@@ -57,9 +66,162 @@ type StreakStats = {
   manual_ratio: number;
 };
 
+type PerformanceMetrics = {
+  x_post_id?: string | null;
+  impressions: number;
+  likes: number;
+  replies: number;
+  reposts: number;
+  quote_tweets: number;
+  bookmarks: number;
+  profile_visits: number;
+  follows: number;
+  notes?: string | null;
+  engagement_rate?: number;
+  bookmark_rate?: number;
+  reply_rate?: number;
+  repost_rate?: number;
+  follows_per_1000_impressions?: number;
+};
+
+type Taxonomy = typeof DEFAULT_TAXONOMY;
+
+type ContentScore = {
+  priority_score: number;
+  primary_kpi: string;
+  recommended_pillar: string;
+  reason: string;
+  factors: Record<string, number>;
+  scored_at?: string;
+  model?: string;
+};
+
+const EMPTY_PERFORMANCE: PerformanceMetrics = {
+  impressions: 0,
+  likes: 0,
+  replies: 0,
+  reposts: 0,
+  quote_tweets: 0,
+  bookmarks: 0,
+  profile_visits: 0,
+  follows: 0,
+  notes: "",
+};
+
 function parseMeta(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
   try { return JSON.parse(raw) as Record<string, unknown>; } catch { return null; }
+}
+
+function titleCase(value: string | null | undefined) {
+  if (!value) return "—";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function MetadataEditor({
+  item,
+  taxonomy,
+  onSave,
+}: {
+  item: QueueItem;
+  taxonomy: Taxonomy;
+  onSave: (patch: Record<string, string | number>) => Promise<void>;
+}) {
+  const editable = item.status === "draft";
+  const selectClass = "mt-1 w-full border border-outline-variant bg-surface text-foreground px-2 py-1.5 text-xs font-mono";
+  const inputClass = "mt-1 w-full border border-outline-variant bg-surface text-foreground px-2 py-1.5 text-xs font-mono";
+  if (!editable) {
+    const cells = [
+      ["Pillar", titleCase(item.content_pillar)],
+      ["Hook", titleCase(item.hook_type)],
+      ["Primary KPI", titleCase(item.intended_kpi)],
+      ["Priority", item.priority_score == null ? "—" : String(item.priority_score)],
+      ["Campaign", item.campaign || "—"],
+      ["Source", item.source_module || "—"],
+      ["Mode", titleCase(item.manual_or_ai)],
+      ["Experiment tag", item.experiment_tag || "—"],
+    ];
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {cells.map(([label, value]) => (
+          <div key={label} className="border border-outline-variant/40 bg-surface-lowest px-3 py-2">
+            <p className="text-[10px] font-mono uppercase text-dim">{label}</p>
+            <p className="text-xs font-mono text-foreground truncate">{value}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Pillar
+        <select className={selectClass} value={item.content_pillar || ""} onChange={(e) => onSave({ content_pillar: e.target.value })}>
+          {taxonomy.content_pillars.map((v) => <option key={v} value={v}>{titleCase(v)}</option>)}
+        </select>
+      </label>
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Hook
+        <select className={selectClass} value={item.hook_type || ""} onChange={(e) => onSave({ hook_type: e.target.value })}>
+          {taxonomy.hook_types.map((v) => <option key={v} value={v}>{titleCase(v)}</option>)}
+        </select>
+      </label>
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Primary KPI
+        <select className={selectClass} value={item.intended_kpi || ""} onChange={(e) => onSave({ intended_kpi: e.target.value })}>
+          {taxonomy.intended_kpis.map((v) => <option key={v} value={v}>{titleCase(v)}</option>)}
+        </select>
+      </label>
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Priority
+        <input className={inputClass} type="number" min={0} max={100} value={item.priority_score ?? 0} onChange={(e) => onSave({ priority_score: Number(e.target.value || 0) })} />
+      </label>
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Campaign
+        <input className={inputClass} value={item.campaign || ""} onChange={(e) => onSave({ campaign: e.target.value })} />
+      </label>
+      <div className="border border-outline-variant/40 bg-surface-lowest px-3 py-2">
+        <p className="text-[10px] font-mono uppercase text-dim">Source</p>
+        <p className="text-xs font-mono text-foreground truncate mt-2">{item.source_module || "—"}</p>
+      </div>
+      <div className="border border-outline-variant/40 bg-surface-lowest px-3 py-2">
+        <p className="text-[10px] font-mono uppercase text-dim">Mode</p>
+        <p className="text-xs font-mono text-foreground truncate mt-2">{titleCase(item.manual_or_ai)}</p>
+      </div>
+      <label className="border border-outline-variant/40 bg-surface-lowest px-3 py-2 text-[10px] font-mono uppercase text-dim">
+        Experiment tag
+        <input className={inputClass} value={item.experiment_tag || ""} onChange={(e) => onSave({ experiment_tag: e.target.value })} />
+      </label>
+    </div>
+  );
+}
+
+function ScorePanel({ score, draft, busy, onRescore }: { score: ContentScore | null; draft: boolean; busy: boolean; onRescore: () => void }) {
+  return (
+    <section className="border border-outline-variant/40 bg-surface-lowest p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-mono uppercase text-accent">Why this priority?</p>
+          <p className="text-sm text-muted mt-1">{score?.reason || "No score explanation yet. Rescore this draft to generate one."}</p>
+        </div>
+        {draft && (
+          <button type="button" onClick={onRescore} disabled={busy} className="px-3 py-2 border border-outline text-xs font-mono uppercase hover:bg-surface-hover disabled:opacity-40">
+            {busy ? "Scoring..." : "Rescore"}
+          </button>
+        )}
+      </div>
+      {score?.factors && (
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
+          {Object.entries(score.factors).map(([key, value]) => (
+            <div key={key} className="border border-outline-variant/30 bg-surface px-2 py-1.5">
+              <p className="text-[10px] font-mono uppercase text-dim">{titleCase(key)}</p>
+              <p className="text-sm font-mono text-foreground">{value}/100</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }
 
 // ── Generate toolbar ────────────────────────────────────────────────────────
@@ -69,7 +231,7 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  async function generate(type: "hr-tracker" | "games-of-day" | "probables-board") {
+  async function generate(type: "hr-tracker" | "pitching-index" | "best-batters" | "best-pitchers" | "games-of-day" | "probables-board") {
     setBusy(type);
     setMsg(null);
     try {
@@ -158,6 +320,45 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
           )}
           HR Tracker
         </button>
+        <button
+          type="button"
+          onClick={() => void generate("pitching-index")}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-header border border-outline-variant/50 hover:border-accent transition-colors text-sm font-mono uppercase text-foreground disabled:opacity-40"
+        >
+          {busy === "pitching-index" ? (
+            <span className="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+          ) : (
+            <span className="text-info">▣</span>
+          )}
+          Pitching Index
+        </button>
+        <button
+          type="button"
+          onClick={() => void generate("best-batters")}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-header border border-outline-variant/50 hover:border-accent transition-colors text-sm font-mono uppercase text-foreground disabled:opacity-40"
+        >
+          {busy === "best-batters" ? (
+            <span className="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+          ) : (
+            <span className="text-success">▲</span>
+          )}
+          Best Batters
+        </button>
+        <button
+          type="button"
+          onClick={() => void generate("best-pitchers")}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-header border border-outline-variant/50 hover:border-accent transition-colors text-sm font-mono uppercase text-foreground disabled:opacity-40"
+        >
+          {busy === "best-pitchers" ? (
+            <span className="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+          ) : (
+            <span className="text-info">◆</span>
+          )}
+          Best Pitchers
+        </button>
         <a
           href="/cards"
           className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-header border border-outline-variant/50 text-sm font-mono uppercase text-muted hover:text-foreground hover:border-accent transition-colors"
@@ -228,6 +429,8 @@ export default function QueueClient() {
   const api = getApiBase();
   const [activeTab, setActiveTab] = useState<StatusTab>("draft");
   const [sortVal, setSortVal] = useState<string>("created_at:desc");
+  const [pillarFilter, setPillarFilter] = useState("");
+  const [kpiFilter, setKpiFilter] = useState("");
   const [items, setItems] = useState<QueueItem[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -242,9 +445,18 @@ export default function QueueClient() {
   const [quickMsg, setQuickMsg] = useState<string | null>(null);
   const [streaks, setStreaks] = useState<StreakStats | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
+  const [performance, setPerformance] = useState<PerformanceMetrics>(EMPTY_PERFORMANCE);
+  const [performanceMsg, setPerformanceMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [performanceBusy, setPerformanceBusy] = useState(false);
+  const [taxonomy, setTaxonomy] = useState<Taxonomy>(DEFAULT_TAXONOMY);
+  const [scoreBusy, setScoreBusy] = useState(false);
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
   const selectedMeta = useMemo(() => parseMeta(selectedItem?.meta_json ?? null), [selectedItem?.meta_json]);
+  const selectedScore = useMemo(() => {
+    const raw = selectedMeta?.content_score;
+    return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as ContentScore : null;
+  }, [selectedMeta]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -268,25 +480,40 @@ export default function QueueClient() {
     }
   }, []);
 
-  const fetchItems = useCallback(async (tab: StatusTab, sort: string) => {
+  const fetchItems = useCallback(async (tab: StatusTab, sort: string, keepSelected = false) => {
     const [col, ord] = sort.split(":");
     const params = new URLSearchParams({ limit: "50", sort_by: col, order: ord });
     if (tab !== "all") params.set("status", tab);
+    if (pillarFilter) params.set("content_pillar", pillarFilter);
+    if (kpiFilter) params.set("intended_kpi", kpiFilter);
     try {
       const res = await fetch(`${api}/queue?${params}`);
       if (!res.ok) return;
       const data = await res.json();
       setItems(data.items || []);
+      if (!keepSelected) setSelectedId(null);
       setApiUnreachable(null);
     } catch {
       setApiUnreachable(apiDownMessage(api));
     }
-  }, [api]);
+  }, [api, pillarFilter, kpiFilter]);
 
   useEffect(() => {
     fetchSummary();
     fetchStreaks();
   }, [fetchSummary, fetchStreaks]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${api}/queue/taxonomy`);
+        if (!res.ok) return;
+        setTaxonomy((await res.json()) as Taxonomy);
+      } catch {
+        setTaxonomy(DEFAULT_TAXONOMY);
+      }
+    })();
+  }, [api]);
 
   useEffect(() => {
     let cancelled = false;
@@ -308,11 +535,38 @@ export default function QueueClient() {
   }, [api]);
   useEffect(() => {
     fetchItems(activeTab, sortVal);
-    setSelectedId(null);
-  }, [activeTab, sortVal, fetchItems]);
+  }, [activeTab, sortVal, pillarFilter, kpiFilter, fetchItems]);
   useEffect(() => {
     if (selectedItem) setTweetText(selectedItem.tweet_text || "");
   }, [selectedItem]);
+
+  useEffect(() => {
+    setPerformanceMsg(null);
+    if (!selectedItem || selectedItem.status !== "posted") {
+      setPerformance(EMPTY_PERFORMANCE);
+      return;
+    }
+    setPerformance({
+      ...EMPTY_PERFORMANCE,
+      x_post_id: selectedItem.twitter_post_id || "",
+    });
+    void (async () => {
+      try {
+        const res = await fetch(`${api}/analytics/performance/${selectedItem.id}`);
+        if (res.status === 404) return;
+        if (!res.ok) return;
+        const data = (await res.json()) as PerformanceMetrics;
+        setPerformance({
+          ...EMPTY_PERFORMANCE,
+          ...data,
+          x_post_id: data.x_post_id || selectedItem.twitter_post_id || "",
+          notes: data.notes || "",
+        });
+      } catch {
+        /* performance entry is optional */
+      }
+    })();
+  }, [api, selectedItem]);
 
   async function saveTweetText() {
     if (!selectedId) return;
@@ -417,6 +671,83 @@ export default function QueueClient() {
       if (typeof data.id === "number") setSelectedId(data.id);
     } finally {
       setQuickBusy(false);
+    }
+  }
+
+  async function saveMetadata(patch: Record<string, string | number>) {
+    if (!selectedId) return;
+    setActionStatus(null);
+    try {
+      const res = await secureFetch(`${api}/queue/${selectedId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionStatus({ type: "error", msg: typeof data.detail === "string" ? data.detail : "Metadata save failed." });
+        return;
+      }
+      setItems((rows) => rows.map((row) => row.id === selectedId ? data as QueueItem : row));
+      setActionStatus({ type: "success", msg: "Metadata saved." });
+    } catch (e) {
+      setActionStatus({ type: "error", msg: String(e) });
+    }
+  }
+
+  async function handleRescore() {
+    if (!selectedId) return;
+    setScoreBusy(true);
+    setActionStatus(null);
+    try {
+      const res = await secureFetch(`${api}/queue/${selectedId}/score`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionStatus({ type: "error", msg: typeof data.detail === "string" ? data.detail : "Scoring failed." });
+        return;
+      }
+      if (data.item) {
+        setItems((rows) => rows.map((row) => row.id === selectedId ? data.item as QueueItem : row));
+      } else {
+        await fetchItems(activeTab, sortVal, true);
+      }
+      setActionStatus({ type: "success", msg: "Priority score updated." });
+    } catch (e) {
+      setActionStatus({ type: "error", msg: String(e) });
+    } finally {
+      setScoreBusy(false);
+    }
+  }
+
+  function updatePerformanceField<K extends keyof PerformanceMetrics>(field: K, value: PerformanceMetrics[K]) {
+    setPerformance((p) => ({ ...p, [field]: value }));
+  }
+
+  async function savePerformance() {
+    if (!selectedItem) return;
+    setPerformanceBusy(true);
+    setPerformanceMsg(null);
+    try {
+      const res = await fetch(`${api}/analytics/performance/${selectedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...performance,
+          x_post_id: performance.x_post_id || selectedItem.twitter_post_id || "",
+          posted_at: selectedItem.posted_at,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPerformanceMsg({ ok: false, text: typeof data.detail === "string" ? data.detail : "Could not save metrics." });
+        return;
+      }
+      setPerformance({ ...EMPTY_PERFORMANCE, ...(data as PerformanceMetrics), notes: (data as PerformanceMetrics).notes || "" });
+      setPerformanceMsg({ ok: true, text: "Performance metrics saved." });
+    } catch (e) {
+      setPerformanceMsg({ ok: false, text: String(e) });
+    } finally {
+      setPerformanceBusy(false);
     }
   }
 
@@ -528,17 +859,35 @@ export default function QueueClient() {
             ))}
           </div>
 
-          <div className="px-3 py-2 border-b border-outline-variant/30 flex items-center gap-2 bg-surface-lowest/50">
-            <span className="text-xs text-dim uppercase tracking-wide shrink-0 font-mono">Sort</span>
-            <select
-              value={sortVal}
-              onChange={(e) => setSortVal(e.target.value)}
-              className="flex-1 border border-outline-variant bg-surface-lowest text-xs text-foreground py-1 px-1.5 font-mono"
-            >
-              {SORT_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+          <div className="px-3 py-2 border-b border-outline-variant/30 grid gap-2 bg-surface-lowest/50">
+            <label className="grid grid-cols-[auto_1fr] items-center gap-2">
+              <span className="text-xs text-dim uppercase tracking-wide shrink-0 font-mono">Sort</span>
+              <select
+                value={sortVal}
+                onChange={(e) => setSortVal(e.target.value)}
+                className="border border-outline-variant bg-surface-lowest text-xs text-foreground py-1 px-1.5 font-mono"
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[10px] font-mono uppercase text-dim">
+                Pillar
+                <select value={pillarFilter} onChange={(e) => setPillarFilter(e.target.value)} className="mt-1 w-full border border-outline-variant bg-surface-lowest text-xs text-foreground py-1 px-1.5 font-mono">
+                  <option value="">All</option>
+                  {taxonomy.content_pillars.map((v) => <option key={v} value={v}>{titleCase(v)}</option>)}
+                </select>
+              </label>
+              <label className="text-[10px] font-mono uppercase text-dim">
+                Primary KPI
+                <select value={kpiFilter} onChange={(e) => setKpiFilter(e.target.value)} className="mt-1 w-full border border-outline-variant bg-surface-lowest text-xs text-foreground py-1 px-1.5 font-mono">
+                  <option value="">All</option>
+                  {taxonomy.intended_kpis.map((v) => <option key={v} value={v}>{titleCase(v)}</option>)}
+                </select>
+              </label>
+            </div>
           </div>
 
           {/* Items */}
@@ -628,6 +977,9 @@ export default function QueueClient() {
                 </div>
               )}
 
+              <MetadataEditor item={selectedItem} taxonomy={taxonomy} onSave={saveMetadata} />
+              <ScorePanel score={selectedScore} draft={selectedItem.status === "draft"} busy={scoreBusy} onRescore={handleRescore} />
+
               {/* Meta (collapsed, only if present) */}
               {selectedMeta && Object.keys(selectedMeta).length > 0 && (
                 <details className="border border-outline-variant bg-surface-lowest text-xs">
@@ -690,6 +1042,67 @@ export default function QueueClient() {
                 <div className="border border-success-border bg-success-bg px-4 py-3 text-sm text-success font-mono">
                   Posted · {selectedItem.twitter_post_id}
                 </div>
+              )}
+              {selectedItem.status === "posted" && (
+                <section className="border border-outline-variant/50 bg-surface-lowest p-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wide text-accent">Performance</p>
+                      <h3 className="text-sm font-headline font-bold text-foreground">Manual X metrics</h3>
+                    </div>
+                    {typeof performance.engagement_rate === "number" && (
+                      <div className="text-xs font-mono text-dim">
+                        ENG {(performance.engagement_rate * 100).toFixed(2)}% · BKM {(Number(performance.bookmark_rate || 0) * 100).toFixed(2)}%
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {([
+                      ["impressions", "Impressions"],
+                      ["likes", "Likes"],
+                      ["replies", "Replies"],
+                      ["reposts", "Reposts"],
+                      ["quote_tweets", "Quotes"],
+                      ["bookmarks", "Bookmarks"],
+                      ["profile_visits", "Profile visits"],
+                      ["follows", "Follows"],
+                    ] as const).map(([field, label]) => (
+                      <label key={field} className="text-[10px] font-mono uppercase text-dim">
+                        {label}
+                        <input
+                          type="number"
+                          min={0}
+                          value={performance[field] ?? 0}
+                          onChange={(e) => updatePerformanceField(field, Number(e.target.value || 0))}
+                          className="mt-1 w-full border border-outline-variant bg-surface text-foreground px-2 py-1.5 text-sm font-mono"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block mt-3 text-[10px] font-mono uppercase text-dim">
+                    Notes
+                    <textarea
+                      value={performance.notes || ""}
+                      onChange={(e) => updatePerformanceField("notes", e.target.value)}
+                      className="mt-1 w-full border border-outline-variant bg-surface text-foreground px-2 py-2 text-sm min-h-16"
+                    />
+                  </label>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={savePerformance}
+                      disabled={performanceBusy}
+                      className="px-3 py-2 bg-accent text-[#552000] font-headline font-bold uppercase tracking-widest text-xs disabled:opacity-40"
+                    >
+                      {performanceBusy ? "Saving..." : "Save metrics"}
+                    </button>
+                    {performanceMsg && (
+                      <span className={`text-xs font-mono ${performanceMsg.ok ? "text-success" : "text-danger"}`}>
+                        {performanceMsg.text}
+                      </span>
+                    )}
+                  </div>
+                </section>
               )}
               {selectedItem.status === "failed" && selectedItem.error_message && (
                 <div className="border border-danger-border bg-danger-bg px-4 py-3 text-sm text-danger font-mono">

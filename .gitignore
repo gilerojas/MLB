@@ -102,6 +102,8 @@ morning_intel/snapshots/*.json
 !morning_intel/snapshots/.gitkeep
 data/hub.db
 logs/
+supabase/seed/*
+!supabase/seed/.gitkeep
 
 # Local agent / analysis artifacts
 .claude/worktrees/

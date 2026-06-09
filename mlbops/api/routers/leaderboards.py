@@ -15,6 +15,9 @@ so new CI games invalidate the cache automatically.
 """
 from __future__ import annotations
 
+import gzip
+import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -34,6 +37,9 @@ _cache_lock = Lock()
 _MAX_CACHE_ENTRIES = int(os.environ.get("MLB_LEADERBOARD_CACHE_MAX", "16"))
 # Bump when raw→pitching aggregation gains columns (invalidates in-proc live cache).
 _PITCHING_LIVE_CACHE_VER = 2
+_BATTING_QUALIFIER_PA_PER_TEAM_GAME = 3.1
+_PITCHING_QUALIFIER_IP_PER_TEAM_GAME = 1.0
+_PREFER_RAW_LEADERBOARDS = os.environ.get("MLB_LEADERBOARDS_PREFER_RAW", "1") != "0"
 
 
 def _warehouse() -> Path:
@@ -102,6 +108,66 @@ def _pick_stage_for_raw(warehouse: Path, season: int) -> Optional[str]:
     return None
 
 
+def _open_raw_feed(path: Path):
+    if path.suffix == ".gz" or path.name.endswith(".json.gz"):
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, encoding="utf-8")
+
+
+def _team_games_from_raw(warehouse: Path, season: int, stage: str) -> dict[int, int]:
+    raw = warehouse / str(season) / stage / "raw"
+    out: dict[int, int] = {}
+    if not safe_is_dir(raw):
+        return out
+    try:
+        paths = sorted(
+            p
+            for p in raw.iterdir()
+            if p.is_file()
+            and "feed_live" in p.name
+            and (p.suffix == ".json" or p.name.endswith(".json.gz"))
+        )
+    except (OSError, TimeoutError):
+        return out
+    for path in paths:
+        try:
+            with _open_raw_feed(path) as f:
+                feed = json.load(f)
+        except Exception:
+            continue
+        status = ((feed.get("gameData") or {}).get("status") or {})
+        if str(status.get("abstractGameState") or "").strip().lower() != "final":
+            continue
+        plays = (((feed.get("liveData") or {}).get("plays") or {}).get("allPlays") or [])
+        if not plays:
+            continue
+        teams = ((feed.get("gameData") or {}).get("teams") or {})
+        for side in ("away", "home"):
+            tid = ((teams.get(side) or {}).get("id"))
+            try:
+                tid_int = int(tid)
+            except (TypeError, ValueError):
+                continue
+            out[tid_int] = out.get(tid_int, 0) + 1
+    return out
+
+
+def _qualification_thresholds(season: int) -> dict[str, Any]:
+    wh = _warehouse()
+    stage = _pick_stage_for_raw(wh, season) or "regular_season"
+    team_games = _team_games_from_raw(wh, season, stage)
+    games = max(team_games.values()) if team_games else 0
+    return {
+        "season": season,
+        "stage": stage,
+        "team_games": games,
+        "min_pa": int(math.ceil(games * _BATTING_QUALIFIER_PA_PER_TEAM_GAME)) if games else 0,
+        "min_ip": float(games * _PITCHING_QUALIFIER_IP_PER_TEAM_GAME) if games else 0.0,
+        "batting_rule": "3.1 PA per team game",
+        "pitching_rule": "1.0 IP per team game",
+    }
+
+
 def _read_parquet_dataframe(parquet: Path):
     import pandas as pd
 
@@ -115,12 +181,12 @@ def _read_parquet_dataframe(parquet: Path):
     with _cache_lock:
         hit = _parquet_cache.get(key)
         if hit is not None:
-            return hit.copy()
+            return hit
         df = pd.read_parquet(parquet)
         if len(_parquet_cache) >= _MAX_CACHE_ENTRIES:
             _parquet_cache.clear()
         _parquet_cache[key] = df
-    return df.copy()
+    return df
 
 
 def _rollup_batting_by_player(df):
@@ -130,6 +196,16 @@ def _rollup_batting_by_player(df):
     if df.empty:
         return df
     df = _ensure_player_name_column(df)
+    team_cols = [c for c in ("team_abbrev", "team_id") if c in df.columns]
+    team_pick = None
+    if team_cols:
+        sort_col = "plate_appearances" if "plate_appearances" in df.columns else "at_bats"
+        if sort_col in df.columns:
+            team_pick = (
+                df[["player_id", sort_col, *team_cols]]
+                .sort_values(["player_id", sort_col], ascending=[True, False])
+                .drop_duplicates("player_id")[["player_id", *team_cols]]
+            )
     sum_cols = [
         c
         for c in (
@@ -166,6 +242,8 @@ def _rollup_batting_by_player(df):
     g["ops"] = (g["obp"] + g["slg"]).round(4)
     g["pa"] = g["plate_appearances"].fillna(0).astype(int)
     g["hr"] = g["home_runs"].fillna(0).astype(int)
+    if team_pick is not None:
+        g = g.merge(team_pick, on="player_id", how="left")
     return g
 
 
@@ -176,6 +254,16 @@ def _rollup_pitching_by_player(df):
     if df.empty:
         return df
     df = _ensure_player_name_column(df)
+    team_cols = [c for c in ("team_abbrev", "team_id") if c in df.columns]
+    team_pick = None
+    if team_cols:
+        sort_col = "batters_faced" if "batters_faced" in df.columns else "ip"
+        if sort_col in df.columns:
+            team_pick = (
+                df[["player_id", sort_col, *team_cols]]
+                .sort_values(["player_id", sort_col], ascending=[True, False])
+                .drop_duplicates("player_id")[["player_id", *team_cols]]
+            )
     sum_cols = [
         c
         for c in (
@@ -205,6 +293,8 @@ def _rollup_pitching_by_player(df):
     g["whip"] = np.where(ip.notna() & (ip > 0), ((h + bb) / ip).round(3), 0.0)
     g["k_per_9"] = np.where(ip.notna() & (ip > 0), (k * 9.0 / ip).round(3), 0.0)
     g["ip"] = g["ip"].fillna(0.0).round(3)
+    if team_pick is not None:
+        g = g.merge(team_pick, on="player_id", how="left")
     return g
 
 
@@ -280,6 +370,11 @@ def _load_batting_frame(season: int):
     import pandas as pd
 
     wh = _warehouse()
+    if _PREFER_RAW_LEADERBOARDS:
+        df, src = _load_batting_frame_from_raw(wh, season)
+        if df is not None and not df.empty:
+            return df, src
+
     pq = _find_parquet("batting", season)
     if pq is not None:
         df = _read_parquet_dataframe(pq)
@@ -296,6 +391,12 @@ def _load_batting_frame(season: int):
             df = _rollup_batting_by_player(df)
             _normalize_batting_columns(df)
             return df, "csv"
+
+    return _load_batting_frame_from_raw(wh, season)
+
+
+def _load_batting_frame_from_raw(wh: Path, season: int):
+    import pandas as pd
 
     stage = _pick_stage_for_raw(wh, season)
     if stage is None:
@@ -339,6 +440,11 @@ def _load_pitching_frame(season: int):
     import pandas as pd
 
     wh = _warehouse()
+    if _PREFER_RAW_LEADERBOARDS:
+        df, src = _load_pitching_frame_from_raw(wh, season)
+        if df is not None and not df.empty:
+            return df, src
+
     pq = _find_parquet("pitching", season)
     if pq is not None:
         df = _read_parquet_dataframe(pq)
@@ -358,16 +464,24 @@ def _load_pitching_frame(season: int):
                 return cdf, "csv"
             csv_stale_no_gs = cdf
 
+    df, src = _load_pitching_frame_from_raw(wh, season)
+    if df is not None and not df.empty:
+        return df, src
+
+    if csv_stale_no_gs is not None and not csv_stale_no_gs.empty:
+        return csv_stale_no_gs.copy(), "csv"
+    return None, ""
+
+
+def _load_pitching_frame_from_raw(wh: Path, season: int):
+    import pandas as pd
+
     stage = _pick_stage_for_raw(wh, season)
     if stage is None:
-        if csv_stale_no_gs is not None and not csv_stale_no_gs.empty:
-            return csv_stale_no_gs.copy(), "csv"
         return None, ""
 
     fp = _raw_fingerprint(wh, season, stage)
     if fp is None:
-        if csv_stale_no_gs is not None and not csv_stale_no_gs.empty:
-            return csv_stale_no_gs.copy(), "csv"
         return None, ""
 
     cache_key = ("pitching", season, stage, _PITCHING_LIVE_CACHE_VER)
@@ -389,8 +503,6 @@ def _load_pitching_frame(season: int):
             _live_cache[cache_key] = (fp, df.copy())
         return df.copy(), f"raw:{stage}"
 
-    if csv_stale_no_gs is not None and not csv_stale_no_gs.empty:
-        return csv_stale_no_gs.copy(), "csv"
     return None, ""
 
 
@@ -495,6 +607,7 @@ def _batting_leaders_sync(
     sort_by: str,
     min_pa: int,
     limit: int,
+    qualified: bool = False,
 ) -> dict[str, Any]:
     try:
         import pandas as pd  # noqa: F401
@@ -505,12 +618,14 @@ def _batting_leaders_sync(
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=_no_batting_detail(season))
 
+    qualification = _qualification_thresholds(season) if qualified else None
+    effective_min_pa = max(min_pa, int((qualification or {}).get("min_pa") or 0))
     if "pa" in df.columns:
-        df = df[df["pa"] >= min_pa]
+        df = df[df["pa"] >= effective_min_pa]
     elif "plateAppearances" in df.columns:
-        df = df[df["plateAppearances"] >= min_pa]
+        df = df[df["plateAppearances"] >= effective_min_pa]
     elif "plate_appearances" in df.columns:
-        df = df[df["plate_appearances"] >= min_pa]
+        df = df[df["plate_appearances"] >= effective_min_pa]
 
     if sort_by not in df.columns:
         available = list(df.columns)
@@ -523,7 +638,10 @@ def _batting_leaders_sync(
     return {
         "season": season,
         "sort_by": sort_by,
-        "min_pa": min_pa,
+        "min_pa": effective_min_pa,
+        "qualified": qualified,
+        "qualification": qualification,
+        "source": _src,
         "leaders": _leaders_records(df),
     }
 
@@ -537,9 +655,10 @@ async def batting_leaders(
         ge=0,
         description="Minimum PA (use ~50 for qualified-leader style; low values for early season)",
     ),
+    qualified: bool = Query(False, description="Use current qualified batting threshold: 3.1 PA per team game."),
     limit: int = Query(25, ge=1, le=100),
 ):
-    return await run_in_threadpool(_batting_leaders_sync, season, sort_by, min_pa, limit)
+    return await run_in_threadpool(_batting_leaders_sync, season, sort_by, min_pa, limit, qualified)
 
 
 def _apply_pitcher_role_filter(df, role: str):
@@ -617,6 +736,7 @@ def _pitching_leaders_sync(
     limit: int,
     ascending: bool,
     pitcher_role: str = "all",
+    qualified: bool = False,
 ) -> dict[str, Any]:
     try:
         import pandas as pd  # noqa: F401
@@ -640,10 +760,12 @@ def _pitching_leaders_sync(
         "games" in df.columns and "games_started" in df.columns
     )
 
+    qualification = _qualification_thresholds(season) if qualified else None
+    effective_min_ip = max(float(min_ip), float((qualification or {}).get("min_ip") or 0.0))
     if "ip" in df.columns:
-        df = df[df["ip"] >= min_ip]
+        df = df[df["ip"] >= effective_min_ip]
     elif "inningsPitched" in df.columns:
-        df = df[df["inningsPitched"] >= min_ip]
+        df = df[df["inningsPitched"] >= effective_min_ip]
 
     role_note: str | None = None
     if pitcher_role and pitcher_role != "all":
@@ -668,7 +790,10 @@ def _pitching_leaders_sync(
     out: dict[str, Any] = {
         "season": season,
         "sort_by": sort_by,
-        "min_ip": min_ip,
+        "min_ip": effective_min_ip,
+        "qualified": qualified,
+        "qualification": qualification,
+        "source": _src,
         "pitcher_role": pitcher_role or "all",
         "pitcher_role_filter_supported": pitcher_role_filter_supported,
         "leaders": _leaders_records(df),
@@ -693,6 +818,7 @@ async def pitching_leaders(
         "all",
         description="Pitcher bucket: all | starter | reliever (uses games_started vs relief apps)",
     ),
+    qualified: bool = Query(False, description="Use current qualified pitching threshold: 1.0 IP per team game."),
 ):
     pr = (pitcher_role or "all").strip().lower()
     if pr not in ("all", "starter", "reliever"):
@@ -708,4 +834,5 @@ async def pitching_leaders(
         limit,
         ascending,
         pr,
+        qualified,
     )

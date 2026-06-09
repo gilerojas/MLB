@@ -65,6 +65,7 @@ _parser.add_argument("--date",     type=str, default="yesterday", help="Game dat
 _parser.add_argument("--parquet",  type=str, default=None, help="Path to a single pitches_enriched.parquet (e.g. WBC output)")
 _parser.add_argument("--pitcher",  type=int, default=None, help="Pitcher ID (required with --parquet)")
 _parser.add_argument("--logo-path", type=str, default=None, help="Path to custom logo/flag PNG to show in header (overrides ESPN team logo)")
+_parser.add_argument("--output-dir", type=str, default=None, help="Directory for generated pitcher card PNGs")
 _parser.add_argument(
     "--output-suffix",
     type=str,
@@ -88,6 +89,13 @@ import seaborn as sns
 from PIL import Image
 
 _ROOT_MLB = Path(__file__).resolve().parent.parent
+
+
+def _resolved_output_dir() -> Path:
+    raw = getattr(_args, "output_dir", None)
+    if raw and str(raw).strip():
+        return Path(str(raw)).expanduser().resolve()
+    return Path(__file__).parent.parent / "outputs" / "pitching_cards"
 if str(_ROOT_MLB) not in sys.path:
     sys.path.insert(0, str(_ROOT_MLB))
 from src.mlb_headshot import neutralize_mlb_headshot_background
@@ -2307,7 +2315,7 @@ if __name__ == "__main__":
             print(f"ERROR: Parquet not found: {pq_path}", file=sys.stderr, flush=True)
             print("Use the full path (e.g. .../WBC/data/exhibition/processed/pitches_enriched/game_836149_20260303_pitches_enriched.parquet)", file=sys.stderr, flush=True)
             sys.exit(1)
-        out_dir = Path(__file__).parent.parent / "outputs" / "pitching_cards"
+        out_dir = _resolved_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         bio = fetch_player_bio(_args.pitcher)
         safe_nm = bio["name"].lower().replace(", ", "_").replace(",", "_").replace(" ", "_").replace(".", "").replace("'", "")
@@ -2367,7 +2375,7 @@ if __name__ == "__main__":
                 flush=True,
             )
             sys.exit(1)
-        out_dir = Path(__file__).parent.parent / "outputs" / "pitching_cards"
+        out_dir = _resolved_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         mode_sfx = "" if LIGHT_MODE else "_dark"
         generated = 0
@@ -2444,7 +2452,7 @@ if __name__ == "__main__":
         game_date   = str(df_pick["game_date"].iloc[0])[:10] if "game_date" in df_pick.columns else "unknown"
         n_pitches   = int(df_pick[df_pick["pitcher"] == top_id].shape[0])
 
-        out_dir = Path(__file__).parent.parent / "outputs" / "pitching_cards"
+        out_dir = _resolved_output_dir()
         out_dir.mkdir(parents=True, exist_ok=True)
         safe_nm  = player_nm.lower().replace(", ", "_").replace(",", "_").replace(" ", "_").replace(".", "").replace("'", "")
         mode_sfx = "" if LIGHT_MODE else "_dark"

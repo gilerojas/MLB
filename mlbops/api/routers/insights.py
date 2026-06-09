@@ -8,6 +8,7 @@ from pitch-level data:
   - pitcher_luck      xwOBA allowed vs wOBA allowed — who's lucky / unlucky
   - exit_velocity     avg exit velocity leaders (batters, min 20 BIP)
   - barrel_leaders    barrel% leaders (batters, min 20 BIP)
+  - farthest_home_runs longest HR by Statcast distance
   - spin_rate         highest avg spin rate — breaking balls (pitchers, min 20 pitches)
   - chase_kings       out-of-zone swing% leaders (pitchers, min 30 pitches)
   - bs75_leaders        BS75+% on tracked swings (pitchers, min 40 swings)
@@ -28,6 +29,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Any, Optional
@@ -36,7 +38,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from api.paths import get_warehouse_dir
-from api.routers.leaderboards import pitching_pitcher_ids_for_role
+from api.routers.leaderboards import _qualification_thresholds, pitching_pitcher_ids_for_role
 
 router = APIRouter(prefix="/insights", tags=["insights"])
 
@@ -46,16 +48,22 @@ _WANT_COLS = {
     "pitcher",
     "batter",
     "player_name",   # batter name in this enrichment
+    "game_pk",
+    "game_date",
     "pitch_type",
     "pitch_name",
     "description",
+    "events",
+    "des",
     "release_speed",
     "release_spin_rate",
     "estimated_woba_using_speedangle",
     "woba_value",
     "woba_denom",
     "launch_speed",
+    "launch_angle",
     "launch_speed_angle",
+    "hit_distance_sc",
     "zone",
     "bb_type",
     "bat_speed",
@@ -75,7 +83,10 @@ _CHASE_ZONES = frozenset(range(11, 15))  # 11-14 = out of strike zone
 # ── in-process cache ─────────────────────────────────────────────────────────
 
 _cache: dict[tuple[int, str], tuple[tuple[float, int], Any]] = {}
+_response_cache: dict[tuple[int, str, int, int, str, tuple[float, int]], dict[str, Any]] = {}
 _cache_lock = Lock()
+_STATCAST_CACHE_MAX_ENTRIES = max(1, int(os.environ.get("MLB_INSIGHTS_STATCAST_CACHE_MAX", "2")))
+_RESPONSE_CACHE_MAX_ENTRIES = max(1, int(os.environ.get("MLB_INSIGHTS_RESPONSE_CACHE_MAX", "24")))
 
 
 def _fingerprint(paths: list[Path]) -> tuple[float, int]:
@@ -87,6 +98,12 @@ def _fingerprint(paths: list[Path]) -> tuple[float, int]:
         return (0.0, len(paths))
 
 
+def _trim_cache(cache: dict, max_entries: int) -> None:
+    """Bound insertion-ordered dict caches without dropping the current hot entry."""
+    while len(cache) > max_entries:
+        cache.pop(next(iter(cache)))
+
+
 def _safe(v) -> Optional[float]:
     if v is None:
         return None
@@ -95,6 +112,58 @@ def _safe(v) -> Optional[float]:
         return None if (math.isnan(f) or math.isinf(f)) else round(f, 3)
     except (TypeError, ValueError):
         return None
+
+
+def _contact_rows(df, required: list[str] | tuple[str, ...] = ()) -> Any:
+    """Rows that represent true batted-ball contact, not all PA outcomes."""
+    if "description" in df.columns:
+        mask = df["description"].astype(str).isin(
+            {"hit_into_play", "hit_into_play_no_out", "hit_into_play_score"}
+        )
+    elif "launch_speed" in df.columns:
+        mask = df["launch_speed"].notna()
+    else:
+        mask = df["woba_denom"].fillna(0) > 0
+
+    out = df[mask].copy()
+    if required:
+        out = out.dropna(subset=list(required))
+    if "launch_speed" in out.columns:
+        out = out[(out["launch_speed"].isna()) | (out["launch_speed"] > 0)]
+    return out
+
+
+def _attach_sample_thresholds(rows: list[dict[str, Any]], thresholds: dict[str, Any]) -> list[dict[str, Any]]:
+    if not rows:
+        return rows
+    return [dict(row, _sample_thresholds=thresholds) for row in rows]
+
+
+def _sample_thresholds(season: int, min_pitches: int, min_bip: int) -> dict[str, Any]:
+    """Season-progress sample floors for Statcast rate tiles."""
+    q = _qualification_thresholds(season)
+    games = int(q.get("team_games") or 0)
+    bip_floor = max(int(min_bip), math.ceil(games * 1.5)) if games else int(min_bip)
+    pitch_floor = max(int(min_pitches), math.ceil(games * 2.0)) if games else int(min_pitches)
+    spin_floor = max(10, math.ceil(games * 1.25)) if games else 10
+    tracked_floor = max(40, math.ceil(games * 1.5)) if games else 40
+    pitch_type_floor = max(150, math.ceil(games * 3.0)) if games else 150
+    return {
+        "team_games": games,
+        "bip": bip_floor,
+        "bbe": bip_floor,
+        "pitches": pitch_floor,
+        "breaking_pitches": spin_floor,
+        "tracked_swings": tracked_floor,
+        "pitch_type_pitches": pitch_type_floor,
+        "rules": {
+            "bip": "max(requested min, 1.5 BIP/BBE per team game)",
+            "pitches": "max(requested min, 2.0 pitches per team game)",
+            "breaking_pitches": "max(10, 1.25 breaking pitches per team game)",
+            "tracked_swings": "max(40, 1.5 tracked swings per team game)",
+            "pitch_type_pitches": "max(150, 3.0 pitches per team game by pitch type)",
+        },
+    }
 
 
 # ── player name resolution ────────────────────────────────────────────────────
@@ -164,16 +233,24 @@ def _load_statcast_df(season: int, stage: str):
     with _cache_lock:
         hit = _cache.get(key)
         if hit is not None and hit[0] == fp:
-            return hit[1].copy()
+            return hit[1]
 
     dfs = []
+    wanted = sorted(_WANT_COLS)
     for p in paths:
         try:
-            df = pd.read_parquet(p)
-            keep = [c for c in _WANT_COLS if c in df.columns]
-            dfs.append(df[keep])
+            df = pd.read_parquet(p, columns=wanted)
+            dfs.append(df)
         except Exception:
-            continue
+            try:
+                import pyarrow.parquet as pq
+
+                available = set(pq.read_schema(p).names)
+                keep = [c for c in wanted if c in available]
+                if keep:
+                    dfs.append(pd.read_parquet(p, columns=keep))
+            except Exception:
+                continue
 
     if not dfs:
         raise HTTPException(
@@ -183,11 +260,10 @@ def _load_statcast_df(season: int, stage: str):
     combined = pd.concat(dfs, ignore_index=True)
 
     with _cache_lock:
-        if len(_cache) > 8:
-            _cache.clear()
         _cache[key] = (fp, combined)
+        _trim_cache(_cache, _STATCAST_CACHE_MAX_ENTRIES)
 
-    return combined.copy()
+    return combined
 
 
 # ── insight computations ──────────────────────────────────────────────────────
@@ -250,20 +326,21 @@ def _pitcher_luck(df, pitcher_names: dict, min_bip: int) -> list[dict]:
     """
     if "estimated_woba_using_speedangle" not in df.columns or "woba_value" not in df.columns:
         return []
-    bip = df[df["woba_denom"].fillna(0) > 0].dropna(
-        subset=["estimated_woba_using_speedangle", "woba_value"]
-    )
+    bip = _contact_rows(df)
     if bip.empty:
         return []
     g = (
         bip.groupby("pitcher")
         .agg(
-            n_bip=("woba_denom", "count"),
+            n_bip=("pitcher", "size"),
             xwoba=("estimated_woba_using_speedangle", "mean"),
             woba=("woba_value", "mean"),
+            n_xwoba=("estimated_woba_using_speedangle", "count"),
+            n_woba=("woba_value", "count"),
         )
         .reset_index()
     )
+    g = g[(g["n_xwoba"] > 0) & (g["n_woba"] > 0)].copy()
     g = g[g["n_bip"] >= min_bip].copy()
     g["luck_delta"] = (g["xwoba"] - g["woba"]).round(3)
     # Return top 10 luckiest + top 10 unluckiest so UI always has both halves
@@ -287,16 +364,20 @@ def _pitcher_luck(df, pitcher_names: dict, min_bip: int) -> list[dict]:
 def _exit_velocity(df, batter_names: dict, min_bip: int) -> list[dict]:
     if "launch_speed" not in df.columns:
         return []
-    bip = df.dropna(subset=["launch_speed"])
-    bip = bip[bip["launch_speed"] > 0]
+    bip = _contact_rows(df)
     if bip.empty:
         return []
     g = (
-        bip.groupby("batter")["launch_speed"]
-        .agg(["mean", "max", "count"])
+        bip.groupby("batter")
+        .agg(
+            avg_ev=("launch_speed", "mean"),
+            max_ev=("launch_speed", "max"),
+            n=("batter", "size"),
+            n_ev=("launch_speed", "count"),
+        )
         .reset_index()
     )
-    g.columns = ["batter", "avg_ev", "max_ev", "n"]
+    g = g[g["n_ev"] > 0].copy()
     g = g[g["n"] >= min_bip].copy()
     g = g.sort_values("avg_ev", ascending=False).head(10)
     return [
@@ -314,13 +395,13 @@ def _exit_velocity(df, batter_names: dict, min_bip: int) -> list[dict]:
 def _barrel_leaders(df, batter_names: dict, min_bip: int) -> list[dict]:
     if "launch_speed_angle" not in df.columns:
         return []
-    bip = df[df["woba_denom"].fillna(0) > 0].copy()
+    bip = _contact_rows(df)
     if bip.empty:
         return []
     bip["is_barrel"] = bip["launch_speed_angle"] == 6
     g = (
         bip.groupby("batter")
-        .agg(n=("woba_denom", "count"), barrels=("is_barrel", "sum"))
+        .agg(n=("batter", "size"), barrels=("is_barrel", "sum"))
         .reset_index()
     )
     g = g[g["n"] >= min_bip].copy()
@@ -336,6 +417,42 @@ def _barrel_leaders(df, batter_names: dict, min_bip: int) -> list[dict]:
         }
         for r in g.itertuples()
     ]
+
+
+def _farthest_home_runs(df, batter_names: dict, pitcher_names: dict) -> list[dict]:
+    if "events" not in df.columns or "hit_distance_sc" not in df.columns:
+        return []
+    hrs = df[df["events"].astype(str).str.lower() == "home_run"].copy()
+    if hrs.empty:
+        return []
+    import pandas as pd
+
+    hrs["hit_distance_sc"] = pd.to_numeric(hrs["hit_distance_sc"], errors="coerce")
+    hrs = hrs.dropna(subset=["hit_distance_sc"])
+    hrs = hrs[hrs["hit_distance_sc"] > 0]
+    if hrs.empty:
+        return []
+    hrs = hrs.sort_values("hit_distance_sc", ascending=False).head(10)
+
+    out: list[dict] = []
+    for r in hrs.itertuples():
+        batter_id = int(r.batter) if not pd.isna(r.batter) else None
+        pitcher_id = int(r.pitcher) if not pd.isna(r.pitcher) else None
+        out.append(
+            {
+                "player_name": batter_names.get(batter_id, f"ID {batter_id}") if batter_id else "Unknown",
+                "player_id": batter_id,
+                "pitcher_name": pitcher_names.get(pitcher_id, f"ID {pitcher_id}") if pitcher_id else None,
+                "pitcher_id": pitcher_id,
+                "hit_distance": int(round(float(r.hit_distance_sc))),
+                "launch_speed": _safe(getattr(r, "launch_speed", None)),
+                "launch_angle": _safe(getattr(r, "launch_angle", None)),
+                "game_date": str(getattr(r, "game_date", "")) or None,
+                "game_pk": int(r.game_pk) if hasattr(r, "game_pk") and not pd.isna(r.game_pk) else None,
+                "description": getattr(r, "des", None) if hasattr(r, "des") else None,
+            }
+        )
+    return out
 
 
 def _spin_rate(df, pitcher_names: dict, min_pitches: int) -> list[dict]:
@@ -466,15 +583,19 @@ def _pitch_rv100_edges(df, pitcher_names: dict, min_pitches: int = 150) -> dict[
 def _batter_xwoba(df, batter_names: dict, min_bip: int = 25) -> list[dict]:
     if "estimated_woba_using_speedangle" not in df.columns:
         return []
-    bip = df[df["woba_denom"].fillna(0) > 0].dropna(subset=["estimated_woba_using_speedangle"])
+    bip = _contact_rows(df)
     if bip.empty:
         return []
     g = (
-        bip.groupby("batter")["estimated_woba_using_speedangle"]
-        .agg(["mean", "count"])
+        bip.groupby("batter")
+        .agg(
+            xwoba=("estimated_woba_using_speedangle", "mean"),
+            n=("batter", "size"),
+            n_xwoba=("estimated_woba_using_speedangle", "count"),
+        )
         .reset_index()
     )
-    g.columns = ["batter", "xwoba", "n"]
+    g = g[g["n_xwoba"] > 0].copy()
     g = g[g["n"] >= min_bip].copy()
     g = g.sort_values("xwoba", ascending=False).head(10)
     return [
@@ -495,20 +616,21 @@ def _batter_luck(df, batter_names: dict, min_bip: int = 25) -> list[dict]:
     """
     if "estimated_woba_using_speedangle" not in df.columns or "woba_value" not in df.columns:
         return []
-    bip = df[df["woba_denom"].fillna(0) > 0].dropna(
-        subset=["estimated_woba_using_speedangle", "woba_value"]
-    )
+    bip = _contact_rows(df)
     if bip.empty:
         return []
     g = (
         bip.groupby("batter")
         .agg(
-            n_bip=("woba_denom", "count"),
+            n_bip=("batter", "size"),
             xwoba=("estimated_woba_using_speedangle", "mean"),
             woba=("woba_value", "mean"),
+            n_xwoba=("estimated_woba_using_speedangle", "count"),
+            n_woba=("woba_value", "count"),
         )
         .reset_index()
     )
+    g = g[(g["n_xwoba"] > 0) & (g["n_woba"] > 0)].copy()
     g = g[g["n_bip"] >= min_bip].copy()
     g["luck_delta"] = (g["woba"] - g["xwoba"]).round(3)
     top_lucky = g.sort_values("luck_delta", ascending=False).head(10)
@@ -571,7 +693,17 @@ def _statcast_insights_sync(
     if pr not in ("all", "starter", "reliever"):
         pr = "all"
 
-    df = _load_statcast_df(season, stage)
+    wh = get_warehouse_dir()
+    paths = sorted(wh.glob(f"{season}/{stage}/pitches_enriched/*.parquet"))
+    fp = _fingerprint(paths)
+    response_key = (season, stage, min_pitches, min_bip, pr, fp)
+    with _cache_lock:
+        cached = _response_cache.get(response_key)
+        if cached is not None:
+            return cached
+
+    df_all = _load_statcast_df(season, stage)
+    df = df_all
     pit_ids, role_supported = pitching_pitcher_ids_for_role(season, pr)
     if pit_ids is not None:
         if len(pit_ids) == 0:
@@ -581,31 +713,41 @@ def _statcast_insights_sync(
             df = df[pid.isin(list(pit_ids))].copy()
 
     pitcher_names = _load_player_registry(season)
-    batter_names = _batter_name_map(df)
+    batter_names = _batter_name_map(df_all)
+    thresholds = _sample_thresholds(season, min_pitches, min_bip)
 
-    rv_edges = _pitch_rv100_edges(df, pitcher_names, min_pitches=150)
+    rv_edges = _pitch_rv100_edges(df, pitcher_names, min_pitches=thresholds["pitch_type_pitches"])
 
-    return {
+    bundles = {
+        "fastball_whiff": _fastball_whiff(df, pitcher_names, thresholds["pitches"]),
+        "hardest_throwers": _hardest_throwers(df, pitcher_names, thresholds["pitches"]),
+        "pitcher_luck": _pitcher_luck(df, pitcher_names, thresholds["bip"]),
+        "exit_velocity": _exit_velocity(df_all, batter_names, thresholds["bip"]),
+        "barrel_leaders": _barrel_leaders(df_all, batter_names, thresholds["bip"]),
+        "farthest_home_runs": _farthest_home_runs(df_all, batter_names, pitcher_names),
+        "spin_rate": _spin_rate(df, pitcher_names, thresholds["breaking_pitches"]),
+        "chase_kings": _chase_kings(df, pitcher_names, thresholds["pitches"]),
+        "bs75_leaders": _bs75_leaders(df, pitcher_names, min_tracked_swings=thresholds["tracked_swings"]),
+        "pitch_rv100_best": rv_edges["best"],
+        "pitch_rv100_worst": rv_edges["worst"],
+        "batter_xwoba": _batter_xwoba(df_all, batter_names, min_bip=thresholds["bbe"]),
+        "batter_luck": _batter_luck(df_all, batter_names, min_bip=thresholds["bbe"]),
+    }
+    bundles = {key: _attach_sample_thresholds(rows, thresholds) for key, rows in bundles.items()}
+
+    out = {
         "season": season,
         "stage": stage,
         "pitcher_role": pr,
         "pitcher_role_filter_supported": role_supported,
-        "n_pitches_total": len(df),
-        "bundles": {
-            "fastball_whiff": _fastball_whiff(df, pitcher_names, min_pitches),
-            "hardest_throwers": _hardest_throwers(df, pitcher_names, min_pitches),
-            "pitcher_luck": _pitcher_luck(df, pitcher_names, min_bip),
-            "exit_velocity": _exit_velocity(df, batter_names, min_bip),
-            "barrel_leaders": _barrel_leaders(df, batter_names, min_bip),
-            "spin_rate": _spin_rate(df, pitcher_names, 10),
-            "chase_kings": _chase_kings(df, pitcher_names, min_pitches),
-            "bs75_leaders": _bs75_leaders(df, pitcher_names, min_tracked_swings=40),
-            "pitch_rv100_best": rv_edges["best"],
-            "pitch_rv100_worst": rv_edges["worst"],
-            "batter_xwoba": _batter_xwoba(df, batter_names, min_bip=max(25, min_bip)),
-            "batter_luck": _batter_luck(df, batter_names, min_bip=max(25, min_bip)),
-        },
+        "n_pitches_total": len(df_all),
+        "sample_thresholds": thresholds,
+        "bundles": bundles,
     }
+    with _cache_lock:
+        _response_cache[response_key] = out
+        _trim_cache(_response_cache, _RESPONSE_CACHE_MAX_ENTRIES)
+    return out
 
 
 @router.get("/statcast")

@@ -15,9 +15,9 @@ def _raw_stem(path: Path) -> str:
     """Base name without .json or .json.gz for feed_live files."""
     name = path.name
     if name.endswith(".json.gz"):
-        return name[:-7]
+        return name.removesuffix(".json.gz")
     if name.endswith(".json"):
-        return name[:-5]
+        return name.removesuffix(".json")
     return path.stem
 
 
@@ -210,6 +210,7 @@ def get_hrs_for_date(
     years: list[int] | None = None,
     *,
     stages: list[str] | None = None,
+    include_prior_counts: bool = True,
 ) -> list[dict]:
     """
     Load all raw feeds for the given date and return combined list of HR records.
@@ -242,22 +243,24 @@ def get_hrs_for_date(
         except (ValueError, IndexError):
             continue
 
-    # Season-to-date HR counts per (batter_id, stage) from all prior dates
+    # Season-to-date HR counts per (batter_id, stage) from all prior dates.
+    # This scans the full season, so quick generators can disable it.
     prior_counts: dict[tuple[int, str], int] = {}
-    for year, stage in stage_pairs:
-        for raw_path in _iter_stage_raw_paths_before_date(warehouse, year, stage, target_ymd):
-            try:
-                with _open_raw(raw_path) as f:
-                    feed = json.load(f)
-            except Exception:
-                continue
-            hrs = extract_hrs_from_feed(feed, raw_path)
-            for r in hrs:
-                batter_id = r.get("batter_id")
-                if batter_id is None:
+    if include_prior_counts:
+        for year, stage in stage_pairs:
+            for raw_path in _iter_stage_raw_paths_before_date(warehouse, year, stage, target_ymd):
+                try:
+                    with _open_raw(raw_path) as f:
+                        feed = json.load(f)
+                except Exception:
                     continue
-                key = (int(batter_id), stage)
-                prior_counts[key] = prior_counts.get(key, 0) + 1
+                hrs = extract_hrs_from_feed(feed, raw_path)
+                for r in hrs:
+                    batter_id = r.get("batter_id")
+                    if batter_id is None:
+                        continue
+                    key = (int(batter_id), stage)
+                    prior_counts[key] = prior_counts.get(key, 0) + 1
 
     # Now process the target date and assign hr_in_stage on top of prior_counts
     all_hrs: list[dict] = []
@@ -278,7 +281,7 @@ def get_hrs_for_date(
         for r in hrs:
             r["stage"] = stage
             batter_id = r.get("batter_id")
-            if batter_id is None or not stage:
+            if not include_prior_counts or batter_id is None or not stage:
                 r["hr_in_stage"] = None
             else:
                 key = (int(batter_id), stage)

@@ -4,9 +4,13 @@ Card generation endpoints — wrap existing Python scripts via subprocess.
 POST /cards/batter   → runs batter_card_daily.py
 POST /cards/pitcher  → runs mallitalytics_daily_card.py
 POST /cards/hr-tracker → runs hr_tracker_daily.py
+POST /cards/pitching-index → runs pitching_performances_daily.py
+POST /cards/best-batters → creates a text-only daily best batters draft
+POST /cards/best-pitchers → creates a text-only daily best pitchers draft
 POST /cards/probables-board → runs probables_board_daily.py
 POST /cards/games-of-day → runs games_of_day_board.py
 """
+import csv
 import json
 import re
 import secrets
@@ -21,8 +25,10 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from api.intel_standouts import compute_daily_standouts, mlb_today
 from api.db.database import insert_queue_item
 from api.paths import (
+    get_outputs_dir,
     get_repo_root,
     get_tweet_max_chars,
     get_warehouse_dir,
@@ -33,8 +39,9 @@ from api.paths import (
 STATS_BASE = "https://statsapi.mlb.com/api/v1"
 
 REPO_ROOT = get_repo_root()
-OUTPUTS_ROOT = REPO_ROOT / "outputs"
-MLB_PYTHON = str(REPO_ROOT / "mlb_env" / "bin" / "python")
+WAREHOUSE_ROOT = get_warehouse_dir()
+OUTPUTS_ROOT = get_outputs_dir()
+MLB_PYTHON = sys.executable
 import os as _os
 _API_HOST = _os.getenv("FASTAPI_STATIC_BASE", "http://127.0.0.1:8000")
 STATIC_BASE = f"{_API_HOST.rstrip('/')}/static"
@@ -213,12 +220,12 @@ def _game_date_from_feed(feed_path: str) -> str:
     if m:
         d = m.group(1)
         return f"{d[:4]}-{d[4:6]}-{d[6:]}"
-    return str(date.today())
+    return str(mlb_today())
 
 
 def _season_from_feed(feed_path: str) -> int:
     m = re.search(r"/(\d{4})/", feed_path)
-    return int(m.group(1)) if m else date.today().year
+    return int(m.group(1)) if m else mlb_today().year
 
 
 def _stage_from_feed(feed_path: str) -> str:
@@ -304,6 +311,17 @@ class HRTrackerRequest(BaseModel):
     tweet_text: Optional[str] = None
 
 
+class PitchingIndexRequest(BaseModel):
+    game_date: Optional[str] = None    # YYYY-MM-DD, defaults to yesterday
+    tweet_text: Optional[str] = None
+
+
+class DailyBestRequest(BaseModel):
+    game_date: Optional[str] = None    # YYYY-MM-DD, defaults to yesterday
+    limit: int = 5
+    tweet_text: Optional[str] = None
+
+
 class GamesOfDayRequest(BaseModel):
     game_date: Optional[str] = None    # YYYY-MM-DD, defaults to today
     tweet_text: Optional[str] = None
@@ -360,7 +378,7 @@ def _generate_batter_card_sync(req: BatterCardRequest) -> dict:
     pname = _player_name_from_card_meta(meta)
 
     game_date = str(meta.get("game_date") or "")[:10] if meta else ""
-    season = int(str(game_date)[:4]) if len(game_date) >= 4 else date.today().year
+    season = int(str(game_date)[:4]) if len(game_date) >= 4 else mlb_today().year
     stage = "regular_season"
 
     if req.feed_path:
@@ -384,7 +402,7 @@ def _generate_batter_card_sync(req: BatterCardRequest) -> dict:
     else:
         gd = (req.game_date or "yesterday").strip()
         if gd == "yesterday":
-            game_date = game_date or str(date.today() - timedelta(days=1))
+            game_date = game_date or str(mlb_today() - timedelta(days=1))
         else:
             game_date = game_date or gd[:10]
 
@@ -418,6 +436,7 @@ def _generate_pitcher_card_sync(req: PitcherCardRequest) -> dict:
         MLB_PYTHON, "scripts/mallitalytics_daily_card.py",
         "--pitchers", str(req.player_id),
         "--date", req.game_date,
+        "--output-dir", str(OUTPUTS_ROOT / "pitching_cards"),
         # Unique filename avoids two hub requests overwriting the same PNG (race → flaky 500s).
         "--output-suffix", secrets.token_hex(4),
     ]
@@ -438,7 +457,7 @@ def _generate_pitcher_card_sync(req: PitcherCardRequest) -> dict:
             parts.append(f"--- stdout (tail) ---\n{tail_out}")
         raise HTTPException(status_code=500, detail="\n\n".join(parts))
 
-    game_date = req.game_date if req.game_date != "yesterday" else str(date.today() - timedelta(days=1))
+    game_date = req.game_date if req.game_date != "yesterday" else str(mlb_today() - timedelta(days=1))
     meta = _card_json_from_stdout(stdout)
     pname = _player_name_from_card_meta(meta)
     game_pk = _game_pk_from_card_meta(meta)
@@ -469,12 +488,15 @@ async def generate_pitcher_card(req: PitcherCardRequest):
 
 
 def _generate_hr_tracker_sync(req: HRTrackerRequest) -> dict:
-    game_date = req.game_date or str(date.today() - timedelta(days=1))
+    game_date = req.game_date or str(mlb_today() - timedelta(days=1))
     cmd = [
         MLB_PYTHON, "scripts/hr_tracker_daily.py",
         "--date", game_date,
         "--format", "all",
         "--output-dir", str(OUTPUTS_ROOT),
+        "--warehouse", str(WAREHOUSE_ROOT),
+        "--warehouse-only",
+        "--no-season-counts",
     ]
 
     stdout, _ = _run_script(cmd)
@@ -509,9 +531,251 @@ async def generate_hr_tracker(req: HRTrackerRequest):
     return await run_in_threadpool(_generate_hr_tracker_sync, req)
 
 
+def _pitching_index_tweet(csv_path: Path, game_date: str) -> str:
+    try:
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    except OSError:
+        rows = []
+    if not rows:
+        return (
+            f"Pitching Index — {game_date}\n"
+            "MalliScore blends command, whiffs, workload, and xwOBA suppression.\n"
+            "#Mallitalytics"
+        )
+
+    top = rows[:3]
+    lines = [f"Pitching Index — {game_date}", ""]
+    for row in top:
+        try:
+            score = float(row.get("malli_score") or 0)
+            xwoba = float(row.get("xwoba_allowed") or 0)
+            csw = float(row.get("csw_pct") or 0)
+            chase = float(row.get("chase_pct") or 0)
+        except ValueError:
+            score, xwoba, csw, chase = 0.0, 0.0, 0.0, 0.0
+        lines.append(
+            f"{row.get('rank')}. {row.get('pitcher')} ({row.get('team')}): "
+            f"{score:.1f} MalliScore, {xwoba:.3f} xwOBA, {csw:.1f}% CSW, {chase:.1f}% Chase"
+        )
+    lines.extend(["", "#Mallitalytics"])
+    return "\n".join(lines)
+
+
+def _generate_pitching_index_sync(req: PitchingIndexRequest) -> dict:
+    game_date = req.game_date or str(mlb_today() - timedelta(days=1))
+    ymd = game_date.replace("-", "")
+    suffix = secrets.token_hex(4)
+    out_path = OUTPUTS_ROOT / "pitching_performances" / f"pitching_index_{ymd}_{suffix}.png"
+    csv_path = out_path.with_suffix(".csv")
+    cmd = [
+        MLB_PYTHON,
+        "scripts/pitching_performances_daily.py",
+        "--date",
+        game_date,
+        "--out",
+        str(out_path),
+        "--csv",
+        str(csv_path),
+    ]
+
+    _run_script(cmd)
+    if not out_path.exists():
+        raise HTTPException(status_code=500, detail="Pitching Index PNG not found after generation.")
+
+    cap = get_tweet_max_chars()
+    tweet = truncate_tweet_text_to_cap(
+        req.tweet_text or _pitching_index_tweet(csv_path, game_date),
+        cap,
+    )
+    meta = {
+        "source_module": "pitching_performances_daily",
+        "card_type": "pitching_index",
+        "metric": "MalliScore",
+        "game_date": game_date,
+        "csv_path": str(csv_path),
+    }
+
+    item_id = insert_queue_item(
+        content_type="pitching_index",
+        title=f"Pitching Index {game_date}",
+        tweet_text=tweet,
+        image_path=str(out_path),
+        image_url=_image_url(out_path),
+        game_date=game_date,
+        season=int(game_date[:4]),
+        stage="regular_season",
+        meta=meta,
+    )
+    return {"id": item_id, "image_url": _image_url(out_path), "tweet_text": tweet, "image_path": str(out_path)}
+
+
+@router.post("/pitching-index")
+async def generate_pitching_index(req: PitchingIndexRequest):
+    return await run_in_threadpool(_generate_pitching_index_sync, req)
+
+
+def _display_date(game_date: str) -> str:
+    try:
+        return date.fromisoformat(game_date).strftime("%d %b %Y")
+    except ValueError:
+        return game_date
+
+
+def _daily_best_rows(game_date: str, limit: int) -> dict:
+    try:
+        target = date.fromisoformat(game_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="game_date must be YYYY-MM-DD.")
+    safe_limit = max(1, min(int(limit or 5), 10))
+    return compute_daily_standouts(window="yesterday", limit=safe_limit, today=target + timedelta(days=1))
+
+
+def _tweet_batter_line(raw_line: str) -> str:
+    m = re.match(
+        r"(?P<ab>\d+)-(?P<h>\d+) · (?P<hr>\d+) HR · (?P<rbi>\d+) RBI · (?P<r>\d+) R · (?P<bb>\d+) BB",
+        raw_line,
+    )
+    if not m:
+        return raw_line.replace(" · ", ", ")
+    ab = int(m.group("ab"))
+    h = int(m.group("h"))
+    hr = int(m.group("hr"))
+    rbi = int(m.group("rbi"))
+    runs = int(m.group("r"))
+    bb = int(m.group("bb"))
+    parts = [f"{h}-for-{ab}"]
+    if hr:
+        parts.append(f"{hr} HR")
+    if rbi:
+        parts.append(f"{rbi} RBI")
+    if runs:
+        parts.append(f"{runs} R")
+    if bb:
+        parts.append(f"{bb} BB")
+    return ", ".join(parts)
+
+
+def _tweet_pitcher_line(raw_line: str) -> str:
+    m = re.match(
+        r"(?P<ip>[0-9.]+) IP · (?P<k>\d+)-(?P<h>\d+)-(?P<bb>\d+) · (?P<er>\d+) ER",
+        raw_line,
+    )
+    if not m:
+        return raw_line.replace(" · ", ", ")
+    return (
+        f"{m.group('ip')} IP, {int(m.group('k'))} K, {int(m.group('h'))} H, "
+        f"{int(m.group('bb'))} BB, {int(m.group('er'))} ER"
+    )
+
+
+def _best_batters_tweet(rows: list[dict], game_date: str) -> str:
+    title = f"Best Batters of the Day — {_display_date(game_date)}"
+    if not rows:
+        return f"{title}\n\nNo qualifying batting lines found."
+    lines = [title, ""]
+    for idx, row in enumerate(rows, start=1):
+        player = row.get("player_name") or "Unknown"
+        team = row.get("team") or "?"
+        opponent = row.get("opponent") or "?"
+        line = _tweet_batter_line(str(row.get("line") or ""))
+        lines.append(f"{idx}. {player} ({team} vs {opponent}): {line}")
+    lines.extend(["", "#Mallitalytics"])
+    return "\n".join(lines)
+
+
+def _best_pitchers_tweet(rows: list[dict], game_date: str) -> str:
+    title = f"Best Pitchers of the Day — {_display_date(game_date)}"
+    if not rows:
+        return f"{title}\n\nNo qualifying pitching lines found."
+    lines = [title, ""]
+    for idx, row in enumerate(rows, start=1):
+        player = row.get("player_name") or "Unknown"
+        team = row.get("team") or "?"
+        opponent = row.get("opponent") or "?"
+        line = _tweet_pitcher_line(str(row.get("line") or ""))
+        game_score = row.get("game_score")
+        score_part = f", Game Score {game_score}" if game_score is not None else ""
+        lines.append(f"{idx}. {player} ({team} vs {opponent}): {line}{score_part}")
+    lines.extend(["", "#Mallitalytics"])
+    return "\n".join(lines)
+
+
+def _generate_best_batters_sync(req: DailyBestRequest) -> dict:
+    game_date = req.game_date or str(mlb_today() - timedelta(days=1))
+    data = _daily_best_rows(game_date, req.limit)
+    rows = data.get("batters") or []
+    tweet = truncate_tweet_text_to_cap(req.tweet_text or _best_batters_tweet(rows, game_date))
+    meta = {
+        "source_module": "intel_standouts",
+        "content_pillar": "leaderboard_watch",
+        "hook_type": "box_score_missed",
+        "intended_kpi": "reposts",
+        "priority_score": 68,
+        "daily_best_kind": "batters",
+        "game_date": game_date,
+        "standouts": rows,
+        "data_source": data.get("data_source"),
+        "feeds_scanned": data.get("feeds_scanned"),
+    }
+    item_id = insert_queue_item(
+        content_type="text_only",
+        title=f"Best Batters of the Day {game_date}",
+        tweet_text=tweet,
+        image_path="",
+        image_url="",
+        game_date=game_date,
+        season=int(game_date[:4]),
+        stage="regular_season",
+        meta=meta,
+    )
+    return {"id": item_id, "tweet_text": tweet, "game_date": game_date, "rows": rows}
+
+
+def _generate_best_pitchers_sync(req: DailyBestRequest) -> dict:
+    game_date = req.game_date or str(mlb_today() - timedelta(days=1))
+    data = _daily_best_rows(game_date, req.limit)
+    rows = data.get("pitchers") or []
+    tweet = truncate_tweet_text_to_cap(req.tweet_text or _best_pitchers_tweet(rows, game_date))
+    meta = {
+        "source_module": "intel_standouts",
+        "content_pillar": "leaderboard_watch",
+        "hook_type": "box_score_missed",
+        "intended_kpi": "reposts",
+        "priority_score": 68,
+        "daily_best_kind": "pitchers",
+        "game_date": game_date,
+        "standouts": rows,
+        "data_source": data.get("data_source"),
+        "feeds_scanned": data.get("feeds_scanned"),
+    }
+    item_id = insert_queue_item(
+        content_type="text_only",
+        title=f"Best Pitchers of the Day {game_date}",
+        tweet_text=tweet,
+        image_path="",
+        image_url="",
+        game_date=game_date,
+        season=int(game_date[:4]),
+        stage="regular_season",
+        meta=meta,
+    )
+    return {"id": item_id, "tweet_text": tweet, "game_date": game_date, "rows": rows}
+
+
+@router.post("/best-batters")
+async def generate_best_batters(req: DailyBestRequest):
+    return await run_in_threadpool(_generate_best_batters_sync, req)
+
+
+@router.post("/best-pitchers")
+async def generate_best_pitchers(req: DailyBestRequest):
+    return await run_in_threadpool(_generate_best_pitchers_sync, req)
+
+
 def _generate_games_of_day_sync(req: GamesOfDayRequest) -> dict:
     """Run games_of_day_board.py — slate PNG + story-style tweet (probables on card)."""
-    game_date = req.game_date or str(date.today())
+    game_date = req.game_date or str(mlb_today())
     cmd = [
         MLB_PYTHON,
         "scripts/games_of_day_board.py",
@@ -557,7 +821,7 @@ async def generate_games_of_day(req: GamesOfDayRequest):
 
 
 def _generate_probables_board_sync(req: ProbablesBoardRequest) -> dict:
-    game_date = req.game_date or str(date.today())
+    game_date = req.game_date or str(mlb_today())
     cmd = [
         MLB_PYTHON,
         "scripts/probables_board_daily.py",
@@ -643,7 +907,7 @@ def _player_games_sync(
 ) -> dict:
     if position not in ("pitcher", "batter"):
         raise HTTPException(status_code=400, detail="position must be pitcher or batter")
-    season = season or date.today().year
+    season = season or mlb_today().year
     group = "pitching" if position == "pitcher" else "hitting"
     try:
         r = _requests.get(

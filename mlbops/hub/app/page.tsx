@@ -43,6 +43,15 @@ interface BriefingPayload {
     latest_game_date?: string | null;
     latest_parquet_path?: string | null;
     last_drive_sync_utc?: string | null;
+    season_progress?: {
+      season: number;
+      stage: string;
+      games_played: number;
+      total_games: number;
+      percent: number;
+      latest_game_date?: string | null;
+      source: string;
+    };
   };
 }
 
@@ -369,8 +378,13 @@ export default async function DashboardPage() {
   const statusLine = error ? "● DEGRADED" : "● NOMINAL";
   const statusCls = error ? "text-danger" : "text-success";
   const draftN = data?.queue?.draft_count ?? 0;
-  const processingPct =
-    draftN > 0 ? (99 - Math.min(15, draftN)).toFixed(2) : "98.42";
+  const seasonProgress = freshness?.season_progress;
+  const seasonPct =
+    seasonProgress != null ? seasonProgress.percent.toFixed(2) : "—";
+  const seasonProgressDetail =
+    seasonProgress != null
+      ? `${seasonProgress.games_played.toLocaleString()} / ${seasonProgress.total_games.toLocaleString()} games`
+      : "warehouse unavailable";
 
   return (
     <div className="p-6 max-w-[1800px] mx-auto px-8 2xl:px-12">
@@ -393,13 +407,14 @@ export default async function DashboardPage() {
         <div className="bg-surface-header border border-outline/20 p-3 flex items-center gap-4 shrink-0">
           <div className="text-right">
             <div className="text-xs text-outline font-mono uppercase tracking-widest leading-none">
-              Global Processing
+              Season Played
             </div>
-            <div className="text-xl font-headline font-bold text-foreground">{processingPct}%</div>
+            <div className="text-xl font-headline font-bold text-foreground">{seasonPct}%</div>
+            <div className="text-[10px] font-mono uppercase text-dim">{seasonProgressDetail}</div>
           </div>
           <div className="w-12 h-12 border-2 border-accent/20 flex items-center justify-center">
             <span className="material-symbols-outlined text-accent text-2xl" aria-hidden>
-              bolt
+              sports_baseball
             </span>
           </div>
         </div>

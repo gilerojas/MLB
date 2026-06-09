@@ -10,9 +10,10 @@ from __future__ import annotations
 import gzip
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -26,6 +27,11 @@ STATSAPI_HEADERS = {"User-Agent": "Mallitalytics/1.0 (mlbops intel-standouts)"}
 _MAX_API_BOXSCORES = 220
 
 _FEED_STEM_RE = re.compile(r"^game_(\d+)_(\d{8})_feed_live$")
+_MLB_TZ = ZoneInfo("America/New_York")
+
+
+def mlb_today() -> date:
+    return datetime.now(_MLB_TZ).date()
 
 
 def _parquet_rel_for_game(
@@ -35,7 +41,7 @@ def _parquet_rel_for_game(
     game_pk: int,
     game_date: str,
 ) -> str | None:
-    """Return repo-relative path to pitches_enriched parquet when present on disk."""
+    """Return a stable display path to pitches_enriched parquet when present on disk."""
     ymd = game_date.replace("-", "")[:8]
     if len(ymd) != 8:
         return None
@@ -49,9 +55,24 @@ def _parquet_rel_for_game(
     try:
         if not p.is_file():
             return None
-        return str(p.resolve().relative_to(repo_root.resolve()))
+        return _display_path(p, repo_root, warehouse)
     except (OSError, ValueError):
         return None
+
+
+def _display_path(path: Path, repo_root: Path, warehouse: Path | None = None) -> str:
+    """Prefer repo-relative paths locally and warehouse-relative paths in VPS/Docker."""
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(repo_root.resolve()))
+    except ValueError:
+        pass
+    if warehouse is not None:
+        try:
+            return str(Path("warehouse") / resolved.relative_to(warehouse.resolve()))
+        except ValueError:
+            pass
+    return str(resolved)
 
 WindowId = Literal["yesterday", "7d", "14d", "month"]
 
@@ -132,9 +153,9 @@ def _is_final_feed(feed: dict[str, Any]) -> bool:
 def _raw_stem(path: Path) -> str:
     name = path.name
     if name.endswith(".json.gz"):
-        return name[:-7]
+        return name.removesuffix(".json.gz")
     if name.endswith(".json"):
-        return name[:-5]
+        return name.removesuffix(".json")
     return path.stem
 
 
@@ -243,7 +264,8 @@ def _extract_rows(
     feed_path: Path,
     repo_root: Path,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    rel = str(feed_path.resolve().relative_to(repo_root.resolve()))
+    wh = get_warehouse_dir()
+    rel = _display_path(feed_path, repo_root, wh)
     gd = feed.get("gameData", {})
     teams = gd.get("teams", {})
     away = teams.get("away") or {}
@@ -256,7 +278,6 @@ def _extract_rows(
     game_pk = int(m.group(1)) if m else 0
     ymd = m.group(2) if m else ""
     game_date = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]}" if len(ymd) == 8 else ""
-    wh = get_warehouse_dir()
     season_guess = int(ymd[:4]) if len(ymd) == 8 else int(game_date[:4]) if len(game_date) >= 4 else 0
     pq_rel = (
         _parquet_rel_for_game(repo_root, wh, season_guess, game_pk, game_date)
@@ -486,7 +507,7 @@ def compute_daily_standouts(
     limit: int,
     today: date | None = None,
 ) -> dict[str, Any]:
-    today = today or date.today()
+    today = today or mlb_today()
     d_start, d_end = window_bounds(window, today)
     repo = get_repo_root()
     warehouse = get_warehouse_dir().resolve()

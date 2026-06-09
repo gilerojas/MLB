@@ -7,6 +7,14 @@ Living doc shared between Claude Code and Cursor.
 
 ## Done
 
+### Fantasy pitching projections — bet-slip image + faster tab (Jun 2026)
+
+- **`src/fantasy_streamer/render.py`** — 1200×675 projection slip: hero **MalliScore**, tier label (Strong stream / Fringe / Sit), prop grid **IP · K · BB · H · ER**, WHIP footer; optional MLB headshot.
+- **`POST /queue/fantasy-streamer-draft`** — now renders PNG to `outputs/fantasy_streamer/` and attaches `image_url` on queue insert (`image_renderer: fantasy_streamer_projection`).
+- **`mlbops/api/services/fantasy_service.py`** — bounded in-process cache (parquet aggregates + full matrix response keyed to file fingerprint); repeat `/fantasy/streamers` calls avoid re-reading parquets.
+- **`mlbops/hub/app/fantasy/page.tsx`** — card grid replaces abstract score table; each card shows projected line + MalliScore; **Queue slip** sends image to Launch station. Tweet copy unchanged (next pass).
+- **Cold → warm heat scale** — `mlbops/hub/lib/heatScale.ts` + projection slip PNG use blue (low) → gold → orange (high) on MalliScore and prop cells.
+
 ### Infra rename: **mlbops** (Apr 2026)
 
 - **`MalliOps/` → `mlbops/`** — FastAPI + Next stack lives under `mlbops/` (distinct from fantasy **MalliHub**).
@@ -229,6 +237,16 @@ Living doc shared between Claude Code and Cursor.
 - `start_hub.sh`: set `MLBOPS_UVICORN_RELOAD=0` to disable `--reload` for less overhead while debugging slowness
 
 **Why it felt “everything loading”:** Uvicorn serves all routes on one asyncio loop. Any **synchronous** disk I/O, `subprocess.run`, or HTTP client call in a `def` route handler **blocks every other request** until it returns. The Intel hub page alone called `/intel/snapshots?include_body=true` (large JSON parses) while Insights fired five parallel calls — one blocking handler stalled the rest.
+
+---
+
+### VPS Phase 1 — warehouse sync (Jun 2026)
+
+- **Stack live on VPS:** Hub + Postgres + FastAPI healthy via Tailscale `http://100.111.41.78` (`/api/backend/health` → 200).
+- **Warehouse gap:** VPS `2026/` was partial (~58 raw / ~63 pitches / ~19M) vs Mac mirror (~884 raw / ~830 pitches / ~140M).
+- **Fix:** VPS-side Drive pull — Mac config: `cat ~/.rclone.conf` → paste into VPS `~/.config/rclone/rclone.conf`, then `vps_pull_warehouse_from_drive.sh 2026`.
+- **Verify:** `deploy/vps_verify_warehouse.sh --remote 2026` and `GET /system/readiness`.
+- **SSH:** `root@2.24.123.57:2222`, key `/Users/gilrojasb/Desktop/Hermes/id_ed25519`.
 
 ---
 

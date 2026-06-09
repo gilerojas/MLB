@@ -11,6 +11,8 @@ const NAV_MAIN: { href: string; label: string; icon: string }[] = [
   { href: "/watchlist", label: "Watchlist", icon: "bookmarks" },
   { href: "/leaderboards", label: "Leaders", icon: "leaderboard" },
   { href: "/insights", label: "Insights", icon: "query_stats" },
+  { href: "/growth", label: "Growth", icon: "trending_up" },
+  { href: "/fantasy", label: "Fantasy", icon: "sports_esports" },
   { href: "/schedule", label: "Schedule", icon: "calendar_today" },
   { href: "/cards", label: "Cards", icon: "style" },
   { href: "/queue", label: "Queue", icon: "send_and_archive" },

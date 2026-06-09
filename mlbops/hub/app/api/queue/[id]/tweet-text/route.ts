@@ -30,13 +30,13 @@ export async function PATCH(
     return NextResponse.json({ error: "tweet_text required" }, { status: 400 });
   }
 
-  const item = getQueueItem(id);
+  const item = await getQueueItem(id);
   if (!item) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const cap = getTweetMaxCharsFromEnv();
-  updateQueueItem(id, { tweet_text: truncateTweetTextToCap(tweet_text, cap) });
+  await updateQueueItem(id, { tweet_text: truncateTweetTextToCap(tweet_text, cap) });
   await auditFromRequest(req, "tweet_text_save", "success", undefined, id);
   return NextResponse.json({ success: true });
 }

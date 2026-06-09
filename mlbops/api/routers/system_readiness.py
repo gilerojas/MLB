@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import platform
 import re
+import os
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -23,6 +25,7 @@ _ET = ZoneInfo("America/New_York")
 _DRIVE_SYNC_WARN_HOURS = 24
 # Warn if intel snapshot anchor is older than this many days vs today (ET)
 _INTEL_ANCHOR_WARN_DAYS = 2
+_INGEST_LOG_PATH = Path(os.environ.get("MLBOPS_DAILY_INGEST_LOG", "/logs/daily_ingest.log"))
 
 
 def _last_drive_sync_utc() -> Optional[str]:
@@ -33,6 +36,13 @@ def _last_drive_sync_utc() -> Optional[str]:
         return t or None
     except OSError:
         return None
+
+
+def _drive_runtime_check_enabled() -> bool:
+    """Drive sync is a local-dev mirror check, not a VPS production dependency."""
+    backend = os.environ.get("MLBOPS_DB_BACKEND", "sqlite").strip().lower()
+    runtime = os.environ.get("MLBOPS_RUNTIME", "").strip().lower()
+    return runtime not in {"vps", "production", "prod"} and backend not in {"postgres", "postgresql", "pg"}
 
 
 def _parse_iso_utc(s: str) -> Optional[datetime]:
@@ -97,6 +107,77 @@ def _total_hits(h: dict[str, int]) -> int:
     return sum(h.values())
 
 
+def _latest_parquet_date(wh: Path, season: int) -> dict[str, Any]:
+    latest: Optional[str] = None
+    counts: dict[str, dict[str, int]] = {}
+    if not safe_is_dir(wh):
+        return {"date": None, "count": 0, "by_stage": {}}
+    pattern = re.compile(r"game_\d+_(\d{8})_pitches_enriched\.parquet$")
+    for stage in _STAGES:
+        base = wh / str(season) / stage / "pitches_enriched"
+        if not safe_is_dir(base):
+            continue
+        try:
+            for p in base.glob("game_*_pitches_enriched.parquet"):
+                m = pattern.match(p.name)
+                if not m:
+                    continue
+                ymd = m.group(1)
+                counts.setdefault(ymd, {s: 0 for s in _STAGES})
+                counts[ymd][stage] += 1
+                if latest is None or ymd > latest:
+                    latest = ymd
+        except OSError:
+            pass
+    if latest:
+        by_stage = counts.get(latest, {s: 0 for s in _STAGES})
+        count = sum(by_stage.values())
+        pretty = f"{latest[:4]}-{latest[4:6]}-{latest[6:]}"
+    else:
+        by_stage = {s: 0 for s in _STAGES}
+        count = 0
+        pretty = None
+    return {"date": pretty, "ymd": latest, "count": count, "by_stage": by_stage}
+
+
+def _tail_lines(path: Path, limit: int = 12) -> list[str]:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    return lines[-limit:]
+
+
+def _ingest_status() -> dict[str, Any]:
+    path = _INGEST_LOG_PATH
+    exists = False
+    updated_at = None
+    age_minutes = None
+    tail: list[str] = []
+    try:
+        st = path.stat()
+        exists = path.is_file()
+        updated = datetime.fromtimestamp(st.st_mtime, timezone.utc)
+        updated_at = updated.isoformat().replace("+00:00", "Z")
+        age_minutes = int((datetime.now(timezone.utc) - updated).total_seconds() // 60)
+        tail = _tail_lines(path)
+    except OSError:
+        pass
+    last_line = tail[-1] if tail else ""
+    status: Literal["ok", "warn", "unknown"] = "unknown"
+    if tail:
+        status = "ok" if "ingest end" in last_line or "exists=True" in last_line else "warn"
+    return {
+        "log_path": str(path),
+        "log_exists": exists,
+        "updated_at_utc": updated_at,
+        "age_minutes": age_minutes,
+        "status": status,
+        "tail": tail,
+        "schedule": os.environ.get("MLBOPS_INGEST_CRON_LABEL", "02:30, 06:30, 10:30 server time"),
+    }
+
+
 def _build_readiness() -> dict[str, Any]:
     now_et = datetime.now(_ET)
     today_d = now_et.date()
@@ -114,6 +195,8 @@ def _build_readiness() -> dict[str, Any]:
     today_hits = _hits_for_date(wh, season, t_ymd) if warehouse_exists else {s: 0 for s in _STAGES}
     y_total = _total_hits(yesterday_hits)
     t_total = _total_hits(today_hits)
+    latest_parquet = _latest_parquet_date(wh, season) if warehouse_exists else {"date": None, "count": 0, "by_stage": {}}
+    ingest = _ingest_status()
 
     last_sync = _last_drive_sync_utc()
     last_sync_ok = last_sync is not None
@@ -160,8 +243,8 @@ def _build_readiness() -> dict[str, Any]:
                 "ok": False,
                 "severity": "block",
                 "label": "Warehouse directory",
-                "detail": f"Missing or not a directory: {wh}. Set MLB_WAREHOUSE_DIR or sync from Drive.",
-                "action": "sync_drive",
+                "detail": f"Missing or not a directory: {wh}. Set MLB_WAREHOUSE_DIR to the warehouse volume or run ingest.",
+                "action": "ingest",
             }
         )
 
@@ -183,8 +266,8 @@ def _build_readiness() -> dict[str, Any]:
                 "ok": False,
                 "severity": "warn",
                 "label": "Pitches (yesterday ET)",
-                "detail": f"No parquets for {yesterday_d.isoformat()} under …/{season}/*/pitches_enriched/. Cards/stats for that date may fail until ingest or sync.",
-                "action": "sync_drive",
+                "detail": f"No parquets for {yesterday_d.isoformat()} under …/{season}/*/pitches_enriched/. Cards/stats for that date may fail until ingest completes.",
+                "action": "ingest",
             }
         )
 
@@ -211,7 +294,18 @@ def _build_readiness() -> dict[str, Any]:
             }
         )
 
-    if last_sync_ok and not drive_stale:
+    if not _drive_runtime_check_enabled():
+        checks.append(
+            {
+                "id": "runtime_storage",
+                "ok": True,
+                "severity": "ok",
+                "label": "VPS storage",
+                "detail": "Runtime uses mounted warehouse/output volumes. Google Drive is not in the live path.",
+                "action": None,
+            }
+        )
+    elif last_sync_ok and not drive_stale:
         checks.append(
             {
                 "id": "drive_sync",
@@ -228,8 +322,8 @@ def _build_readiness() -> dict[str, Any]:
                 "id": "drive_sync",
                 "ok": False,
                 "severity": "warn",
-                "label": "Drive mirror (last sync)",
-                "detail": "No data/.last_drive_sync found — run “Sync from Google Drive” in Settings.",
+                "label": "Local mirror (last Drive sync)",
+                "detail": "No data/.last_drive_sync found. Local dev may need a mirror refresh or a manual ingest.",
                 "action": "sync_drive",
             }
         )
@@ -239,7 +333,7 @@ def _build_readiness() -> dict[str, Any]:
                 "id": "drive_sync",
                 "ok": False,
                 "severity": "warn",
-                "label": "Drive mirror (last sync)",
+                "label": "Local mirror (last Drive sync)",
                 "detail": f"Last sync may be stale (> {_DRIVE_SYNC_WARN_HOURS}h) or unparseable: {last_sync!r}.",
                 "action": "sync_drive",
             }
@@ -311,7 +405,19 @@ def _build_readiness() -> dict[str, Any]:
             "warehouse_dir": str(wh),
             "intel_snapshots_dir": str(intel_dir),
             "machine_hint": platform.node() or "",
+            "runtime": os.environ.get("MLBOPS_RUNTIME", ""),
+            "db_backend": os.environ.get("MLBOPS_DB_BACKEND", ""),
+            "outputs_dir": os.environ.get("MLBOPS_OUTPUTS_DIR", ""),
         },
+        "vps": {
+            "enabled": not _drive_runtime_check_enabled(),
+            "runtime": os.environ.get("MLBOPS_RUNTIME", ""),
+            "db_backend": os.environ.get("MLBOPS_DB_BACKEND", ""),
+            "warehouse_dir": str(wh),
+            "outputs_dir": os.environ.get("MLBOPS_OUTPUTS_DIR", ""),
+            "google_drive_live_path": _drive_runtime_check_enabled(),
+        },
+        "ingest": ingest,
         "flags": {
             "intel_run_allowed": allowed,
         },
@@ -321,6 +427,7 @@ def _build_readiness() -> dict[str, Any]:
         "warehouse": {
             "exists": warehouse_exists,
             "season": season,
+            "latest": latest_parquet,
             "pitches_enriched": {
                 "yesterday_ymd": y_ymd,
                 "yesterday_by_stage": yesterday_hits,

@@ -90,6 +90,30 @@ def is_game_final(g: dict) -> bool:
     return abstract == "final"
 
 
+def _game_preference_key(g: dict) -> tuple[int, str, str]:
+    """Prefer the current playable/rescheduled copy when MLB schedule returns duplicate gamePk rows."""
+    status = g.get("status") or {}
+    detailed = str(status.get("detailedState") or "").strip().lower()
+    status_code = str(status.get("statusCode") or "").strip().upper()
+    coded = str(status.get("codedGameState") or "").strip().upper()
+    non_played = detailed in {"postponed", "suspended", "cancelled", "canceled"} or status_code in {"DR", "DI", "S", "C"} or coded in {"D", "S", "C"}
+    state_score = 0 if non_played else 2 if is_game_final(g) else 1
+    return (state_score, str(g.get("officialDate") or ""), str(g.get("gameDate") or ""))
+
+
+def _dedupe_games_by_pk(games: list[dict]) -> list[dict]:
+    by_pk: dict[int, dict] = {}
+    for g in games:
+        try:
+            pk = int(g.get("gamePk"))
+        except (TypeError, ValueError):
+            continue
+        cur = by_pk.get(pk)
+        if cur is None or _game_preference_key(g) > _game_preference_key(cur):
+            by_pk[pk] = g
+    return list(by_pk.values())
+
+
 def fetch_schedule(season: int, game_type: str) -> list[dict]:
     """Obtiene juegos del schedule API (toda la temporada para ese gameType)."""
     url = f"{BASE_URL}/schedule"
@@ -101,7 +125,7 @@ def fetch_schedule(season: int, game_type: str) -> list[dict]:
     for d in data.get("dates", []):
         for g in d.get("games", []):
             games.append(g)
-    return games
+    return _dedupe_games_by_pk(games)
 
 
 def fetch_schedule_for_dates(
@@ -125,8 +149,10 @@ def fetch_schedule_for_dates(
                         continue
                 except (TypeError, ValueError):
                     continue
-                if g["gamePk"] not in games_by_pk:
-                    games_by_pk[g["gamePk"]] = g
+                pk = int(g["gamePk"])
+                cur = games_by_pk.get(pk)
+                if cur is None or _game_preference_key(g) > _game_preference_key(cur):
+                    games_by_pk[pk] = g
     return list(games_by_pk.values())
 
 
@@ -166,9 +192,9 @@ def _raw_stem(path: Path) -> str:
     """Base name without .json or .json.gz for feed_live files."""
     name = path.name
     if name.endswith(".json.gz"):
-        return name[:-7]
+        return name.removesuffix(".json.gz")
     if name.endswith(".json"):
-        return name[:-5]
+        return name.removesuffix(".json")
     return path.stem
 
 
@@ -177,6 +203,21 @@ def _open_raw(path: Path):
     if path.suffix == ".gz" or path.name.endswith(".json.gz"):
         return gzip.open(path, "rt", encoding="utf-8")
     return open(path, encoding="utf-8")
+
+
+def _raw_feed_is_played_final(path: Path) -> bool:
+    """Existing raw is usable only if it reflects a played final game with plays."""
+    try:
+        with _open_raw(path) as f:
+            feed = json.load(f)
+    except Exception:
+        return False
+    game_data = feed.get("gameData") or {}
+    status = game_data.get("status") or {}
+    if not is_game_final({"status": status}):
+        return False
+    plays = (((feed.get("liveData") or {}).get("plays") or {}).get("allPlays") or [])
+    return bool(plays)
 
 
 def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, bool]:
@@ -198,10 +239,15 @@ def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, b
     raw_path_gz = raw_dir / f"{stem}{RAW_SUFFIX_GZ}"
     raw_path_json = raw_dir / f"{stem}.json"
 
-    if raw_path_gz.exists() and not force:
-        return raw_path_gz, False
-    if raw_path_json.exists() and not force:
-        return raw_path_json, False
+    existing_raw = raw_path_gz if raw_path_gz.exists() else raw_path_json if raw_path_json.exists() else None
+    if existing_raw is not None and not force:
+        if _raw_feed_is_played_final(existing_raw):
+            return existing_raw, False
+        print(
+            f"raw stale/non-final: refreshing {existing_raw.name} (schedule now final)",
+            file=sys.stderr,
+            flush=True,
+        )
 
     try:
         feed = fetch_feed(game_pk)

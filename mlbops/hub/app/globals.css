@@ -7,6 +7,10 @@
 
 :root,
 html[data-theme="dark"] {
+  --font-inter: ui-sans-serif;
+  --font-space-grotesk: ui-sans-serif;
+  --font-jetbrains-mono: ui-monospace;
+
   /* Brand core (unchanged names for any legacy references) */
   --brand-dark-teal: #2c3e50;
   --brand-forest: #2e7d32;

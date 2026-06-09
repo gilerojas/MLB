@@ -19,7 +19,45 @@ type ReadinessCheck = {
 
 type ReadinessPayload = {
   overall: Severity;
-  environment?: { repo_root: string; warehouse_dir: string; intel_snapshots_dir: string; machine_hint: string };
+  generated_at_utc?: string;
+  environment?: {
+    repo_root: string;
+    warehouse_dir: string;
+    intel_snapshots_dir: string;
+    machine_hint: string;
+    runtime?: string;
+    db_backend?: string;
+    outputs_dir?: string;
+  };
+  vps?: {
+    enabled: boolean;
+    runtime: string;
+    db_backend: string;
+    warehouse_dir: string;
+    outputs_dir: string;
+    google_drive_live_path: boolean;
+  };
+  ingest?: {
+    log_path: string;
+    log_exists: boolean;
+    updated_at_utc: string | null;
+    age_minutes: number | null;
+    status: "ok" | "warn" | "unknown";
+    schedule: string;
+    tail: string[];
+  };
+  warehouse?: {
+    exists: boolean;
+    season: number;
+    latest?: { date: string | null; ymd?: string | null; count: number; by_stage: Record<string, number> };
+    pitches_enriched: {
+      yesterday_ymd: string;
+      yesterday_total: number;
+      today_ymd: string;
+      today_total: number;
+    };
+  };
+  intel?: { latest_snapshot_anchor: string | null };
   checks: ReadinessCheck[];
 };
 
@@ -30,6 +68,45 @@ function severityRowCls(sev: Severity): string {
 }
 
 const STORAGE_KEY = "mlbops-pipeline-checklist-collapsed";
+
+function ageLabel(minutes: number | null | undefined): string {
+  if (minutes == null) return "never";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function ymdLabel(ymd?: string): string {
+  if (!ymd || ymd.length !== 8) return "—";
+  return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+}
+
+function statusTone(sev: Severity | "unknown"): string {
+  if (sev === "block") return "text-danger";
+  if (sev === "warn" || sev === "unknown") return "text-warning";
+  return "text-success";
+}
+
+function StatusCard({
+  label,
+  value,
+  detail,
+  tone = "ok",
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone?: Severity | "unknown";
+}) {
+  return (
+    <div className="border border-outline-variant/30 bg-surface-header/35 px-3 py-2 min-w-0">
+      <p className="text-[10px] font-mono uppercase text-dim tracking-wide">{label}</p>
+      <p className={`mt-1 text-lg font-headline font-bold truncate ${statusTone(tone)}`}>{value}</p>
+      <p className="mt-1 text-[11px] font-mono text-muted truncate">{detail}</p>
+    </div>
+  );
+}
 
 export function PipelineChecklist() {
   const api = getApiBase();
@@ -164,11 +241,11 @@ export function PipelineChecklist() {
       >
         <div className="min-w-0">
           <h3 className="font-headline font-bold text-sm uppercase tracking-tighter text-foreground">
-            Pipeline readiness
+            VPS pipeline status
           </h3>
           <p className="text-xs font-mono text-slate-500 mt-0.5 truncate">
             {data?.environment
-              ? `${data.environment.machine_hint} · ${data.environment.warehouse_dir}`
+              ? `${data.environment.machine_hint} · ${data.environment.runtime || "local"} · ${data.environment.warehouse_dir}`
               : loading
                 ? "Loading…"
                 : "—"}
@@ -176,7 +253,7 @@ export function PipelineChecklist() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className={`text-xs font-mono font-bold uppercase ${titleCls}`}>
-            {overall === "ok" ? "All clear" : overall === "warn" ? "Warnings" : "Blocked"}
+            {overall === "ok" ? "Ready" : overall === "warn" ? "Watch" : "Blocked"}
           </span>
           <span className="material-symbols-outlined text-slate-500 text-lg" aria-hidden>
             {collapsed ? "expand_more" : "expand_less"}
@@ -189,8 +266,53 @@ export function PipelineChecklist() {
           {err && <p className="text-sm text-danger font-mono">Readiness: {err}</p>}
           {msg && <p className="text-sm text-tertiary font-mono">{msg}</p>}
           {loading && !data && <p className="text-sm text-slate-500 font-mono">Scanning mirror…</p>}
+          {data && (
+            <>
+              <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 pt-3">
+                <StatusCard
+                  label="Runtime"
+                  value={data.vps?.enabled ? "VPS" : "Local"}
+                  detail={`${data.vps?.db_backend || data.environment?.db_backend || "db"} · ${data.vps?.google_drive_live_path ? "Drive live path" : "VPS volumes"}`}
+                  tone={data.vps?.enabled ? "ok" : "warn"}
+                />
+                <StatusCard
+                  label="Latest warehouse"
+                  value={data.warehouse?.latest?.date || "none"}
+                  detail={`${data.warehouse?.latest?.count ?? 0} pitch file(s)`}
+                  tone={data.warehouse?.latest?.date ? "ok" : "warn"}
+                />
+                <StatusCard
+                  label="Yesterday ET"
+                  value={data.warehouse?.pitches_enriched.yesterday_total ?? "—"}
+                  detail={ymdLabel(data.warehouse?.pitches_enriched.yesterday_ymd)}
+                  tone={(data.warehouse?.pitches_enriched.yesterday_total ?? 0) > 0 ? "ok" : "warn"}
+                />
+                <StatusCard
+                  label="Last ingest"
+                  value={ageLabel(data.ingest?.age_minutes)}
+                  detail={data.ingest?.schedule || "cron not reported"}
+                  tone={data.ingest?.status === "ok" ? "ok" : data.ingest?.status === "warn" ? "warn" : "unknown"}
+                />
+              </div>
+
+              <div className="grid gap-2 lg:grid-cols-[1fr_1fr]">
+                <div className="border border-outline-variant/20 bg-surface px-3 py-2">
+                  <p className="text-[10px] font-mono uppercase text-dim">Storage</p>
+                  <p className="mt-1 text-xs font-mono text-muted truncate">warehouse: {data.vps?.warehouse_dir || data.environment?.warehouse_dir}</p>
+                  <p className="mt-1 text-xs font-mono text-muted truncate">outputs: {data.vps?.outputs_dir || data.environment?.outputs_dir || "—"}</p>
+                </div>
+                <div className="border border-outline-variant/20 bg-surface px-3 py-2">
+                  <p className="text-[10px] font-mono uppercase text-dim">Ingest log</p>
+                  <p className="mt-1 text-xs font-mono text-muted truncate">
+                    {data.ingest?.updated_at_utc ? `updated ${data.ingest.updated_at_utc}` : "No log yet"}
+                  </p>
+                  <p className="mt-1 text-xs font-mono text-muted truncate">{data.ingest?.log_path || "/logs/daily_ingest.log"}</p>
+                </div>
+              </div>
+            </>
+          )}
           {data?.checks && (
-            <ul className="space-y-2">
+            <ul className="space-y-2 pt-1">
               {data.checks.map((c) => (
                 <li key={c.id} className={`rounded-sm px-3 py-2 text-sm ${severityRowCls(c.severity)}`}>
                   <div className="flex items-start justify-between gap-2">

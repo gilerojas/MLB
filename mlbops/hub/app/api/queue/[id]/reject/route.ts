@@ -21,7 +21,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const item = getQueueItem(id);
+  const item = await getQueueItem(id);
   if (!item) {
     return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
   }
@@ -32,7 +32,7 @@ export async function POST(
     );
   }
 
-  updateQueueItem(id, {
+  await updateQueueItem(id, {
     status: "rejected",
     reviewed_at: new Date().toISOString(),
   });

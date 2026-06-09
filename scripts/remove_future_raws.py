@@ -36,9 +36,9 @@ MIN_PLAYS = 2
 def _raw_stem(path: Path) -> str:
     name = path.name
     if name.endswith(".json.gz"):
-        return name[:-7]
+        return name.removesuffix(".json.gz")
     if name.endswith(".json"):
-        return name[:-5]
+        return name.removesuffix(".json")
     return path.stem
 
 

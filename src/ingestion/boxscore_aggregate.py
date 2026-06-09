@@ -46,7 +46,7 @@ def find_stage_raw_paths(warehouse: Path, season: int, stage: str) -> list[Path]
         ):
             continue
         name = raw_path.name
-        stem = name[:-7] if name.endswith(".json.gz") else name[:-5]
+        stem = name.removesuffix(".json.gz") if name.endswith(".json.gz") else name.removesuffix(".json")
         m = re.match(r"game_(\d+)_(\d+)_feed_live", stem)
         if not m:
             continue

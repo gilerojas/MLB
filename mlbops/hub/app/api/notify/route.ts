@@ -25,8 +25,8 @@ export async function POST(req: NextRequest) {
       day: "numeric",
     });
 
-    const drafts = getQueueByStatus("draft", 20, 0);
-    const yesterday = getRecentPosted(1);
+    const drafts = await getQueueByStatus("draft", 20, 0);
+    const yesterday = await getRecentPosted(1);
 
     const posted_summary = {
       count: yesterday.length,

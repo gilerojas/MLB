@@ -13,7 +13,10 @@ import math
 import os
 import random
 import re
+import secrets
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,13 +24,22 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.paths import (
+    get_outputs_dir,
     get_redraft_batter_tweet_target_range,
     get_redraft_max_tokens,
     get_redraft_meta_max_chars,
     get_redraft_pitcher_tweet_target_range,
+    get_repo_root,
     get_tweet_max_chars,
     truncate_tweet_text_to_cap,
 )
+
+_REPO_ROOT = get_repo_root()
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from src.fantasy_streamer import render_streamer_projection
+from src.insight_tiles import render_insight_tile
 
 from api.db.database import (
     count_queue,
@@ -39,8 +51,12 @@ from api.db.database import (
     list_queue,
     update_queue_item,
 )
+from api.services.content_scoring import score_queue_item
+from api.services.content_taxonomy import CONTENT_PILLARS, HOOK_TYPES, INTENDED_KPIS
 
 router = APIRouter(prefix="/queue", tags=["queue"])
+_API_HOST = os.getenv("FASTAPI_STATIC_BASE", "http://127.0.0.1:8000")
+_STATIC_BASE = f"{_API_HOST.rstrip('/')}/static"
 
 # Four analyst personas — rotated randomly each redraft call.
 # Each drives a different instinct, hook style, and tone so cards
@@ -119,6 +135,12 @@ _BATTER_PERSONAS: tuple[dict, ...] = (
 class QueueItemPatch(BaseModel):
     tweet_text: Optional[str] = None
     status: Optional[str] = None
+    content_pillar: Optional[str] = None
+    hook_type: Optional[str] = None
+    intended_kpi: Optional[str] = None
+    priority_score: Optional[int] = Field(default=None, ge=0, le=100)
+    campaign: Optional[str] = None
+    experiment_tag: Optional[str] = None
 
 
 class InsightDraftRequest(BaseModel):
@@ -131,6 +153,47 @@ class InsightDraftRequest(BaseModel):
     meta: dict = Field(default_factory=dict)
 
 
+class FantasyStreamerDraftRequest(BaseModel):
+    pitcher: str
+    player_id: Optional[int] = None
+    team: str
+    opponent: str
+    game_date: str
+    season: int
+    game_pk: Optional[int] = None
+    venue: Optional[str] = None
+    home_away: Optional[str] = None
+    probable_status: str = "projected_rotation"
+    stream_score: int = Field(ge=0, le=100)
+    pitcher_hand: Optional[str] = None
+    projected_malli_score: Optional[float] = None
+    projected: dict = Field(default_factory=dict)
+    k_upside: int = Field(ge=0, le=100)
+    ratio_risk: int = Field(ge=0, le=100)
+    opponent_k_profile: int = Field(ge=0, le=100)
+    opponent_power_risk: int = Field(ge=0, le=100)
+    confidence: int = Field(ge=0, le=100)
+    league_fit: str
+    note: str = ""
+    factor_scores: dict = Field(default_factory=dict)
+
+
+def _output_image_url(abs_path: Path) -> str:
+    out_root = get_outputs_dir().resolve()
+    try:
+        rel = abs_path.resolve().relative_to(out_root)
+    except ValueError:
+        return ""
+    return f"{_STATIC_BASE}/{rel.as_posix()}"
+
+
+def _insight_rows(meta: dict) -> list[dict]:
+    rows = meta.get("rows")
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows if isinstance(r, dict)]
+
+
 def _get_queue_sync(
     status: Optional[str],
     game_date: Optional[str],
@@ -138,16 +201,20 @@ def _get_queue_sync(
     offset: int,
     sort_by: str,
     order: str,
+    content_pillar: Optional[str],
+    intended_kpi: Optional[str],
 ) -> dict:
     items = list_queue(
         status=status,
         game_date=game_date,
+        content_pillar=content_pillar,
+        intended_kpi=intended_kpi,
         limit=limit,
         offset=offset,
         sort_by=sort_by,
         order=order,
     )
-    total = count_queue(status=status, game_date=game_date)
+    total = count_queue(status=status, game_date=game_date, content_pillar=content_pillar, intended_kpi=intended_kpi)
     return {"items": items, "count": len(items), "total": total}
 
 
@@ -159,9 +226,11 @@ async def get_queue(
     offset: int = Query(0, ge=0),
     sort_by: str = Query("created_at", description="created_at | game_date | content_type"),
     order: str = Query("desc", description="asc | desc"),
+    content_pillar: Optional[str] = Query(None, description="Filter by content pillar"),
+    intended_kpi: Optional[str] = Query(None, description="Filter by primary KPI"),
 ):
     return await run_in_threadpool(
-        _get_queue_sync, status, game_date, limit, offset, sort_by, order
+        _get_queue_sync, status, game_date, limit, offset, sort_by, order, content_pillar, intended_kpi
     )
 
 
@@ -177,6 +246,15 @@ async def queue_summary():
     return await run_in_threadpool(_queue_summary_sync)
 
 
+@router.get("/taxonomy")
+async def queue_taxonomy():
+    return {
+        "content_pillars": sorted(CONTENT_PILLARS),
+        "hook_types": sorted(HOOK_TYPES),
+        "intended_kpis": sorted(INTENDED_KPIS),
+    }
+
+
 def _insight_draft_sync(body: InsightDraftRequest) -> dict:
     cap = get_tweet_max_chars()
     text = truncate_tweet_text_to_cap(body.tweet_text or "", cap)
@@ -189,24 +267,140 @@ def _insight_draft_sync(body: InsightDraftRequest) -> dict:
         raise HTTPException(status_code=400, detail="game_date must be YYYY-MM-DD.")
     meta = body.meta if isinstance(body.meta, dict) else {}
     meta = {**meta, "source": "insights", "as_of_date": body.game_date, "season": body.season}
+    rows = _insight_rows(meta)
+    image_path = ""
+    image_url = ""
+    if rows:
+        safe_key = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(meta.get("insight_key") or title)).strip("_")[:80]
+        suffix = secrets.token_hex(4)
+        out_path = get_outputs_dir() / "insights" / f"insight_{body.game_date.replace('-', '')}_{safe_key}_{suffix}.png"
+        render_insight_tile(
+            title=title,
+            subtitle=str(meta.get("sublabel") or ""),
+            rows=rows,
+            stat_key=str(meta.get("stat_key") or "") or None,
+            game_date=body.game_date,
+            season=int(body.season),
+            out_path=out_path,
+            insight_key=str(meta.get("insight_key") or ""),
+        )
+        image_path = str(out_path)
+        image_url = _output_image_url(out_path)
+        meta = {**meta, "image_renderer": "insight_tiles", "image_path": image_path}
     item_id = insert_queue_item(
         content_type="insight_tile",
         title=title,
         tweet_text=text,
-        image_path="",
-        image_url="",
+        image_path=image_path,
+        image_url=image_url,
         game_date=body.game_date,
         season=int(body.season),
         stage="regular_season",
         meta=meta,
     )
-    return {"id": item_id, "title": title}
+    return {"id": item_id, "title": title, "image_url": image_url, "image_path": image_path}
 
 
 @router.post("/insight-draft")
 async def create_insight_draft(body: InsightDraftRequest):
     """From Insights hub: send tile copy + structured meta to Launch station (no image)."""
     return await run_in_threadpool(_insight_draft_sync, body)
+
+
+def _fantasy_streamer_draft_sync(body: FantasyStreamerDraftRequest) -> dict:
+    try:
+        datetime.strptime(body.game_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="game_date must be YYYY-MM-DD.")
+
+    pitcher = (body.pitcher or "").strip()
+    if not pitcher:
+        raise HTTPException(status_code=400, detail="pitcher is required.")
+
+    title = f"Streamer Matrix: {pitcher}"
+    projected = body.projected if isinstance(body.projected, dict) else {}
+    malli = body.projected_malli_score
+    projected_line = ""
+    if projected:
+        projected_line = (
+            f"Projected: {projected.get('ip', '—')} IP, {projected.get('k', '—')} K, "
+            f"{projected.get('er', '—')} ER, {projected.get('whip', '—')} WHIP."
+        )
+    headline = (
+        f"Projected MalliScore {malli:.1f}"
+        if isinstance(malli, (int, float))
+        else f"Stream score {body.stream_score}/100"
+    )
+    tweet = (
+        f"{pitcher} {f'({body.pitcher_hand}) ' if body.pitcher_hand else ''}vs {body.opponent}: {headline}.\n\n"
+        f"{projected_line}\n\n"
+        f"K upside {body.k_upside}/100, ratio risk {body.ratio_risk}/100, "
+        f"opponent K profile {body.opponent_k_profile}/100.\n\n"
+        f"League fit: {body.league_fit}. {body.note}"
+    ).strip()
+    tweet = truncate_tweet_text_to_cap(tweet, get_tweet_max_chars())
+
+    image_path = ""
+    image_url = ""
+    ymd = body.game_date.replace("-", "")
+    safe_pitcher = re.sub(r"[^a-zA-Z0-9_-]+", "_", pitcher).strip("_")[:48]
+    suffix = secrets.token_hex(4)
+    out_path = get_outputs_dir() / "fantasy_streamer" / f"projection_{ymd}_{safe_pitcher}_{suffix}.png"
+    try:
+        render_streamer_projection(
+            pitcher=pitcher,
+            opponent=body.opponent,
+            game_date=body.game_date,
+            projected=projected,
+            projected_malli_score=malli if isinstance(malli, (int, float)) else None,
+            player_id=body.player_id,
+            team=body.team,
+            pitcher_hand=body.pitcher_hand,
+            probable_status=body.probable_status,
+            home_away=body.home_away,
+            venue=body.venue,
+            out_path=out_path,
+        )
+        image_path = str(out_path)
+        image_url = _output_image_url(out_path)
+    except Exception:
+        image_path = ""
+        image_url = ""
+
+    meta = {
+        "source": "fantasy_service",
+        "source_module": "fantasy_service",
+        "content_pillar": "fantasy_streamer",
+        "hook_type": "bookmark_utility",
+        "intended_kpi": "bookmarks",
+        "primary_kpi": "bookmarks",
+        "priority_score": int(round(malli)) if isinstance(malli, (int, float)) else body.stream_score,
+        "campaign": "daily_mlb",
+        "image_renderer": "fantasy_streamer_projection",
+        "image_path": image_path,
+        "streamer": body.model_dump(),
+    }
+    item_id = insert_queue_item(
+        content_type="fantasy_streamer",
+        title=title,
+        tweet_text=tweet,
+        image_path=image_path,
+        image_url=image_url,
+        game_pk=body.game_pk,
+        player_id=body.player_id,
+        player_name=pitcher,
+        game_date=body.game_date,
+        season=int(body.season),
+        stage="regular_season",
+        meta=meta,
+    )
+    return {"id": item_id, "title": title, "tweet_text": tweet, "image_url": image_url, "image_path": image_path}
+
+
+@router.post("/fantasy-streamer-draft")
+async def create_fantasy_streamer_draft(body: FantasyStreamerDraftRequest):
+    """From Fantasy hub: send a streamer candidate to Launch station for manual review."""
+    return await run_in_threadpool(_fantasy_streamer_draft_sync, body)
 
 
 def _style_stats_sync(days: int) -> dict:
@@ -1290,7 +1484,13 @@ def _prompt_slate_card(*, global_cap: int, meta: str, text: str, content_type: s
     Full-day slate posts (probables board, games of day) — not player cards.
     Stops the model from inventing fake head-to-head 'collision' when teams are in different games.
     """
-    label = "Probable starters" if content_type == "probables_board" else "Games of the day / slate"
+    label = (
+        "Probable starters"
+        if content_type == "probables_board"
+        else "Pitching Index"
+        if content_type == "pitching_index"
+        else "Games of the day / slate"
+    )
     return (
         "You lightly edit a multi-game MLB slate post for @Mallitalytics (plain text, one post).\n"
         f"Post kind: {label}.\n"
@@ -1407,7 +1607,7 @@ def _build_prompt(text: str, meta: dict) -> str:
     meta_json = json.dumps(work, default=str)[:cap]
     gcap = get_tweet_max_chars()
     content_type = work.get("content_type")
-    if content_type in ("probables_board", "games_of_day"):
+    if content_type in ("probables_board", "games_of_day", "pitching_index"):
         return _prompt_slate_card(
             global_cap=gcap, meta=meta_json, text=text, content_type=content_type
         )
@@ -1550,7 +1750,11 @@ def _redraft_item_sync(item_id: int, provider: str) -> dict:
                 "ai_assisted": True,
                 "creation_mode": "ai_assisted",
             }
-            update_queue_item(item_id, meta_json=json.dumps(updated_meta, default=str))
+            update_queue_item(
+                item_id,
+                meta_json=json.dumps(updated_meta, default=str),
+                manual_or_ai="ai",
+            )
         return {"tweet_text": out, "model": model, "provider": provider}
     except HTTPException:
         raise
@@ -1576,6 +1780,40 @@ async def get_item(item_id: int):
     return await run_in_threadpool(_get_item_sync, item_id)
 
 
+def _merge_meta(raw: Optional[str], patch: dict) -> str:
+    meta = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                meta = parsed
+        except json.JSONDecodeError:
+            meta = {}
+    return json.dumps({**meta, **patch}, default=str)
+
+
+def _score_item_sync(item_id: int) -> dict:
+    item = get_queue_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Queue item not found.")
+    score = score_queue_item(item)
+    meta_json = _merge_meta(item.get("meta_json"), {"content_score": score})
+    update_queue_item(
+        item_id,
+        priority_score=int(score["priority_score"]),
+        content_pillar=str(score["recommended_pillar"]),
+        intended_kpi=str(score["primary_kpi"]),
+        meta_json=meta_json,
+    )
+    updated = get_queue_item(item_id)
+    return {"score": score, "item": updated}
+
+
+@router.post("/{item_id}/score")
+async def score_item(item_id: int):
+    return await run_in_threadpool(_score_item_sync, item_id)
+
+
 def _patch_item_sync(item_id: int, body: QueueItemPatch) -> dict:
     item = get_queue_item(item_id)
     if not item:
@@ -1591,11 +1829,33 @@ def _patch_item_sync(item_id: int, body: QueueItemPatch) -> dict:
         updates["status"] = body.status
         if body.status in ("approved", "rejected"):
             updates["reviewed_at"] = datetime.utcnow().isoformat()
+    if body.content_pillar is not None:
+        if body.content_pillar not in CONTENT_PILLARS:
+            raise HTTPException(status_code=400, detail="Invalid content_pillar.")
+        updates["content_pillar"] = body.content_pillar
+    if body.hook_type is not None:
+        if body.hook_type not in HOOK_TYPES:
+            raise HTTPException(status_code=400, detail="Invalid hook_type.")
+        updates["hook_type"] = body.hook_type
+    if body.intended_kpi is not None:
+        if body.intended_kpi not in INTENDED_KPIS:
+            raise HTTPException(status_code=400, detail="Invalid intended_kpi.")
+        updates["intended_kpi"] = body.intended_kpi
+    if body.priority_score is not None:
+        updates["priority_score"] = body.priority_score
+    if body.campaign is not None:
+        updates["campaign"] = body.campaign.strip()[:80]
+    if body.experiment_tag is not None:
+        updates["experiment_tag"] = body.experiment_tag.strip()[:120]
 
     if not updates:
         raise HTTPException(status_code=400, detail="No valid fields to update.")
 
     update_queue_item(item_id, **updates)
+    meta_updates = {k: updates[k] for k in ("content_pillar", "hook_type", "intended_kpi", "priority_score", "campaign", "experiment_tag") if k in updates}
+    if meta_updates:
+        fresh = get_queue_item(item_id)
+        update_queue_item(item_id, meta_json=_merge_meta(fresh.get("meta_json") if fresh else None, meta_updates))
     return get_queue_item(item_id)
 
 

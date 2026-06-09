@@ -20,13 +20,15 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(typeof data.error === "string" ? data.error : "Login failed.");
+        setError(typeof data.error === "string" ? data.error : `Login failed (${res.status}).`);
         return;
       }
       router.replace(search.get("next") || "/queue");
       router.refresh();
+    } catch {
+      setError("Could not reach the hub login API. Check Tailscale and hub container logs.");
     } finally {
       setBusy(false);
     }
@@ -57,7 +59,7 @@ export default function LoginPage() {
         {error && <p className="text-sm text-danger">{error}</p>}
         <button
           type="submit"
-          disabled={busy || !password}
+          disabled={busy}
           className="w-full py-3 bg-accent text-[#552000] font-headline font-bold uppercase tracking-widest text-xs disabled:opacity-40"
         >
           {busy ? "Checking..." : "Unlock"}
@@ -66,4 +68,3 @@ export default function LoginPage() {
     </main>
   );
 }
-

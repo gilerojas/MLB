@@ -1,29 +1,15 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Inter, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import { HubTopBar } from "@/components/HubTopBar";
 import { NavSidebar } from "@/components/NavSidebar";
 import "./globals.css";
-
-const inter = Inter({
-  variable: "--font-inter",
-  subsets: ["latin"],
-});
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-space-grotesk",
-  subsets: ["latin"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
   title: "Mallitalytics Hub",
   description: "MLB intelligence terminal and content hub",
 };
+
+export const dynamic = "force-dynamic";
 
 const themeInitScript = `(function(){try{var k="mlbops-theme",l="malliops-theme";var t=localStorage.getItem(k);if(t!=="light"&&t!=="dark"){var o=localStorage.getItem(l);if(o==="light"||o==="dark"){localStorage.setItem(k,o);try{localStorage.removeItem(l)}catch(e){}t=o}}if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);else document.documentElement.setAttribute("data-theme","dark");}catch(e){document.documentElement.setAttribute("data-theme","dark");}})();`;
 
@@ -36,7 +22,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className="h-full antialiased"
     >
       <head>
         <link

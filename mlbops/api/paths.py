@@ -1,18 +1,19 @@
 """
 Resolved paths for mlbops / FastAPI.
 
-Google Drive is the source of truth: use rclone (see scripts/pull_mlbops_from_drive.sh
-and .github/workflows) to sync into a *local mirror*. By default that mirror lives at:
+In local development the warehouse usually lives under the repo. In VPS
+production the warehouse should be a mounted server volume. By default:
 
   {MLB repo root}/data/warehouse/mlb
 
-Override with env vars if your mirror lives elsewhere (e.g. another disk or Drive File Stream).
+Override with env vars when production volumes live elsewhere.
 
 | Variable | Purpose |
 |----------|---------|
 | MLB_REPO_ROOT | Root of the MLB git repo (parent of data/, jobs/, morning_intel/) |
-| MLB_WAREHOUSE_DIR | Local **cache** of warehouse parquets (sync target for Drive `MLB/warehouse/mlb`) |
-| MLB_INTEL_SNAPSHOTS_DIR | Local **cache** of intel JSON (sync target for `MLB/morning_intel/snapshots`) |
+| MLB_WAREHOUSE_DIR | Root of warehouse parquets/raws (VPS volume or local dev folder) |
+| MLB_INTEL_SNAPSHOTS_DIR | Intel JSON snapshots directory |
+| MLBOPS_OUTPUTS_DIR | Generated image/CSV output directory |
 | MLBOPS_TWEET_MAX_CHARS | Max length for queue tweet text / card defaults (default 10000; X Premium long posts) |
 | MLBOPS_REDRAFT_META_MAX_CHARS | Max JSON chars passed to Claude/Grok as queue redraft context (default 16000) |
 | MLBOPS_REDRAFT_PITCHER_TWEET_MIN | Preferred min chars for pitcher_card redrafts (default 220) |
@@ -82,6 +83,9 @@ def get_intel_snapshots_dir() -> Path:
 
 
 def get_outputs_dir() -> Path:
+    env = os.environ.get("MLBOPS_OUTPUTS_DIR", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
     return get_repo_root() / "outputs"
 
 

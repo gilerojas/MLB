@@ -28,7 +28,7 @@ from api.paths import (
     get_warehouse_dir,
     safe_is_dir,
 )
-from api.routers import briefing, cards, insights, intel, leaderboards, live, queue, schedule, watchlist
+from api.routers import analytics, briefing, cards, fantasy, insights, intel, leaderboards, live, queue, schedule, watchlist
 from api.routers import system_readiness
 
 OUTPUTS_DIR = get_outputs_dir()
@@ -73,8 +73,10 @@ app.add_middleware(CORSMiddleware, **_cors_mw)
 app.mount("/static", StaticFiles(directory=str(OUTPUTS_DIR)), name="static")
 
 app.include_router(cards.router)
+app.include_router(analytics.router)
 app.include_router(insights.router)
 app.include_router(queue.router)
+app.include_router(fantasy.router)
 app.include_router(schedule.router)
 app.include_router(leaderboards.router)
 app.include_router(intel.router)
@@ -96,6 +98,8 @@ def root():
         "intel": "/intel/snapshots",
         "intel_run": "POST /intel/run (needs MLBOPS_ALLOW_INTEL_RUN=1)",
         "queue": "/queue",
+        "analytics": "/analytics/performance",
+        "fantasy": "/fantasy/streamers",
     }
 
 

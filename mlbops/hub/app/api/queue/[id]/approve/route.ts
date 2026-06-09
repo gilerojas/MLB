@@ -22,7 +22,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
 
-  const item = getQueueItem(id);
+  const item = await getQueueItem(id);
   if (!item) {
     return NextResponse.json({ error: "Queue item not found" }, { status: 404 });
   }
@@ -45,7 +45,7 @@ export async function POST(
         mediaId = await uploadMedia(item.image_path);
       } catch (uploadErr) {
         console.error("Media upload failed:", uploadErr);
-        updateQueueItem(id, {
+        await updateQueueItem(id, {
           status: "failed",
           error_message: String(uploadErr),
           reviewed_at: new Date().toISOString(),
@@ -63,13 +63,13 @@ export async function POST(
       mediaId
     );
 
-    updateQueueItem(id, {
+    await updateQueueItem(id, {
       status: "posted",
       twitter_post_id: tweetId,
       posted_at: new Date().toISOString(),
       reviewed_at: new Date().toISOString(),
     });
-    mergeQueueMeta(id, {
+    await mergeQueueMeta(id, {
       posted_via: req.headers.get("user-agent")?.toLowerCase().includes("mobile") ? "mobile" : "desktop",
       posted_source: "hub",
     });
@@ -78,7 +78,7 @@ export async function POST(
     return NextResponse.json({ success: true, tweet_id: tweetId, tweet_url: tweetUrl });
   } catch (err) {
     console.error("Tweet post failed:", err);
-    updateQueueItem(id, {
+    await updateQueueItem(id, {
       status: "failed",
       error_message: String(err),
       reviewed_at: new Date().toISOString(),

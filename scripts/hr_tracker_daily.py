@@ -205,8 +205,8 @@ def _hr_line(r: dict, compact: bool = False, show_flags: bool = False) -> str:
         pitcher = _last_name(pitcher)
         stadium = _short_venue(stadium)
 
-    # Stage abbrev for display (e.g. ST = Spring Training)
-    stage_abbrev = {"spring_training": "ST", "regular_season": "RS", "wbc": "WBC"}.get(
+    # Regular season is the default context for daily posts; only special stages need a label.
+    stage_abbrev = {"spring_training": "ST", "regular_season": "", "wbc": "WBC"}.get(
         stage, stage[:2].upper() if stage else ""
     )
 
@@ -367,6 +367,11 @@ def main() -> None:
         help="Never call MLB API for HRs; warehouse files only (no fallback if empty)",
     )
     ap.add_argument(
+        "--no-season-counts",
+        action="store_true",
+        help="Skip season-to-date HR number lookup; much faster for quick daily queue generation.",
+    )
+    ap.add_argument(
         "--warehouse-all-stages",
         action="store_true",
         help="Read raw from all stages under each season (spring + regular + playoffs). "
@@ -438,7 +443,12 @@ def main() -> None:
             stages = None
         else:
             stages = ["regular_season"]
-        hrs = get_hrs_for_date(args.warehouse, args.date, stages=stages)
+        hrs = get_hrs_for_date(
+            args.warehouse,
+            args.date,
+            stages=stages,
+            include_prior_counts=not args.no_season_counts,
+        )
         if (
             not hrs
             and not args.warehouse_only

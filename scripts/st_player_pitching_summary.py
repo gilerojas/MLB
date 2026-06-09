@@ -68,7 +68,7 @@ def find_st_raw_paths(warehouse: Path, season: int) -> list[Path]:
             or raw_path.name.endswith(".json.gz")
         ):
             continue
-        stem = raw_path.name[:-7] if raw_path.name.endswith(".json.gz") else raw_path.name[:-5]
+        stem = raw_path.name.removesuffix(".json.gz") if raw_path.name.endswith(".json.gz") else raw_path.name.removesuffix(".json")
         m = re.match(r"game_(\d+)_(\d+)_feed_live", stem)
         if not m:
             continue

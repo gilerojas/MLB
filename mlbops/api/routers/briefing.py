@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from api.db.database import get_queue_status_counts
+from api.intel_standouts import mlb_today
 from api.paths import get_repo_root, get_warehouse_dir, safe_is_dir
 from api.routers.intel import INTEL_SNAPSHOT_DIR, _list_snapshot_files
 from api.routers.schedule import _fetch_schedule, _parse_games
@@ -47,6 +48,7 @@ def _last_drive_sync() -> Optional[str]:
 _PARQUET_DATE_RE = __import__("re").compile(r"game_\d+_(\d{8})_pitches_enriched")
 _NUMERIC_ONLY_RE = re.compile(r"^\d+$")
 _STATSAPI_PEOPLE_URL = "https://statsapi.mlb.com/api/v1/people/{player_id}"
+_MLB_REGULAR_SEASON_GAMES = 2430
 _HTTP = requests.Session()
 _HTTP.trust_env = False
 
@@ -60,13 +62,23 @@ def _game_date_from_parquet(p: Path) -> Optional[str]:
     return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
 
 
+def _display_path(path: Path) -> str:
+    path = path.resolve()
+    for base, label in ((REPO_ROOT, "app"), (WAREHOUSE_ROOT, "warehouse")):
+        try:
+            return f"{label}/{path.relative_to(base.resolve()).as_posix()}"
+        except ValueError:
+            continue
+    return str(path)
+
+
 def _warehouse_freshness() -> dict[str, Any]:
     """Latest game date among pitches_enriched parquets — bounded scan, no full-tree rglob."""
     if not safe_is_dir(WAREHOUSE_ROOT):
         return {"source": "warehouse", "latest_game_date": None, "latest_parquet_path": None}
     latest_game_date: Optional[str] = None
     latest_path: Optional[Path] = None
-    today_y = date.today().year
+    today_y = mlb_today().year
     stages = ("regular_season", "postseason")
     try:
         for year in range(today_y, today_y - 10, -1):
@@ -86,7 +98,42 @@ def _warehouse_freshness() -> dict[str, Any]:
     return {
         "source": "warehouse",
         "latest_game_date": latest_game_date,
-        "latest_parquet_path": str(latest_path.relative_to(REPO_ROOT)),
+        "latest_parquet_path": _display_path(latest_path),
+    }
+
+
+def _season_progress() -> dict[str, Any]:
+    """Regular-season game completion based on VPS warehouse game parquets."""
+    today = mlb_today()
+    season = today.year
+    enriched = WAREHOUSE_ROOT / str(season) / "regular_season" / "pitches_enriched"
+    game_pks: set[str] = set()
+    latest_game_date: Optional[str] = None
+
+    if safe_is_dir(enriched):
+        try:
+            for p in enriched.glob("game_*_*_pitches_enriched.parquet"):
+                parts = p.stem.split("_")
+                if len(parts) < 4:
+                    continue
+                game_pk = parts[1]
+                gd = _game_date_from_parquet(p)
+                game_pks.add(game_pk)
+                if gd and (latest_game_date is None or gd > latest_game_date):
+                    latest_game_date = gd
+        except (OSError, TimeoutError):
+            pass
+
+    games_played = len(game_pks)
+    pct = round((games_played / _MLB_REGULAR_SEASON_GAMES) * 100, 2)
+    return {
+        "season": season,
+        "stage": "regular_season",
+        "games_played": games_played,
+        "total_games": _MLB_REGULAR_SEASON_GAMES,
+        "percent": min(pct, 100.0),
+        "latest_game_date": latest_game_date,
+        "source": "warehouse_pitches_enriched",
     }
 
 
@@ -156,7 +203,7 @@ def _top_anomalies(snapshot: dict[str, Any], n: int = 3) -> list[dict[str, Any]]
 
 
 def _get_briefing_sync(anchor: Optional[str]) -> dict[str, Any]:
-    today = date.today()
+    today = mlb_today()
     yesterday = today - timedelta(days=1)
     yday_str = yesterday.isoformat()
     today_str = today.isoformat()
@@ -192,6 +239,7 @@ def _get_briefing_sync(anchor: Optional[str]) -> dict[str, Any]:
     counts = get_queue_status_counts()
     freshness = _warehouse_freshness()
     freshness["last_drive_sync_utc"] = _last_drive_sync()
+    freshness["season_progress"] = _season_progress()
 
     # Compact game list for dashboard — only fields the UI needs
     _COMPACT_KEYS = (

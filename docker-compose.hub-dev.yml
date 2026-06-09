@@ -1,0 +1,18 @@
+services:
+  hub:
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      WATCHPACK_POLLING: "true"
+    command: >
+      sh -lc 'if [ ! -d node_modules/next ]; then npm ci; fi;
+      npm run dev -- --hostname 0.0.0.0 --port 3000'
+    volumes:
+      - ./mlbops/hub:/app/mlbops/hub
+      - mlbops_hub_node_modules:/app/mlbops/hub/node_modules
+      - mlbops_hub_next:/app/mlbops/hub/.next
+      - ${MLBOPS_OUTPUTS_DIR:-/srv/mlbops/outputs}:/outputs
+
+volumes:
+  mlbops_hub_node_modules:
+  mlbops_hub_next:
