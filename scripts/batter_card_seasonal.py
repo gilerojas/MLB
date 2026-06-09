@@ -1687,7 +1687,7 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
             ha="left", va="center", transform=ax.transAxes)
 
     if logo:
-        logo_ax = ax.inset_axes([0.780, 0.060, 0.170, 0.670])
+        logo_ax = ax.inset_axes([0.790, 0.185, 0.150, 0.610])
         logo_ax.imshow(np.array(logo), alpha=0.165)
         logo_ax.axis("off")
 
@@ -1802,11 +1802,11 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
     _panel_title(ax, "SPRAY CHART")
 
     legend = [("HR", "#B33F2F"), ("3B", "#7C5D8F"), ("2B", "#4F76A3"), ("1B", "#C96A2B")]
-    legend_xs = [0.735, 0.800, 0.865, 0.930]
+    legend_xs = [0.690, 0.765, 0.840, 0.915]
     for x, (label, color) in zip(legend_xs, legend):
-        ax.scatter(x, 0.93, s=30, color=color, transform=ax.transAxes, zorder=9,
+        ax.scatter(x, 0.085, s=30, color=color, transform=ax.transAxes, zorder=9,
                    edgecolors=PALETTE["text_primary"], linewidths=0.4)
-        ax.text(x + 0.014, 0.93, label, color=PALETTE["text_secondary"], fontsize=6.5,
+        ax.text(x + 0.014, 0.085, label, color=PALETTE["text_secondary"], fontsize=6.5,
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
