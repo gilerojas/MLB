@@ -318,6 +318,10 @@ def _as_of_label(game_date: str, season: int | None) -> str:
     return f"{season} season · as of {day}" if season else f"As of {day}"
 
 
+def _season_label(season: int | None) -> str:
+    return f"{season} season" if season else "Season leaders"
+
+
 def _pick_stat_key(rows: list[dict[str, Any]], preferred: str | None) -> str:
     if preferred:
         return preferred
@@ -499,7 +503,7 @@ def _render_portrait_leader_tile(
 
     # Header.
     draw.text((48, 54), _fit_text(draw, _title_from_raw(title).upper(), font_title, 720), fill=ink, font=font_title)
-    draw.text((50, 114), _as_of_label(game_date, season), fill=slate, font=font_sub)
+    draw.text((50, 114), _season_label(season), fill=slate, font=font_sub)
     draw.rounded_rectangle((902, 52, 1152, 138), radius=12, fill=off, outline=_lerp(slate, bg, 0.45), width=2)
     draw.text((924, 71), "AS OF", fill=slate, font=font_metric_label)
     draw.text((924, 97), _date_box_label(game_date), fill=orange, font=_load_font(27, bold=True))
