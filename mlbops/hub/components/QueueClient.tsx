@@ -643,6 +643,31 @@ export default function QueueClient() {
     }
   }
 
+  async function handleDeleteDraft() {
+    if (!selectedId || selectedItem?.status !== "draft") return;
+    const label = selectedItem.player_name || selectedItem.title || `queue #${selectedId}`;
+    if (!window.confirm(`Delete this draft permanently?\n\n${label}`)) return;
+    setLoading(true);
+    setActionStatus(null);
+    try {
+      const res = await secureFetch(`${api}/queue/${selectedId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setActionStatus({ type: "success", msg: "Draft deleted." });
+        await fetchItems(activeTab, sortVal);
+        await fetchSummary();
+        setSelectedId(null);
+      } else {
+        const detail = data.detail || data.error;
+        setActionStatus({ type: "error", msg: typeof detail === "string" ? detail : "Delete failed." });
+      }
+    } catch (e) {
+      setActionStatus({ type: "error", msg: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleGenerated() {
     fetchItems(activeTab, sortVal);
     fetchSummary();
@@ -1008,7 +1033,7 @@ export default function QueueClient() {
               </div>
 
               {selectedItem.status === "draft" && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => void saveTweetText()}
@@ -1026,9 +1051,17 @@ export default function QueueClient() {
                   </button>
                   <button
                     type="button"
+                    onClick={handleDeleteDraft}
+                    disabled={loading}
+                    className="py-3 bg-surface-lowest border border-danger/60 hover:bg-danger-bg/40 text-sm font-mono uppercase text-danger disabled:opacity-40 transition-all"
+                  >
+                    Delete draft
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleApprove}
                     disabled={loading || !tweetText.trim() || tweetText.length > tweetMaxChars}
-                    className="col-span-2 py-4 bg-accent text-[#552000] font-headline font-bold uppercase tracking-widest text-xs hover:brightness-110 active:scale-[0.99] transition-all flex items-center justify-center gap-3 disabled:opacity-40"
+                    className="col-span-3 py-4 bg-accent text-[#552000] font-headline font-bold uppercase tracking-widest text-xs hover:brightness-110 active:scale-[0.99] transition-all flex items-center justify-center gap-3 disabled:opacity-40"
                   >
                     <span>APPROVE & POST TO X</span>
                     <span className="material-symbols-outlined text-sm" aria-hidden>
