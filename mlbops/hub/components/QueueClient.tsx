@@ -668,6 +668,33 @@ export default function QueueClient() {
     }
   }
 
+  async function handleDeleteAllDrafts() {
+    const draftCount = counts.draft ?? 0;
+    if (draftCount <= 0) return;
+    const noun = draftCount === 1 ? "draft" : "drafts";
+    if (!window.confirm(`Delete all ${draftCount} ${noun} permanently?\n\nPosted, rejected, and failed items will stay in the queue history.`)) return;
+    setLoading(true);
+    setActionStatus(null);
+    try {
+      const res = await secureFetch(`${api}/queue/drafts`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const deleted = typeof data.deleted === "number" ? data.deleted : draftCount;
+        setActionStatus({ type: "success", msg: `Deleted ${deleted} draft${deleted === 1 ? "" : "s"}.` });
+        await fetchItems(activeTab, sortVal);
+        await fetchSummary();
+        setSelectedId(null);
+      } else {
+        const detail = data.detail || data.error;
+        setActionStatus({ type: "error", msg: typeof detail === "string" ? detail : "Delete all drafts failed." });
+      }
+    } catch (e) {
+      setActionStatus({ type: "error", msg: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function handleGenerated() {
     fetchItems(activeTab, sortVal);
     fetchSummary();
@@ -897,6 +924,16 @@ export default function QueueClient() {
                 ))}
               </select>
             </label>
+            {activeTab === "draft" && (counts.draft ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteAllDrafts}
+                disabled={loading}
+                className="w-full px-3 py-2 border border-danger-border bg-danger-bg text-danger text-xs font-mono uppercase tracking-wide hover:bg-danger-bg/80 disabled:opacity-40"
+              >
+                Delete all drafts ({counts.draft})
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <label className="text-[10px] font-mono uppercase text-dim">
                 Pillar
