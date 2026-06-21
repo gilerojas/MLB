@@ -50,6 +50,24 @@ def _text_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont)
     bbox = draw.textbbox((0, 0), text, font=font)
     return bbox[2] - bbox[0]
 
+
+def _fit_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
+    text = str(text or "")
+    if _text_width(draw, text, font) <= max_width:
+        return text
+    ell = "..."
+    if max_width <= _text_width(draw, ell, font):
+        return ""
+    lo, hi = 0, len(text)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _text_width(draw, text[:mid] + ell, font) <= max_width:
+            lo = mid
+        else:
+            hi = mid - 1
+    return text[:lo].rstrip() + ell
+
+
 def _hr_ev(hr: dict) -> float:
     v = hr.get("ev_mph") or hr.get("ev")
     return float(v) if v is not None else 0.0
@@ -105,7 +123,7 @@ def _stat_color(
 
 
 def _fmt_dist(d_v: int) -> str:
-    return f"{d_v} ft" if d_v > 0 else "—"
+    return f"{d_v}" if d_v > 0 else "—"
 
 
 def _fmt_ev(e_v: float) -> str:
@@ -184,12 +202,26 @@ def render_hr_tracker_image(hrs: list[dict], date_str: str, out_path: Path) -> P
         columns_data.append(hrs_sorted[idx : idx + take])
         idx += take
 
-    # Batter+team merged; no standalone team column → more room for pitcher
-    sub_col_widths = [
-        int(eff_col_w * 0.40),
-        int(eff_col_w * 0.16),
-        int(eff_col_w * 0.14),
-        int(eff_col_w * 0.30),
+    # Batter+team merged; no standalone team column. Three-column slates need
+    # explicit stat gutters so DIST./EV/Pitcher do not visually collide.
+    dist_ev_gap = 10 if n_cols == 3 else 8
+    stat_pitcher_gap = 14 if n_cols == 3 else 16
+    if n_cols == 3:
+        batter_w = 140
+        dist_w = 52
+        ev_w = 54
+        pitcher_w = max(68, eff_col_w - batter_w - dist_w - dist_ev_gap - ev_w - stat_pitcher_gap)
+    else:
+        batter_w = int(eff_col_w * 0.40)
+        dist_w = int(eff_col_w * 0.16)
+        ev_w = int(eff_col_w * 0.14)
+        pitcher_w = max(90, eff_col_w - batter_w - dist_w - dist_ev_gap - ev_w - stat_pitcher_gap)
+    sub_col_widths = [batter_w, dist_w, ev_w, pitcher_w]
+    col_offsets = [
+        0,
+        batter_w,
+        batter_w + dist_w + dist_ev_gap,
+        batter_w + dist_w + dist_ev_gap + ev_w + stat_pitcher_gap,
     ]
 
     data_start_y = header_line_y + 14
@@ -207,10 +239,11 @@ def render_hr_tracker_image(hrs: list[dict], date_str: str, out_path: Path) -> P
     def draw_col(data_list: list[dict], start_x: int) -> None:
         curr_y = data_start_y
         hdrs = ["BATTER", "DIST.", "EV", "PITCHER"]
-        hx = start_x
         for i, hdr in enumerate(hdrs):
+            hx = start_x + col_offsets[i]
+            if i in {1, 2}:
+                hx += sub_col_widths[i] - _text_width(draw, hdr, font_col_hdr)
             draw.text((hx, curr_y), hdr, fill=c["slate"], font=font_col_hdr)
-            hx += sub_col_widths[i]
 
         curr_y += 20
         draw.line([(start_x, curr_y), (start_x + eff_col_w, curr_y)], fill=c["slate"], width=1)
@@ -247,30 +280,34 @@ def render_hr_tracker_image(hrs: list[dict], date_str: str, out_path: Path) -> P
             if hr_n is not None:
                 b_name += f" ({hr_n})"
             team = str(hr.get("team_abbrev") or hr.get("team") or "")
+            b_name = _fit_text(draw, b_name, font_data_bold, sub_col_widths[0] - 6)
             draw.text((rx, curr_y), b_name, fill=c["off_white"], font=font_data_bold)
             if team:
                 draw.text((rx, curr_y + data_size + 4), team, fill=c["slate"], font=font_team)
-            rx += sub_col_widths[0]
 
             dist_bold = d_v > 0 and _norm_range(float(d_v), min_dist, max_dist) >= 0.72
+            dist_label = _fmt_dist(d_v)
+            rx = start_x + col_offsets[1]
             draw.text(
-                (rx, curr_y + 2),
-                _fmt_dist(d_v),
+                (rx + sub_col_widths[1] - _text_width(draw, dist_label, font_stat_bold if dist_bold else font_stat), curr_y + 2),
+                dist_label,
                 fill=dist_color,
                 font=font_stat_bold if dist_bold else font_stat,
             )
-            rx += sub_col_widths[1]
 
             ev_bold = e_v > 0 and t_ev >= 0.72
+            ev_label = _fmt_ev(e_v)
+            rx = start_x + col_offsets[2]
             draw.text(
-                (rx, curr_y + 2),
-                _fmt_ev(e_v),
+                (rx + sub_col_widths[2] - _text_width(draw, ev_label, font_stat_bold if ev_bold else font_stat), curr_y + 2),
+                ev_label,
                 fill=ev_color,
                 font=font_stat_bold if ev_bold else font_stat,
             )
-            rx += sub_col_widths[2]
 
             p_name = "vs " + last_name_with_generational_suffix(hr.get("pitcher", "?"))
+            p_name = _fit_text(draw, p_name, font_data, sub_col_widths[3])
+            rx = start_x + col_offsets[3]
             draw.text((rx, curr_y + 2), p_name, fill=c["slate"], font=font_data)
 
             curr_y += row_h
