@@ -311,6 +311,12 @@ def delete_queue_item(item_id: int) -> bool:
         return cur.rowcount > 0
 
 
+def delete_draft_queue_items() -> int:
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM content_queue WHERE status = 'draft'")
+        return int(cur.rowcount or 0)
+
+
 def get_queue_status_counts() -> dict[str, int]:
     with get_db() as conn:
         rows = conn.execute(
