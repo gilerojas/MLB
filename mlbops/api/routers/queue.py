@@ -7,6 +7,7 @@ GET    /queue/{id}         — single item detail
 POST   /queue/{id}/redraft — Claude rewrite (draft text + meta)
 PATCH  /queue/{id}         — update tweet_text or status
 DELETE /queue/{id}         — delete a draft item
+DELETE /queue/drafts       — delete all draft items
 """
 import json
 import math
@@ -43,6 +44,7 @@ from src.insight_tiles import render_insight_tile
 
 from api.db.database import (
     count_queue,
+    delete_draft_queue_items,
     delete_queue_item,
     get_db,
     get_queue_item,
@@ -1862,6 +1864,16 @@ def _patch_item_sync(item_id: int, body: QueueItemPatch) -> dict:
 @router.patch("/{item_id}")
 async def patch_item(item_id: int, body: QueueItemPatch):
     return await run_in_threadpool(_patch_item_sync, item_id, body)
+
+
+def _delete_all_drafts_sync() -> dict:
+    deleted = delete_draft_queue_items()
+    return {"deleted": deleted, "status": "draft"}
+
+
+@router.delete("/drafts")
+async def delete_all_drafts():
+    return await run_in_threadpool(_delete_all_drafts_sync)
 
 
 def _delete_item_sync(item_id: int) -> dict:
