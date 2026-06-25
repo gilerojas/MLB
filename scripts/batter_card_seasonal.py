@@ -36,7 +36,7 @@ import pandas as pd
 import requests
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 from matplotlib.patches import FancyBboxPatch
-from PIL import Image
+from PIL import Image, ImageDraw
 
 if "MPLBACKEND" not in os.environ:
     os.environ["MPLBACKEND"] = "Agg"
@@ -44,7 +44,49 @@ if "MPLBACKEND" not in os.environ:
 _PARENT = Path(__file__).resolve().parent.parent
 if str(_PARENT) not in sys.path:
     sys.path.insert(0, str(_PARENT))
-from src.mlb_headshot import neutralize_mlb_headshot_background
+
+
+def _pixel_is_studio_backdrop(r: int, g: int, b: int) -> bool:
+    if (g > r) and (g > b) and (g > 80) and (abs(int(g) - r) + abs(int(g) - b) > 40):
+        return True
+    mx, mn = max(r, g, b), min(r, g, b)
+    return mx - mn <= 42 and (r + g + b) / 3.0 < 72
+
+
+def neutralize_mlb_headshot_background(
+    img: Image.Image, replace_rgb: tuple[int, int, int] = (255, 255, 255)
+) -> Image.Image:
+    """Replace MLB green/charcoal silo backdrops with the card background color."""
+    if img.mode == "RGBA":
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[3])
+        im = bg
+    else:
+        im = img.convert("RGB")
+
+    arr = np.array(im, dtype=np.uint8)
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    green_bg = (g > r) & (g > b) & (g > 80) & (
+        np.abs(g.astype(int) - r) + np.abs(g.astype(int) - b) > 40
+    )
+    arr[green_bg, 0] = replace_rgb[0]
+    arr[green_bg, 1] = replace_rgb[1]
+    arr[green_bg, 2] = replace_rgb[2]
+    im = Image.fromarray(arr, mode="RGB")
+
+    w, h = im.size
+    seeds = [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+        (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2),
+    ]
+    for xy in seeds:
+        try:
+            p = im.getpixel(xy)
+            if isinstance(p, tuple) and len(p) >= 3 and _pixel_is_studio_backdrop(p[0], p[1], p[2]):
+                ImageDraw.floodfill(im, xy, replace_rgb, thresh=40)
+        except (ValueError, OSError, IndexError, TypeError):
+            continue
+    return im
 
 # ─────────────────────────────── CLI ────────────────────────────────────────
 
@@ -424,6 +466,62 @@ def load_batter_seasonal_data(
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
+def _ops_from_pa_events(events: pd.Series) -> float | None:
+    """OBP + SLG for a PA subset (final pitch events)."""
+    if events is None or events.empty:
+        return None
+    ab = int((~events.isin(_NO_AB_EVENTS)).sum())
+    if ab == 0:
+        return None
+    h = int(events.isin(_HIT_EVENTS).sum())
+    bb = int(events.isin({"walk", "intent_walk"}).sum())
+    hbp = int((events == "hit_by_pitch").sum())
+    sf = int(events.isin({"sac_fly", "sac_fly_double_play"}).sum())
+    tb = int(events.map(_TB_MAP).fillna(0).sum())
+    obp_denom = ab + bb + hbp + sf
+    obp = (h + bb + hbp) / obp_denom if obp_denom > 0 else 0.0
+    slg = tb / ab if ab > 0 else 0.0
+    return round(obp + slg, 3)
+
+
+def _pa_stat_line(pa_subset: pd.DataFrame) -> dict:
+    """Return compact batter line stats for a final-pitch PA subset."""
+    if pa_subset is None or pa_subset.empty or "events" not in pa_subset.columns:
+        return {
+            "pa": 0, "ab": 0, "h": 0, "hr": 0, "xbh": 0, "k": 0,
+            "avg": None, "obp": None, "slg": None, "ops": None, "k_pct": None,
+        }
+    events = pa_subset["events"]
+    pa = int(len(pa_subset))
+    ab = int((~events.isin(_NO_AB_EVENTS)).sum())
+    h = int(events.isin(_HIT_EVENTS).sum())
+    doubles = int((events == "double").sum())
+    triples = int((events == "triple").sum())
+    hr = int((events == "home_run").sum())
+    bb = int(events.isin({"walk", "intent_walk"}).sum())
+    hbp = int((events == "hit_by_pitch").sum())
+    sf = int(events.isin({"sac_fly", "sac_fly_double_play"}).sum())
+    k = int((events == "strikeout").sum())
+    tb = int(events.map(_TB_MAP).fillna(0).sum())
+    obp_denom = ab + bb + hbp + sf
+    avg = h / ab if ab else None
+    obp = (h + bb + hbp) / obp_denom if obp_denom else None
+    slg = tb / ab if ab else None
+    return {
+        "pa": pa,
+        "ab": ab,
+        "h": h,
+        "hr": hr,
+        "xbh": int(doubles + triples + hr),
+        "k": k,
+        "avg": round(avg, 3) if avg is not None else None,
+        "obp": round(obp, 3) if obp is not None else None,
+        "slg": round(slg, 3) if slg is not None else None,
+        "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
+        "k_pct": round(k / pa * 100, 1) if pa else None,
+    }
+
+
 def compute_season_stats(df: pd.DataFrame) -> dict:
     """Aggregate all seasonal stats from a batter's enriched parquet rows."""
     if df.empty:
@@ -672,11 +770,14 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
             ev_pt = bip_pt["launch_speed"].dropna()
             xw_pt = bip_pt["estimated_woba_using_speedangle"].dropna()
             lsa_pt = bip_pt["launch_speed_angle"].dropna() if "launch_speed_angle" in bip_pt.columns else pd.Series(dtype=float)
+            pa_pt = pa_df[pa_df["pitch_name"] == pt] if "pitch_name" in pa_df.columns else pd.DataFrame()
+            ops_pt = _ops_from_pa_events(pa_pt["events"]) if not pa_pt.empty else None
             pitch_profile.append({
                 "name": str(pt),
                 "abbr": abbr,
                 "count": int(len(grp)),
                 "usage_pct": round(len(grp) / total_pitches * 100, 1) if total_pitches else 0.0,
+                "ops": ops_pt,
                 "xwoba": round(float(xw_pt.mean()), 3) if len(xw_pt) else None,
                 "whiff_pct": _pct(int(grp["description"].isin(_WHIFF_DESCS).sum()), int(swings_pt.sum())),
                 "chase_pct": _pct(int((swings_pt & out_zone_pt).sum()), int(out_zone_pt.sum())),
@@ -709,6 +810,40 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         if len(game_hh) >= 2:
             hh_roll = game_hh.rolling(window=min(10, len(game_hh)), min_periods=1).mean() * 100
             rolling_hard_hit = list(zip(range(len(hh_roll)), hh_roll.values.tolist()))
+
+    # ── Recent form + handedness splits ──────────────────────────────────────
+    game_sort_cols = [c for c in ("game_date", "game_pk") if c in pa_df.columns]
+    if "game_pk" in pa_df.columns and game_sort_cols:
+        game_order = (
+            pa_df[game_sort_cols]
+            .drop_duplicates()
+            .sort_values(game_sort_cols)["game_pk"]
+            .tolist()
+        )
+    else:
+        game_order = []
+    if len(game_order) >= 14:
+        recent_game_ids = game_order[-14:]
+        recent_label = "LAST 14 GAMES"
+    elif len(game_order) >= 6:
+        recent_game_ids = game_order
+        recent_label = f"RECENT {len(game_order)} GAMES"
+    else:
+        recent_game_ids = game_order
+        recent_label = "EARLY MLB SAMPLE"
+
+    recent_pa = pa_df[pa_df["game_pk"].isin(recent_game_ids)] if recent_game_ids and "game_pk" in pa_df.columns else pa_df
+    hand_splits: dict[str, dict] = {}
+    if "p_throws" in pa_df.columns:
+        throws = pa_df["p_throws"].astype(str).str.upper().str.strip()
+        hand_splits["RHP"] = _pa_stat_line(pa_df[throws.eq("R")])
+        hand_splits["LHP"] = _pa_stat_line(pa_df[throws.eq("L")])
+    form_splits = {
+        "recent_label": recent_label,
+        "recent_games": len(recent_game_ids) if recent_game_ids else int(games),
+        "recent": _pa_stat_line(recent_pa),
+        "hand_splits": hand_splits,
+    }
 
     # ── Spray chart data (batted balls only) ──────────────────────────────────
     spray_df = df[
@@ -801,6 +936,7 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         # Rolling xwOBA
         "rolling_xwoba": rolling_xwoba,
         "rolling_hard_hit": rolling_hard_hit,
+        "form_splits": form_splits,
     }
 
 
@@ -1480,6 +1616,8 @@ _PCT_THRESHOLDS: dict[str, list[tuple[float, int]]] = {
                   (35.0, 60), (37.0, 70), (39.0, 80), (41.0, 90), (43.0, 95)],
     "xwoba":     [(0.245,10), (0.278,25), (0.298,40), (0.312,50),
                   (0.328,60), (0.348,70), (0.368,80), (0.388,90), (0.408,95)],
+    "ops":       [(0.450,10), (0.550,25), (0.620,40), (0.700,50),
+                  (0.780,60), (0.850,70), (0.930,80), (1.030,90), (1.130,95)],
     "whiff_pct": [(16.0, 10), (19.0, 25), (22.0, 40), (24.0, 50),
                   (26.0, 60), (29.0, 70), (32.0, 80), (36.0, 90), (40.0, 95)],
     "max_ev":    [(99.0, 10), (102.0, 25), (105.0, 40), (107.0, 50),
@@ -1682,17 +1820,19 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    ax.text(0.040, 0.860, f"SEASON BATTER PROFILE · {context_label.upper()}",
-            color=PALETTE["text_secondary"], fontsize=10.0, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
+    ax.text(
+        0.040, 0.94, f"SEASON BATTER PROFILE · {context_label.upper()}",
+        color=PALETTE["text_lo"], fontsize=8.2, fontweight="bold",
+        ha="left", va="top", transform=ax.transAxes, zorder=3,
+    )
 
     if logo:
-        logo_ax = ax.inset_axes([0.790, 0.185, 0.150, 0.610])
-        logo_ax.imshow(np.array(logo), alpha=0.165)
+        logo_ax = ax.inset_axes([0.790, 0.12, 0.150, 0.76])
+        logo_ax.imshow(np.array(logo), alpha=0.13)
         logo_ax.axis("off")
 
     if headshot:
-        img_ax = ax.inset_axes([0.055, 0.185, 0.125, 0.610])
+        img_ax = ax.inset_axes([0.050, 0.14, 0.125, 0.72])
         img = img_ax.imshow(np.array(headshot))
         clip = mpatches.Circle((0.5, 0.5), 0.49, transform=img_ax.transAxes)
         img.set_clip_path(clip)
@@ -1702,6 +1842,13 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
         ))
         img_ax.axis("off")
 
+    lx = 0.225
+    ax.text(
+        lx, 0.56, bio.get("name", "Unknown Batter").upper(),
+        color=PALETTE["text_primary"], fontsize=24, fontweight="black",
+        ha="left", va="center", transform=ax.transAxes, zorder=3,
+    )
+
     team = sd.get("batter_team") or bio.get("team", "MLB")
     player_meta = "  ·  ".join([
         team,
@@ -1709,12 +1856,11 @@ def plot_seasonal_header(ax, bio: dict, sd: dict, headshot, logo, context_label:
         f"Bats {bio.get('hand', '--')}",
         f"Age {bio.get('age', '--')}",
     ])
-    ax.text(0.225, 0.600, bio.get("name", "Unknown Batter").upper(),
-            color=PALETTE["text_primary"], fontsize=23, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
-    ax.text(0.228, 0.335, player_meta,
-            color=PALETTE["text_secondary"], fontsize=9.2, fontweight="black",
-            ha="left", va="center", transform=ax.transAxes)
+    ax.text(
+        lx, 0.22, player_meta,
+        color=PALETTE["text_secondary"], fontsize=9.0, fontweight="bold",
+        ha="left", va="center", transform=ax.transAxes, zorder=3,
+    )
 
 
 def plot_batted_ball_quality(ax, sd: dict):
@@ -1810,6 +1956,74 @@ def plot_spray_chart_card(ax, spray_df: pd.DataFrame, sd: dict):
                 fontweight="black", ha="left", va="center", transform=ax.transAxes, zorder=9)
 
 
+def _slash_line_text(line: dict) -> str:
+    vals = [line.get("avg"), line.get("obp"), line.get("slg")]
+    if any(v is None for v in vals):
+        return "— / — / —"
+    return " / ".join(_metric_value_text(v, "rate") for v in vals)
+
+
+def plot_form_splits_card(ax, sd: dict):
+    _clean(ax, PALETTE["panel_bg"])
+    _border(ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    form = sd.get("form_splits") or {}
+    recent = form.get("recent") or {}
+    hand_splits = form.get("hand_splits") or {}
+    _panel_title(ax, "FORM + SPLITS")
+
+    ax.text(0.07, 0.825, str(form.get("recent_label") or "RECENT FORM"),
+            color=PALETTE["text_lo"], fontsize=7.0, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    ax.text(0.07, 0.745, _slash_line_text(recent),
+            color=PALETTE["text_primary"], fontsize=12.5, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
+    recent_detail = f"{int(recent.get('hr') or 0)} HR · {int(recent.get('xbh') or 0)} XBH"
+    if recent.get("pa"):
+        recent_detail += f" · {int(recent.get('pa') or 0)} PA"
+    ax.text(0.07, 0.675, recent_detail,
+            color=PALETTE["text_secondary"], fontsize=8.3, fontweight="bold",
+            ha="left", va="center", transform=ax.transAxes)
+
+    ax.plot([0.07, 0.93], [0.595, 0.595], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
+
+    def split_row(y: float, label: str, split: dict):
+        pa = int(split.get("pa") or 0)
+        ops = split.get("ops")
+        k_pct = split.get("k_pct")
+        hr = int(split.get("hr") or 0)
+        small = pa > 0 and pa < 40
+        label_color = PALETTE["text_lo"] if small else PALETTE["text_secondary"]
+        ax.text(0.07, y, f"VS {label}",
+                color=label_color, fontsize=7.3, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+        if pa <= 0:
+            ax.text(0.93, y, "No PA",
+                    color=PALETTE["text_lo"], fontsize=8.0, fontweight="bold",
+                    ha="right", va="center", transform=ax.transAxes)
+            return
+        pa_label = f"{pa} PA" if not small else f"{pa} PA sample"
+        ax.text(0.93, y, pa_label,
+                color=PALETTE["text_lo"], fontsize=7.1, fontweight="bold",
+                ha="right", va="center", transform=ax.transAxes)
+        ax.text(0.07, y - 0.075, _metric_value_text(ops, "rate"),
+                color=_pitch_metric_color("ops", ops), fontsize=12.2, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+        ax.text(0.39, y - 0.075, f"{hr} HR",
+                color=PALETTE["text_primary"], fontsize=8.4, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+        k_text = _metric_value_text(k_pct, "pct")
+        ax.text(0.67, y - 0.075, f"{k_text} K",
+                color=_pitch_metric_color("whiff_pct", k_pct), fontsize=8.4, fontweight="black",
+                ha="left", va="center", transform=ax.transAxes)
+
+    split_row(0.505, "RHP", hand_splits.get("RHP") or {})
+    ax.plot([0.07, 0.93], [0.320, 0.320], color=PALETTE["grid"], lw=0.8, alpha=0.8, transform=ax.transAxes)
+    split_row(0.230, "LHP", hand_splits.get("LHP") or {})
+
+
 def _short_pitch_name(name: str | None) -> str:
     if not name:
         return "--"
@@ -1835,11 +2049,12 @@ def plot_pitch_type_performance(ax, sd: dict):
     )[:6]
     headers = [
         ("PITCH", 0.045),
-        ("SEEN (%)", 0.305),
-        ("xwOBAcon", 0.470),
-        ("WHIFF", 0.625),
-        ("HH%", 0.755),
-        ("BRL%", 0.865),
+        ("SEEN (%)", 0.255),
+        ("OPS", 0.385),
+        ("xwOBAcon", 0.485),
+        ("WHIFF", 0.595),
+        ("HH%", 0.715),
+        ("BRL%", 0.825),
     ]
     y_header = 0.80
     for label, x in headers:
@@ -1864,16 +2079,19 @@ def plot_pitch_type_performance(ax, sd: dict):
             ))
         full = item.get("name") or next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
         pitch_color = PITCH_COLORS.get(full, PALETTE["text_secondary"])
+        ops = item.get("ops")
+        ops_color = _pitch_metric_color("ops", ops)
         xw = item.get("xwoba")
         xw_color = _pitch_metric_color("xwoba", xw)
         seen_text = f"{item.get('count', 0)} ({_metric_value_text(item.get('usage_pct'), 'pct')})"
         values = [
             (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
-            (seen_text, 0.305, PALETTE["text_primary"], "bold"),
-            (_metric_value_text(xw, "rate"), 0.470, xw_color, "black"),
-            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.625, _pitch_metric_color("whiff_pct", item.get("whiff_pct")), "black"),
-            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.755, _pitch_metric_color("hard_pct", item.get("hard_hit_pct")), "black"),
-            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.865, _pitch_metric_color("barrel_pct", item.get("barrel_pct")), "black"),
+            (seen_text, 0.255, PALETTE["text_primary"], "bold"),
+            (_metric_value_text(ops, "rate"), 0.385, ops_color, "black"),
+            (_metric_value_text(xw, "rate"), 0.485, xw_color, "black"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.595, _pitch_metric_color("whiff_pct", item.get("whiff_pct")), "black"),
+            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.715, _pitch_metric_color("hard_pct", item.get("hard_hit_pct")), "black"),
+            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.825, _pitch_metric_color("barrel_pct", item.get("barrel_pct")), "black"),
         ]
         for text, x, color, weight in values:
             fs = 7.7 if x == 0.045 else 8.0
@@ -1915,7 +2133,7 @@ def plot_brand_footer(ax):
     _clean(ax, PALETTE["card_bg"])
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.text(0.02, 0.50, "Data: MLB Stats API · Statcast warehouse",
+    ax.text(0.02, 0.50, "Data: MLB Stats API · Statcast",
             color=PALETTE["text_lo"], fontsize=7.2, fontweight="bold",
             ha="left", va="center", transform=ax.transAxes)
     ax.text(0.98, 0.50, "@Mallitalytics",
@@ -1990,7 +2208,14 @@ def generate_batter_profile(
     )
     ax_spark = fig.add_subplot(story_gs[0])
     ax_quality = fig.add_subplot(story_gs[1])
-    ax_spray = fig.add_subplot(outer_gs[2])
+    field_gs = gridspec.GridSpecFromSubplotSpec(
+        1, 2,
+        subplot_spec=outer_gs[2],
+        width_ratios=[0.64, 1.36],
+        wspace=0.075,
+    )
+    ax_form = fig.add_subplot(field_gs[0])
+    ax_spray = fig.add_subplot(field_gs[1])
     ax_pitch = fig.add_subplot(outer_gs[3])
     ax_counts = fig.add_subplot(outer_gs[4])
     ax_brand = fig.add_subplot(outer_gs[5])
@@ -1998,6 +2223,7 @@ def generate_batter_profile(
     plot_seasonal_header(ax_hdr, bio, sd, headshot, logo, context_label)
     plot_rolling_xwoba(ax_spark, sd.get("rolling_xwoba", []), sd.get("xwoba"), sd.get("rolling_hard_hit"))
     plot_batted_ball_quality(ax_quality, sd)
+    plot_form_splits_card(ax_form, sd)
     plot_spray_chart_card(ax_spray, sd["spray_df"], sd)
     plot_pitch_type_performance(ax_pitch, sd)
     plot_counting_snapshot(ax_counts, sd)
