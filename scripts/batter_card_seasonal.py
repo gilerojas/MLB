@@ -787,9 +787,9 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
             })
         pitch_profile = sorted(pitch_profile, key=lambda x: (-x["count"], x["abbr"]))
 
-    # ── Rolling xwOBA (game-by-game, 10-game rolling mean) ────────────────────
+    # ── Rolling xwOBA / wOBA (game-by-game, 10-game rolling mean) ──────────────
     rolling_xwoba: list[tuple] = []   # list of (game_pk, rolling_xwoba)
-    rolling_hard_hit: list[tuple] = []
+    rolling_woba: list[tuple] = []
     if "game_pk" in df.columns and "estimated_woba_using_speedangle" in df.columns:
         game_xw = (
             df[df["estimated_woba_using_speedangle"].notna()]
@@ -800,16 +800,16 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         if len(game_xw) >= 2:
             roll = game_xw.rolling(window=min(10, len(game_xw)), min_periods=1).mean()
             rolling_xwoba = list(zip(range(len(roll)), roll.values.tolist()))
-    if "game_pk" in bip_contact.columns and "launch_speed" in bip_contact.columns:
-        game_hh = (
-            bip_contact.assign(hard_hit=bip_contact["launch_speed"].ge(95))
-            .groupby("game_pk")["hard_hit"]
+    if "game_pk" in df.columns and "woba_value" in df.columns:
+        game_woba = (
+            df[df["woba_value"].notna()]
+            .groupby("game_pk")["woba_value"]
             .mean()
             .sort_index()
         )
-        if len(game_hh) >= 2:
-            hh_roll = game_hh.rolling(window=min(10, len(game_hh)), min_periods=1).mean() * 100
-            rolling_hard_hit = list(zip(range(len(hh_roll)), hh_roll.values.tolist()))
+        if len(game_woba) >= 2:
+            woba_roll = game_woba.rolling(window=min(10, len(game_woba)), min_periods=1).mean()
+            rolling_woba = list(zip(range(len(woba_roll)), woba_roll.values.tolist()))
 
     # ── Recent form + handedness splits ──────────────────────────────────────
     game_sort_cols = [c for c in ("game_date", "game_pk") if c in pa_df.columns]
@@ -935,7 +935,7 @@ def compute_season_stats(df: pd.DataFrame) -> dict:
         "pitch_profile": pitch_profile,
         # Rolling xwOBA
         "rolling_xwoba": rolling_xwoba,
-        "rolling_hard_hit": rolling_hard_hit,
+        "rolling_woba": rolling_woba,
         "form_splits": form_splits,
     }
 
@@ -1742,7 +1742,13 @@ def plot_footer(ax, sd: dict):
 
 # ─────────────────────────────── PANEL 6 — ROLLING xwOBA SPARKLINE ──────────
 
-def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, rolling_hard_hit: list | None = None):
+def plot_rolling_xwoba(
+    ax,
+    rolling_xwoba: list,
+    xwoba_season: float | None,
+    rolling_woba: list | None = None,
+    woba_season: float | None = None,
+):
     _clean(ax, PALETTE["panel_bg"])
     _border(ax)
 
@@ -1756,11 +1762,19 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
 
     xs = np.arange(1, len(rolling_xwoba) + 1)
     ys = np.array([pt[1] for pt in rolling_xwoba], dtype=float)
-    y_min = min(0.220, float(np.nanmin(ys)) - 0.025)
-    y_max = max(0.420, float(np.nanmax(ys)) + 0.025)
-    y_max = y_max + (y_max - y_min) * 0.16
+    woba_ys = None
+    if rolling_woba and len(rolling_woba) == len(rolling_xwoba):
+        woba_ys = np.array([pt[1] for pt in rolling_woba], dtype=float)
+        y_values = np.concatenate([ys, woba_ys])
+    else:
+        y_values = ys
+    y_min = min(0.220, float(np.nanmin(ys)) - 0.030)
+    y_max = max(0.420, float(np.nanmax(y_values)) + 0.030)
+    y_range = y_max - y_min
+    y_min = y_min - y_range * 0.07
+    y_max = y_max + y_range * 0.15
 
-    _panel_title(ax, "10-GAME ROLLING xwOBA")
+    _panel_title(ax, "10-GAME ROLLING xwOBA / wOBA")
     ax.set_xlim(0.8, len(xs) + 0.2)
     ax.set_ylim(y_min, y_max)
     ax.yaxis.set_label_position("left")
@@ -1772,23 +1786,33 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
 
     hot_line = "#B33F2F" if LIGHT_MODE else "#FF806E"
     cold_fill = "#2F6597" if LIGHT_MODE else "#63A6E8"
+    woba_line = "#365A78" if LIGHT_MODE else "#9AB7D6"
     ax.fill_between(xs, ys, 0.320, where=ys >= 0.320, color=hot_line, alpha=0.15)
     ax.fill_between(xs, ys, 0.320, where=ys < 0.320, color=cold_fill, alpha=0.15)
     ax.plot(xs, ys, color=hot_line, lw=2.2, zorder=3)
     ax.scatter(xs[-1], ys[-1], s=26, color=hot_line, zorder=4)
 
+    if woba_ys is not None:
+        ax.plot(xs, woba_ys, color=woba_line, lw=1.45, alpha=0.92, zorder=3)
+        ax.scatter(xs[-1], woba_ys[-1], s=18, color=woba_line, zorder=4)
+
     if xwoba_season is not None:
         ax.axhline(xwoba_season, color=PALETTE["accent_gold"], lw=1.0, ls=":", alpha=0.9)
 
-    if rolling_hard_hit and len(rolling_hard_hit) == len(rolling_xwoba):
-        hh = np.array([pt[1] for pt in rolling_hard_hit], dtype=float)
-        hh_scaled = y_min + (hh / 100.0) * (y_max - y_min) * 0.55
-        ax.plot(xs, hh_scaled, color=PALETTE["accent_orange"], lw=1.2, alpha=0.75)
-        ax.text(0.99, 0.88, "orange = rolling HH%", color=PALETTE["text_lo"], fontsize=7,
-                ha="right", va="center", transform=ax.transAxes)
+    if woba_season is not None:
+        ax.axhline(woba_season, color=woba_line, lw=0.8, ls=":", alpha=0.45)
 
-    ax.set_xticks([1, max(1, len(xs) // 2), len(xs)])
-    ax.set_xticklabels([f"G1", f"G{max(1, len(xs) // 2)}", f"G{len(xs)}"], fontsize=6.8, color=PALETTE["text_secondary"])
+    ax.text(0.975, 0.88, "red xwOBA · blue wOBA", color=PALETTE["text_lo"], fontsize=6.2,
+            ha="right", va="center", transform=ax.transAxes)
+
+    mid_game = max(1, len(xs) // 2)
+    ax.set_xticks([])
+    ax.text(0.060, 0.030, "G1", fontsize=6.6, color=PALETTE["text_secondary"],
+            ha="left", va="bottom", transform=ax.transAxes)
+    ax.text(0.500, 0.030, f"G{mid_game}", fontsize=6.6, color=PALETTE["text_secondary"],
+            ha="center", va="bottom", transform=ax.transAxes)
+    ax.text(0.965, 0.030, f"G{len(xs)}", fontsize=6.6, color=PALETTE["text_secondary"],
+            ha="right", va="bottom", transform=ax.transAxes)
     y_ticks = sorted(set([round(y_min, 3), 0.320, round(y_max, 3)]))
     ax.set_yticks(y_ticks)
     ax.set_yticklabels([_fmt_slash(v) for v in y_ticks], fontsize=6.4, color=PALETTE["text_secondary"])
@@ -1796,7 +1820,6 @@ def plot_rolling_xwoba(ax, rolling_xwoba: list, xwoba_season: float | None, roll
     for sp in ax.spines.values():
         sp.set_edgecolor(PALETTE["border"])
     ax.tick_params(axis="both", colors=PALETTE["text_secondary"], length=0)
-    ax.tick_params(axis="x", pad=3)
     ax.set_xlabel("")
 
 
@@ -2194,7 +2217,7 @@ def generate_batter_profile(
     outer_gs = gridspec.GridSpec(
         6, 1, figure=fig,
         height_ratios=[1.02, 1.55, 3.16, 2.04, 0.82, 0.28],
-        hspace=0.105,
+        hspace=0.125,
         left=0.045, right=0.955, top=0.975, bottom=0.030,
     )
 
@@ -2221,7 +2244,7 @@ def generate_batter_profile(
     ax_brand = fig.add_subplot(outer_gs[5])
 
     plot_seasonal_header(ax_hdr, bio, sd, headshot, logo, context_label)
-    plot_rolling_xwoba(ax_spark, sd.get("rolling_xwoba", []), sd.get("xwoba"), sd.get("rolling_hard_hit"))
+    plot_rolling_xwoba(ax_spark, sd.get("rolling_xwoba", []), sd.get("xwoba"), sd.get("rolling_woba"), sd.get("woba"))
     plot_batted_ball_quality(ax_quality, sd)
     plot_form_splits_card(ax_form, sd)
     plot_spray_chart_card(ax_spray, sd["spray_df"], sd)
