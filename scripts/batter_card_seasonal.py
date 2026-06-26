@@ -20,6 +20,7 @@ CLI examples
 """
 
 import argparse
+import json
 import os
 import sys
 from collections import defaultdict
@@ -103,6 +104,17 @@ _parser.add_argument(
     help="Explicit directory of pitches_enriched parquet files (overrides auto-discovery).",
 )
 _parser.add_argument("--output", type=str, default=None, help="Output PNG path.")
+_parser.add_argument(
+    "--baseline-path",
+    type=str,
+    default=None,
+    help="CSV path for league stat baselines used by stat highlighting.",
+)
+_parser.add_argument(
+    "--debug-highlights",
+    action="store_true",
+    help="Print percentile/classification records for highlighted stat values.",
+)
 _args, _ = _parser.parse_known_args()
 
 # ─────────────────────────────── WBC FLAGS ──────────────────────────────────
@@ -520,6 +532,353 @@ def _pa_stat_line(pa_subset: pd.DataFrame) -> dict:
         "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
         "k_pct": round(k / pa * 100, 1) if pa else None,
     }
+
+
+BASELINE_DEFAULT_PATH = _PARENT / "data" / "processed" / "league_stat_baselines.csv"
+BASELINE_REQUIRED_STATS = {
+    "avg", "obp", "slg", "ops", "k_pct",
+    "avg_ev", "max_ev", "hard_pct", "barrel_pct", "swsp_pct", "avg_dist",
+    "pitch_ops", "pitch_xwoba_con", "pitch_whiff_pct", "pitch_hard_pct", "pitch_barrel_pct",
+}
+STAT_DIRECTIONS: dict[str, str] = {
+    "avg": "higher_is_better",
+    "obp": "higher_is_better",
+    "slg": "higher_is_better",
+    "ops": "higher_is_better",
+    "avg_ev": "higher_is_better",
+    "max_ev": "higher_is_better",
+    "hard_pct": "higher_is_better",
+    "barrel_pct": "higher_is_better",
+    "swsp_pct": "higher_is_better",
+    "avg_dist": "higher_is_better",
+    "pitch_ops": "higher_is_better",
+    "pitch_xwoba_con": "higher_is_better",
+    "pitch_hard_pct": "higher_is_better",
+    "pitch_barrel_pct": "higher_is_better",
+    "k_pct": "lower_is_better",
+    "pitch_whiff_pct": "lower_is_better",
+}
+PERFORMANCE_COLORS_LIGHT = {
+    "Elite": "#B6872B",
+    "Great": "#2F6597",
+    "Above Average": "#5F94A3",
+    "Average": "#8B8173",
+    "Below Average": "#C96A2B",
+    "Poor": "#B33F2F",
+}
+PERFORMANCE_COLORS_DARK = {
+    "Elite": "#F0A830",
+    "Great": "#90B7E0",
+    "Above Average": "#79B7C6",
+    "Average": "#AFA79B",
+    "Below Average": "#F6AD55",
+    "Poor": "#FF806E",
+}
+PERFORMANCE_COLORS = PERFORMANCE_COLORS_LIGHT if LIGHT_MODE else PERFORMANCE_COLORS_DARK
+_BASELINE_QUANTILES = {
+    "p10": 0.10, "p25": 0.25, "p40": 0.40, "p50": 0.50,
+    "p60": 0.60, "p75": 0.75, "p90": 0.90, "p95": 0.95,
+}
+
+
+def _baseline_path(path: str | None = None) -> Path:
+    """Resolve the reusable league-baseline CSV path."""
+    return Path(path) if path else BASELINE_DEFAULT_PATH
+
+
+def _league_files_for_baselines(parquet_dir: Path | None, season: int) -> list[Path]:
+    """Find season parquet files for league baseline creation."""
+    if parquet_dir is not None:
+        pdir = Path(parquet_dir)
+        files = sorted(pdir.rglob("*pitches_enriched*.parquet"))
+        return files or sorted(pdir.rglob("*.parquet"))
+
+    root = _PARENT / "data" / "warehouse" / "mlb"
+    primary = root / str(season) / "regular_season" / "pitches_enriched"
+    if primary.exists():
+        return sorted(primary.rglob("*pitches_enriched*.parquet"))
+    season_root = root / str(season)
+    if season_root.exists():
+        return sorted(season_root.rglob("*pitches_enriched*.parquet"))
+    return sorted(root.rglob(f"*{season}*pitches_enriched*.parquet"))
+
+
+def _read_league_pitch_data(files: list[Path]) -> pd.DataFrame:
+    """Read only the columns needed for baseline calculations."""
+    needed = [
+        "batter", "events", "description", "type", "pitch_name", "game_year",
+        "launch_speed", "launch_angle", "launch_speed_angle", "hit_distance_sc",
+        "estimated_woba_using_speedangle",
+    ]
+    frames: list[pd.DataFrame] = []
+    for path in files:
+        try:
+            frame = pd.read_parquet(path, columns=needed)
+        except Exception:
+            try:
+                frame = pd.read_parquet(path)
+                frame = frame[[c for c in needed if c in frame.columns]]
+            except Exception:
+                continue
+        if not frame.empty:
+            frames.append(frame)
+    return pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+
+
+def _baseline_row(season: int, stat_name: str, values: pd.Series, source: str) -> dict | None:
+    """Summarize a league stat distribution for percentile scoring."""
+    vals = pd.to_numeric(values, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if len(vals) < 5:
+        return None
+    row = {
+        "season": int(season),
+        "stat_name": stat_name,
+        "sample_size": int(len(vals)),
+        "mean": float(vals.mean()),
+        "median": float(vals.median()),
+        "std": float(vals.std(ddof=0)),
+        "min": float(vals.min()),
+        "max": float(vals.max()),
+        "source": source,
+    }
+    for label, q in _BASELINE_QUANTILES.items():
+        row[label] = float(vals.quantile(q))
+    return row
+
+
+def _build_player_metric_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Create player-level seasonal metric rows from enriched pitch data."""
+    rows: list[dict] = []
+    pa_df = df[df["events"].notna()].copy() if "events" in df.columns else pd.DataFrame()
+    contact = df[df["type"] == "X"].copy() if "type" in df.columns else pd.DataFrame()
+
+    if not pa_df.empty:
+        for batter, grp in pa_df.groupby("batter"):
+            line = _pa_stat_line(grp)
+            if line.get("pa", 0) >= 50:
+                rows.append({
+                    "batter": batter,
+                    "avg": line.get("avg"),
+                    "obp": line.get("obp"),
+                    "slg": line.get("slg"),
+                    "ops": line.get("ops"),
+                    "k_pct": line.get("k_pct"),
+                })
+
+    if not contact.empty:
+        for batter, grp in contact.groupby("batter"):
+            ev = pd.to_numeric(grp.get("launch_speed"), errors="coerce").dropna()
+            la = pd.to_numeric(grp.get("launch_angle"), errors="coerce").dropna()
+            lsa = pd.to_numeric(grp.get("launch_speed_angle"), errors="coerce").dropna()
+            dist = pd.to_numeric(grp.get("hit_distance_sc"), errors="coerce").dropna()
+            if len(ev) < 30:
+                continue
+            rows.append({
+                "batter": batter,
+                "avg_ev": float(ev.mean()) if len(ev) else np.nan,
+                "max_ev": float(ev.max()) if len(ev) else np.nan,
+                "hard_pct": float(ev.ge(95).mean() * 100) if len(ev) else np.nan,
+                "barrel_pct": float(lsa.eq(6).mean() * 100) if len(lsa) else np.nan,
+                "swsp_pct": float(((la >= 8) & (la <= 32)).mean() * 100) if len(la) else np.nan,
+                "avg_dist": float(dist.mean()) if len(dist) else np.nan,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def _build_pitch_metric_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Create batter-by-pitch-type split rows for pitch table baselines."""
+    if not {"batter", "pitch_name"}.issubset(df.columns):
+        return pd.DataFrame()
+    rows: list[dict] = []
+    for (batter, pitch_name), grp in df[df["pitch_name"].notna()].groupby(["batter", "pitch_name"]):
+        if len(grp) < 40:
+            continue
+        swings = grp["description"].isin(_SWING_DESCS) | (grp["type"] == "X")
+        whiffs = grp["description"].isin(_WHIFF_DESCS)
+        contact = grp[grp["type"] == "X"]
+        ev = pd.to_numeric(contact.get("launch_speed"), errors="coerce").dropna()
+        lsa = pd.to_numeric(contact.get("launch_speed_angle"), errors="coerce").dropna()
+        xw = pd.to_numeric(contact.get("estimated_woba_using_speedangle"), errors="coerce").dropna()
+        pa_grp = grp[grp["events"].notna()] if "events" in grp.columns else pd.DataFrame()
+        rows.append({
+            "batter": batter,
+            "pitch_name": pitch_name,
+            "pitch_ops": _ops_from_pa_events(pa_grp["events"]) if len(pa_grp) >= 8 else np.nan,
+            "pitch_xwoba_con": float(xw.mean()) if len(xw) >= 5 else np.nan,
+            "pitch_whiff_pct": float(whiffs.sum() / swings.sum() * 100) if int(swings.sum()) >= 10 else np.nan,
+            "pitch_hard_pct": float(ev.ge(95).mean() * 100) if len(ev) >= 5 else np.nan,
+            "pitch_barrel_pct": float(lsa.eq(6).mean() * 100) if len(lsa) >= 5 else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+def build_league_baselines_if_missing(
+    season: int,
+    parquet_dir: Path | None = None,
+    baseline_path: str | None = None,
+    force: bool = False,
+) -> pd.DataFrame:
+    """Build and save league percentile baselines when the CSV is missing or incomplete."""
+    path = _baseline_path(baseline_path)
+    existing = pd.DataFrame()
+    if path.exists() and not force:
+        existing = pd.read_csv(path)
+        if {"season", "stat_name"}.issubset(existing.columns):
+            present = set(existing.loc[existing["season"] == season, "stat_name"].astype(str))
+            if BASELINE_REQUIRED_STATS.issubset(present):
+                return existing[existing["season"] == season].copy()
+
+    files = _league_files_for_baselines(parquet_dir, season)
+    if not files:
+        if not existing.empty:
+            fallback = existing.sort_values("season").groupby("stat_name", as_index=False).tail(1)
+            if not fallback.empty:
+                print("  Highlight baselines: using most recent available baseline season")
+                return fallback
+        return pd.DataFrame()
+
+    print(f"  Highlight baselines: building {season} league context from {len(files):,} parquet files")
+    league_df = _read_league_pitch_data(files)
+    if league_df.empty:
+        return pd.DataFrame()
+
+    player_rows = _build_player_metric_rows(league_df)
+    pitch_rows = _build_pitch_metric_rows(league_df)
+    rows: list[dict] = []
+    for stat in ["avg", "obp", "slg", "ops", "k_pct", "avg_ev", "max_ev", "hard_pct", "barrel_pct", "swsp_pct", "avg_dist"]:
+        if stat in player_rows.columns:
+            row = _baseline_row(season, stat, player_rows[stat], "player_season")
+            if row:
+                rows.append(row)
+    for stat in ["pitch_ops", "pitch_xwoba_con", "pitch_whiff_pct", "pitch_hard_pct", "pitch_barrel_pct"]:
+        if stat in pitch_rows.columns:
+            row = _baseline_row(season, stat, pitch_rows[stat], "batter_pitch_type_split")
+            if row:
+                rows.append(row)
+
+    built = pd.DataFrame(rows)
+    if built.empty:
+        return pd.DataFrame()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not existing.empty and {"season", "stat_name"}.issubset(existing.columns):
+        keep = existing[~((existing["season"] == season) & existing["stat_name"].isin(built["stat_name"]))]
+        out = pd.concat([keep, built], ignore_index=True, sort=False)
+    else:
+        out = built
+    out.to_csv(path, index=False)
+    print(f"  Highlight baselines: saved {path}")
+    return built
+
+
+def load_league_baselines(
+    season: int,
+    parquet_dir: Path | None = None,
+    baseline_path: str | None = None,
+) -> pd.DataFrame:
+    """Load existing league baselines or build them from available data."""
+    return build_league_baselines_if_missing(
+        season=season,
+        parquet_dir=parquet_dir,
+        baseline_path=baseline_path,
+        force=False,
+    )
+
+
+def compute_percentile_score(
+    stat_name: str,
+    raw_value: float | int | None,
+    baseline: dict | pd.Series | None,
+) -> dict | None:
+    """Compute league-relative percentile, z-score, and favorable direction."""
+    if raw_value is None or baseline is None:
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if np.isnan(value):
+        return None
+    row = baseline.to_dict() if isinstance(baseline, pd.Series) else dict(baseline)
+    x_points = [row.get("min"), row.get("p10"), row.get("p25"), row.get("p40"), row.get("p50"),
+                row.get("p60"), row.get("p75"), row.get("p90"), row.get("p95"), row.get("max")]
+    y_points = [0, 10, 25, 40, 50, 60, 75, 90, 95, 100]
+    pairs = sorted(
+        [(float(x), y) for x, y in zip(x_points, y_points) if x is not None and not pd.isna(x)],
+        key=lambda item: item[0],
+    )
+    if len(pairs) < 2:
+        return None
+    xs = np.array([p[0] for p in pairs], dtype=float)
+    ys = np.array([p[1] for p in pairs], dtype=float)
+    raw_pct = float(np.interp(value, xs, ys, left=0, right=100))
+    direction = STAT_DIRECTIONS.get(stat_name, "higher_is_better")
+    favorable_pct = 100.0 - raw_pct if direction == "lower_is_better" else raw_pct
+    mean = row.get("mean")
+    std = row.get("std")
+    z_score = None
+    if mean is not None and std not in (None, 0) and not pd.isna(std):
+        z_score = (value - float(mean)) / float(std)
+    return {
+        "stat": stat_name,
+        "raw_value": value,
+        "league_percentile": round(favorable_pct, 1),
+        "raw_percentile": round(raw_pct, 1),
+        "z_score": round(z_score, 3) if z_score is not None else None,
+        "direction": direction,
+    }
+
+
+def classify_stat_value(score: dict | None) -> str | None:
+    """Classify a percentile score into a readable performance bucket."""
+    if not score:
+        return None
+    pct = score.get("league_percentile")
+    if pct is None:
+        return None
+    if pct >= 90:
+        return "Elite"
+    if pct >= 75:
+        return "Great"
+    if pct >= 60:
+        return "Above Average"
+    if pct >= 40:
+        return "Average"
+    if pct >= 25:
+        return "Below Average"
+    return "Poor"
+
+
+def get_performance_color(classification: str | None) -> str:
+    """Return the centralized performance color for a classification bucket."""
+    if not classification:
+        return PALETTE["text_secondary"]
+    return PERFORMANCE_COLORS.get(classification, PALETTE["text_secondary"])
+
+
+def apply_stat_highlight_style(
+    sd: dict,
+    stat_name: str,
+    raw_value: float | int | None,
+    label: str | None = None,
+) -> str:
+    """Return a numeric stat color using league-relative performance context."""
+    lookup = sd.get("_baseline_lookup") or {}
+    score = compute_percentile_score(stat_name, raw_value, lookup.get(stat_name))
+    classification = classify_stat_value(score)
+    color = get_performance_color(classification)
+    if sd.get("_debug_highlights") and score:
+        record = {
+            "stat": label or stat_name,
+            "value": score["raw_value"],
+            "percentile": score["league_percentile"],
+            "z_score": score["z_score"],
+            "classification": classification,
+            "color": color,
+            "direction": score["direction"],
+        }
+        print("  Highlight:", json.dumps(record, ensure_ascii=False))
+    return color
 
 
 def compute_season_stats(df: pd.DataFrame) -> dict:
@@ -1601,73 +1960,6 @@ def plot_plate_discipline(ax, sd: dict):
 
 # ─────────────────────────────── PANEL 5 — FOOTER ───────────────────────────
 
-# Approximate MLB 2025 percentile thresholds for qualified batters.
-# Format: [(value, percentile), ...] ascending by value.
-_PCT_THRESHOLDS: dict[str, list[tuple[float, int]]] = {
-    "avg_ev":    [(83.5, 10), (85.5, 25), (87.0, 40), (88.2, 50),
-                  (89.2, 60), (90.2, 70), (91.2, 80), (92.2, 90), (93.2, 95)],
-    "bat_speed": [(66.5, 10), (68.5, 25), (70.0, 40), (71.5, 50),
-                  (72.5, 60), (73.5, 70), (74.5, 80), (75.5, 90), (76.5, 95)],
-    "hard_pct":  [(28.0, 10), (33.0, 25), (37.0, 40), (40.0, 50),
-                  (43.0, 60), (47.0, 70), (51.0, 80), (55.0, 90), (59.0, 95)],
-    "barrel_pct":[(2.0,  10), (4.0,  25), (5.5,  40), (6.5,  50),
-                  (7.5,  60), (9.0,  70), (11.0, 80), (14.0, 90), (16.0, 95)],
-    "swsp_pct":  [(25.0, 10), (28.0, 25), (31.0, 40), (33.0, 50),
-                  (35.0, 60), (37.0, 70), (39.0, 80), (41.0, 90), (43.0, 95)],
-    "xwoba":     [(0.245,10), (0.278,25), (0.298,40), (0.312,50),
-                  (0.328,60), (0.348,70), (0.368,80), (0.388,90), (0.408,95)],
-    "ops":       [(0.450,10), (0.550,25), (0.620,40), (0.700,50),
-                  (0.780,60), (0.850,70), (0.930,80), (1.030,90), (1.130,95)],
-    "whiff_pct": [(16.0, 10), (19.0, 25), (22.0, 40), (24.0, 50),
-                  (26.0, 60), (29.0, 70), (32.0, 80), (36.0, 90), (40.0, 95)],
-    "max_ev":    [(99.0, 10), (102.0, 25), (105.0, 40), (107.0, 50),
-                  (109.0, 60), (111.0, 70), (113.0, 80), (115.0, 90), (117.0, 95)],
-    "avg_dist":  [(145.0, 10), (165.0, 25), (180.0, 40), (190.0, 50),
-                  (200.0, 60), (210.0, 70), (220.0, 80), (235.0, 90), (250.0, 95)],
-}
-
-
-def _percentile(metric: str, value: float | None) -> int | None:
-    thresholds = _PCT_THRESHOLDS.get(metric)
-    if not thresholds or value is None:
-        return None
-    pct = 5
-    for thresh_val, thresh_pct in thresholds:
-        if value >= thresh_val:
-            pct = thresh_pct
-        else:
-            break
-    return pct
-
-
-def _pct_color(pct: int) -> str:
-    if pct >= 90:
-        return "#B33F2F" if LIGHT_MODE else "#FF806E"
-    if pct >= 75:
-        return "#C96A2B" if LIGHT_MODE else "#F6AD55"
-    if pct >= 50:
-        return PALETTE["accent_gold"]
-    if pct >= 25:
-        return "#6E90B6" if LIGHT_MODE else "#90B7E0"
-    return "#2F6597" if LIGHT_MODE else "#63A6E8"
-
-
-def _quality_value_color(metric: str, value: float | None) -> str:
-    pct = _percentile(metric, value)
-    if pct is None:
-        return PALETTE["accent_orange"]
-    return _pct_color(pct)
-
-
-def _pitch_metric_color(metric: str, value: float | None) -> str:
-    if value is None:
-        return PALETTE["text_secondary"]
-    pct = _percentile(metric, value)
-    if pct is None:
-        return PALETTE["text_secondary"]
-    return _pct_color(pct)
-
-
 def plot_footer(ax, sd: dict):
     _clean(ax, PALETTE["panel_bg"])
     _border(ax)
@@ -1920,7 +2212,7 @@ def plot_batted_ball_quality(ax, sd: dict):
                 color=PALETTE["text_lo"], fontsize=6.1, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
         ax.text(x_label, y_value, value,
-                color=_quality_value_color(metric_key, raw_value), fontsize=11.0, fontweight="black",
+                color=apply_stat_highlight_style(sd, metric_key, raw_value, label), fontsize=11.0, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
 
 
@@ -2032,14 +2324,14 @@ def plot_form_splits_card(ax, sd: dict):
                 color=PALETTE["text_lo"], fontsize=7.1, fontweight="bold",
                 ha="right", va="center", transform=ax.transAxes)
         ax.text(0.07, y - 0.075, _metric_value_text(ops, "rate"),
-                color=_pitch_metric_color("ops", ops), fontsize=12.2, fontweight="black",
+                color=apply_stat_highlight_style(sd, "ops", ops, f"VS {label} OPS"), fontsize=12.2, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
         ax.text(0.39, y - 0.075, f"{hr} HR",
                 color=PALETTE["text_primary"], fontsize=8.4, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
         k_text = _metric_value_text(k_pct, "pct")
         ax.text(0.67, y - 0.075, f"{k_text} K",
-                color=_pitch_metric_color("whiff_pct", k_pct), fontsize=8.4, fontweight="black",
+                color=apply_stat_highlight_style(sd, "k_pct", k_pct, f"VS {label} K%"), fontsize=8.4, fontweight="black",
                 ha="left", va="center", transform=ax.transAxes)
 
     split_row(0.505, "RHP", hand_splits.get("RHP") or {})
@@ -2103,18 +2395,18 @@ def plot_pitch_type_performance(ax, sd: dict):
         full = item.get("name") or next((k for k, v in _PITCH_ABBREV_MAP.items() if v == item.get("abbr")), None)
         pitch_color = PITCH_COLORS.get(full, PALETTE["text_secondary"])
         ops = item.get("ops")
-        ops_color = _pitch_metric_color("ops", ops)
+        ops_color = apply_stat_highlight_style(sd, "pitch_ops", ops, f"{item.get('name')} OPS")
         xw = item.get("xwoba")
-        xw_color = _pitch_metric_color("xwoba", xw)
+        xw_color = apply_stat_highlight_style(sd, "pitch_xwoba_con", xw, f"{item.get('name')} xwOBAcon")
         seen_text = f"{item.get('count', 0)} ({_metric_value_text(item.get('usage_pct'), 'pct')})"
         values = [
             (_short_pitch_name(item.get("name")), 0.045, pitch_color, "black"),
             (seen_text, 0.255, PALETTE["text_primary"], "bold"),
             (_metric_value_text(ops, "rate"), 0.385, ops_color, "black"),
             (_metric_value_text(xw, "rate"), 0.485, xw_color, "black"),
-            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.595, _pitch_metric_color("whiff_pct", item.get("whiff_pct")), "black"),
-            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.715, _pitch_metric_color("hard_pct", item.get("hard_hit_pct")), "black"),
-            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.825, _pitch_metric_color("barrel_pct", item.get("barrel_pct")), "black"),
+            (_metric_value_text(item.get("whiff_pct"), "pct"), 0.595, apply_stat_highlight_style(sd, "pitch_whiff_pct", item.get("whiff_pct"), f"{item.get('name')} Whiff%"), "black"),
+            (_metric_value_text(item.get("hard_hit_pct"), "pct"), 0.715, apply_stat_highlight_style(sd, "pitch_hard_pct", item.get("hard_hit_pct"), f"{item.get('name')} HH%"), "black"),
+            (_metric_value_text(item.get("barrel_pct"), "pct"), 0.825, apply_stat_highlight_style(sd, "pitch_barrel_pct", item.get("barrel_pct"), f"{item.get('name')} BRL%"), "black"),
         ]
         for text, x, color, weight in values:
             fs = 7.7 if x == 0.045 else 8.0
@@ -2129,24 +2421,28 @@ def plot_counting_snapshot(ax, sd: dict):
     ax.set_ylim(0, 1)
 
     metrics = [
-        ("PA", sd.get("total_pa", 0)),
-        ("AB", sd.get("ab", 0)),
-        ("H", sd.get("h", 0)),
-        ("2B", sd.get("doubles", 0)),
-        ("3B", sd.get("triples", 0)),
-        ("HR", sd.get("hr", 0)),
-        ("XBH", sd.get("xbh", 0)),
-        ("BB", sd.get("bb", 0)),
-        ("K", sd.get("k", 0)),
-        ("AVG", _metric_value_text(sd.get("avg"), "rate")),
-        ("OBP", _metric_value_text(sd.get("obp"), "rate")),
-        ("SLG", _metric_value_text(sd.get("slg"), "rate")),
-        ("OPS", _metric_value_text(sd.get("ops"), "rate")),
+        ("PA", sd.get("total_pa", 0), None, None),
+        ("AB", sd.get("ab", 0), None, None),
+        ("H", sd.get("h", 0), None, None),
+        ("2B", sd.get("doubles", 0), None, None),
+        ("3B", sd.get("triples", 0), None, None),
+        ("HR", sd.get("hr", 0), None, None),
+        ("XBH", sd.get("xbh", 0), None, None),
+        ("BB", sd.get("bb", 0), None, None),
+        ("K", sd.get("k", 0), None, None),
+        ("AVG", _metric_value_text(sd.get("avg"), "rate"), "avg", sd.get("avg")),
+        ("OBP", _metric_value_text(sd.get("obp"), "rate"), "obp", sd.get("obp")),
+        ("SLG", _metric_value_text(sd.get("slg"), "rate"), "slg", sd.get("slg")),
+        ("OPS", _metric_value_text(sd.get("ops"), "rate"), "ops", sd.get("ops")),
     ]
     _panel_title(ax, "BATTING LINE")
-    for i, (label, value) in enumerate(metrics):
+    for i, (label, value, stat_name, raw_value) in enumerate(metrics):
         x0 = 0.030 + i * (0.940 / max(len(metrics) - 1, 1))
-        ax.text(x0, 0.580, str(value), color=PALETTE["text_primary"], fontsize=9.0,
+        value_color = (
+            apply_stat_highlight_style(sd, stat_name, raw_value, label)
+            if stat_name else PALETTE["text_primary"]
+        )
+        ax.text(x0, 0.580, str(value), color=value_color, fontsize=9.0,
                 fontweight="black", ha="center", va="center", transform=ax.transAxes)
         ax.text(x0, 0.315, label, color=PALETTE["text_lo"], fontsize=5.8,
                 fontweight="black", ha="center", va="center", transform=ax.transAxes)
@@ -2195,6 +2491,17 @@ def generate_batter_profile(
         sd["spray_df"] = pd.concat([local_non_hr, live_hr_spray], ignore_index=True, sort=False)
         sd["spray_hr_plotted"] = int(len(live_hr_spray))
         print(f"  Spray chart HR source: MLB Stats API live feeds ({len(live_hr_spray)} HR)")
+
+    baseline_df = load_league_baselines(season, parquet_dir=pdir, baseline_path=_args.baseline_path)
+    if not baseline_df.empty and {"stat_name"}.issubset(baseline_df.columns):
+        sd["_league_baselines"] = baseline_df
+        sd["_baseline_lookup"] = baseline_df.set_index("stat_name").to_dict("index")
+        print(f"  Highlight baselines: loaded {len(sd['_baseline_lookup'])} stat distributions")
+    else:
+        sd["_league_baselines"] = pd.DataFrame()
+        sd["_baseline_lookup"] = {}
+        print("  Highlight baselines: unavailable, using neutral stat colors")
+    sd["_debug_highlights"] = bool(_args.debug_highlights)
 
     if context_label is None:
         context_label = f"{season} Regular Season"
