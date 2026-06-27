@@ -191,6 +191,49 @@ How it supports posting:
 - Pushes generated content into the queue for review before posting.
 - Supports the current daily focus on pitching-card posts.
 
+#### Seasonal Batter Card Stat Highlighting
+
+Seasonal batter cards should grade highlighted stat values against a stable league baseline, not against the current partial-season population by default.
+
+Baseline policy:
+
+- Use **2024 + 2025 full MLB regular seasons** as the default baseline for 2026 batter cards.
+- Build the baseline from qualified or semi-qualified hitters only; the card subject does **not** need to be qualified.
+- A rookie, call-up, or partial-season player is evaluated on his actual current-season stats, but the color grade comes from the stable 2024-2025 league distribution.
+- Use same-season 2026 baselines only when the season is mature enough and the sample is no longer distorting percentile thresholds.
+
+Minimum baseline samples:
+
+- AVG / OBP / SLG / OPS: baseline hitters should have at least 250 PA.
+- Avg EV, Hard Hit%, Barrel%, Sweet Spot%: at least 100 BIP or BBE.
+- Max EV: at least 50 BBE.
+- Pitch-type OPS: batter-vs-pitch-type splits should have at least 50 PA.
+- Pitch-type xwOBAcon / Hard Hit% / Barrel%: at least 30 BBE.
+- Pitch-type Whiff%: at least 75 swings.
+- Seen% is a usage/context stat and should not receive performance coloring.
+
+Noisy split stats, especially pitch-type OPS, should be stabilized before becoming a baseline percentile. The preferred approach is empirical-Bayes style regression:
+
+```text
+stabilized_stat = (player_stat * sample + league_avg * stabilization_constant) / (sample + stabilization_constant)
+```
+
+For pitch-type OPS, use a stabilization constant around 100 PA. This keeps real pitch-type skill visible while preventing small-sample outliers from making elite thresholds too high.
+
+Visual rule:
+
+- Stat colors must follow **cold to warm**.
+- Low / unfavorable values: cold blue or muted teal.
+- Average values: neutral gray/tan.
+- High / favorable values: gold, orange, then red/warmest.
+- Pitch identity colors are only for pitch names, spray-chart dots, legends, and categorical labels. They should never drive numeric stat color.
+
+Directionality:
+
+- Most batter stats are higher-is-better.
+- K% and pitch-type Whiff% are lower-is-better from the batter perspective, so their percentile should be inverted before classification.
+- Elite should always mean favorable for the hitter.
+
 ### Queue
 
 The Queue tab is the launch station. It is the most important tab for publishing because nothing should go to X without passing through this review layer.
