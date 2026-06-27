@@ -558,23 +558,23 @@ STAT_DIRECTIONS: dict[str, str] = {
     "k_pct": "lower_is_better",
     "pitch_whiff_pct": "lower_is_better",
 }
-PERFORMANCE_COLORS_LIGHT = {
-    "Elite": "#B6872B",
-    "Great": "#2F6597",
-    "Above Average": "#5F94A3",
-    "Average": "#8B8173",
-    "Below Average": "#C96A2B",
-    "Poor": "#B33F2F",
-}
-PERFORMANCE_COLORS_DARK = {
-    "Elite": "#F0A830",
-    "Great": "#90B7E0",
-    "Above Average": "#79B7C6",
-    "Average": "#AFA79B",
-    "Below Average": "#F6AD55",
-    "Poor": "#FF806E",
-}
-PERFORMANCE_COLORS = PERFORMANCE_COLORS_LIGHT if LIGHT_MODE else PERFORMANCE_COLORS_DARK
+PERFORMANCE_GRADIENT_LIGHT = [
+    (0.0, "#2F6597"),
+    (25.0, "#5F94A3"),
+    (50.0, "#8B8173"),
+    (75.0, "#B6872B"),
+    (90.0, "#C96A2B"),
+    (100.0, "#B33F2F"),
+]
+PERFORMANCE_GRADIENT_DARK = [
+    (0.0, "#63A6E8"),
+    (25.0, "#79B7C6"),
+    (50.0, "#AFA79B"),
+    (75.0, "#F0A830"),
+    (90.0, "#F6AD55"),
+    (100.0, "#FF806E"),
+]
+PERFORMANCE_GRADIENT = PERFORMANCE_GRADIENT_LIGHT if LIGHT_MODE else PERFORMANCE_GRADIENT_DARK
 _BASELINE_QUANTILES = {
     "p10": 0.10, "p25": 0.25, "p40": 0.40, "p50": 0.50,
     "p60": 0.60, "p75": 0.75, "p90": 0.90, "p95": 0.95,
@@ -849,11 +849,31 @@ def classify_stat_value(score: dict | None) -> str | None:
     return "Poor"
 
 
-def get_performance_color(classification: str | None) -> str:
-    """Return the centralized performance color for a classification bucket."""
-    if not classification:
+def get_performance_color(percentile: float | int | None) -> str:
+    """Return a smooth cold-to-warm performance color from a favorable percentile."""
+    if percentile is None:
         return PALETTE["text_secondary"]
-    return PERFORMANCE_COLORS.get(classification, PALETTE["text_secondary"])
+    try:
+        pct = float(percentile)
+    except (TypeError, ValueError):
+        return PALETTE["text_secondary"]
+    if np.isnan(pct):
+        return PALETTE["text_secondary"]
+    pct = min(100.0, max(0.0, pct))
+    stops = PERFORMANCE_GRADIENT
+    if pct <= stops[0][0]:
+        return stops[0][1]
+    if pct >= stops[-1][0]:
+        return stops[-1][1]
+    for (left_pct, left_color), (right_pct, right_color) in zip(stops, stops[1:]):
+        if left_pct <= pct <= right_pct:
+            span = right_pct - left_pct
+            t = 0.0 if span <= 0 else (pct - left_pct) / span
+            left_rgb = np.array(mpl.colors.to_rgb(left_color))
+            right_rgb = np.array(mpl.colors.to_rgb(right_color))
+            mixed = left_rgb + (right_rgb - left_rgb) * t
+            return mpl.colors.to_hex(mixed)
+    return PALETTE["text_secondary"]
 
 
 def apply_stat_highlight_style(
@@ -866,7 +886,7 @@ def apply_stat_highlight_style(
     lookup = sd.get("_baseline_lookup") or {}
     score = compute_percentile_score(stat_name, raw_value, lookup.get(stat_name))
     classification = classify_stat_value(score)
-    color = get_performance_color(classification)
+    color = get_performance_color(score.get("league_percentile") if score else None)
     if sd.get("_debug_highlights") and score:
         record = {
             "stat": label or stat_name,
