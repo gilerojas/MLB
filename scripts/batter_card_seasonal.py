@@ -2094,25 +2094,16 @@ def plot_rolling_xwoba(
     ax.grid(axis="y", color=PALETTE["grid"], linewidth=0.8, alpha=0.6)
     ax.set_axisbelow(True)
 
-    ax.axhline(0.320, color=PALETTE["text_lo"], lw=0.9, ls="--", alpha=0.75)
+    ax.axhline(0.320, color=PALETTE["text_lo"], lw=0.8, ls=(0, (2, 2)), alpha=0.45)
 
     hot_line = "#B33F2F" if LIGHT_MODE else "#FF806E"
-    cold_fill = "#2F6597" if LIGHT_MODE else "#63A6E8"
     woba_line = "#365A78" if LIGHT_MODE else "#9AB7D6"
-    ax.fill_between(xs, ys, 0.320, where=ys >= 0.320, color=hot_line, alpha=0.15)
-    ax.fill_between(xs, ys, 0.320, where=ys < 0.320, color=cold_fill, alpha=0.15)
-    ax.plot(xs, ys, color=hot_line, lw=2.2, zorder=3)
-    ax.scatter(xs[-1], ys[-1], s=26, color=hot_line, zorder=4)
+    ax.plot(xs, ys, color=hot_line, lw=2.05, zorder=3)
+    ax.scatter(xs[-1], ys[-1], s=22, color=hot_line, zorder=4)
 
     if woba_ys is not None:
-        ax.plot(xs, woba_ys, color=woba_line, lw=1.45, alpha=0.92, zorder=3)
+        ax.plot(xs, woba_ys, color=woba_line, lw=1.7, alpha=0.95, zorder=3)
         ax.scatter(xs[-1], woba_ys[-1], s=18, color=woba_line, zorder=4)
-
-    if xwoba_season is not None:
-        ax.axhline(xwoba_season, color=PALETTE["accent_gold"], lw=1.0, ls=":", alpha=0.9)
-
-    if woba_season is not None:
-        ax.axhline(woba_season, color=woba_line, lw=0.8, ls=":", alpha=0.45)
 
     ax.text(0.975, 0.88, "red xwOBA · blue wOBA", color=PALETTE["text_lo"], fontsize=6.2,
             ha="right", va="center", transform=ax.transAxes)
