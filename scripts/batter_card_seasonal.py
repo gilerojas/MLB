@@ -46,7 +46,6 @@ _PARENT = Path(__file__).resolve().parent.parent
 if str(_PARENT) not in sys.path:
     sys.path.insert(0, str(_PARENT))
 
-
 def _pixel_is_studio_backdrop(r: int, g: int, b: int) -> bool:
     if (g > r) and (g > b) and (g > 80) and (abs(int(g) - r) + abs(int(g) - b) > 40):
         return True
@@ -2314,6 +2313,9 @@ def plot_form_splits_card(ax, sd: dict):
             ha="left", va="center", transform=ax.transAxes)
 
     ax.plot([0.07, 0.93], [0.595, 0.595], color=PALETTE["border"], lw=1.0, transform=ax.transAxes)
+    ax.text(0.07, 0.562, "OPS",
+            color=PALETTE["text_lo"], fontsize=6.1, fontweight="black",
+            ha="left", va="center", transform=ax.transAxes)
 
     def split_row(y: float, label: str, split: dict):
         pa = int(split.get("pa") or 0)
