@@ -325,16 +325,21 @@ def fetch_live_hitting_totals(player_id: int, season: int) -> dict:
         doubles = int(stat.get("doubles", 0) or 0)
         triples = int(stat.get("triples", 0) or 0)
         hr = int(stat.get("homeRuns", 0) or 0)
+        pa = int(stat.get("plateAppearances", 0) or 0)
+        bb = int(stat.get("baseOnBalls", 0) or 0)
+        k = int(stat.get("strikeOuts", 0) or 0)
         return {
-            "total_pa": int(stat.get("plateAppearances", 0) or 0),
+            "total_pa": pa,
             "ab": int(stat.get("atBats", 0) or 0),
             "h": int(stat.get("hits", 0) or 0),
             "doubles": doubles,
             "triples": triples,
             "hr": hr,
             "xbh": doubles + triples + hr,
-            "bb": int(stat.get("baseOnBalls", 0) or 0),
-            "k": int(stat.get("strikeOuts", 0) or 0),
+            "bb": bb,
+            "k": k,
+            "bb_pct": round(bb / pa * 100, 1) if pa else None,
+            "k_pct": round(k / pa * 100, 1) if pa else None,
             "avg": float(str(stat.get("avg", "0")).replace("--", "0")),
             "obp": float(str(stat.get("obp", "0")).replace("--", "0")),
             "slg": float(str(stat.get("slg", "0")).replace("--", "0")),
@@ -525,17 +530,19 @@ def _pa_stat_line(pa_subset: pd.DataFrame) -> dict:
         "hr": hr,
         "xbh": int(doubles + triples + hr),
         "k": k,
+        "bb": bb,
         "avg": round(avg, 3) if avg is not None else None,
         "obp": round(obp, 3) if obp is not None else None,
         "slg": round(slg, 3) if slg is not None else None,
         "ops": round(obp + slg, 3) if obp is not None and slg is not None else None,
         "k_pct": round(k / pa * 100, 1) if pa else None,
+        "bb_pct": round(bb / pa * 100, 1) if pa else None,
     }
 
 
 BASELINE_DEFAULT_PATH = _PARENT / "data" / "processed" / "league_stat_baselines.csv"
 BASELINE_REQUIRED_STATS = {
-    "avg", "obp", "slg", "ops", "k_pct",
+    "avg", "obp", "slg", "ops", "k_pct", "bb_pct", "chase_pct", "whiff_pct",
     "avg_ev", "max_ev", "hard_pct", "barrel_pct", "swsp_pct", "avg_dist",
     "pitch_ops", "pitch_xwoba_con", "pitch_whiff_pct", "pitch_hard_pct", "pitch_barrel_pct",
 }
@@ -554,7 +561,10 @@ STAT_DIRECTIONS: dict[str, str] = {
     "pitch_xwoba_con": "higher_is_better",
     "pitch_hard_pct": "higher_is_better",
     "pitch_barrel_pct": "higher_is_better",
+    "bb_pct": "higher_is_better",
     "k_pct": "lower_is_better",
+    "chase_pct": "lower_is_better",
+    "whiff_pct": "lower_is_better",
     "pitch_whiff_pct": "lower_is_better",
 }
 PERFORMANCE_GRADIENT_LIGHT = [
@@ -606,6 +616,7 @@ def _read_league_pitch_data(files: list[Path]) -> pd.DataFrame:
     """Read only the columns needed for baseline calculations."""
     needed = [
         "batter", "events", "description", "type", "pitch_name", "game_year",
+        "zone",
         "launch_speed", "launch_angle", "launch_speed_angle", "hit_distance_sc",
         "estimated_woba_using_speedangle",
     ]
@@ -655,6 +666,13 @@ def _build_player_metric_rows(df: pd.DataFrame) -> pd.DataFrame:
         for batter, grp in pa_df.groupby("batter"):
             line = _pa_stat_line(grp)
             if line.get("pa", 0) >= 50:
+                all_pitches = df[df["batter"].eq(batter)]
+                swings = all_pitches["description"].isin(_SWING_DESCS) | (all_pitches["type"] == "X")
+                whiffs = all_pitches["description"].isin(_WHIFF_DESCS)
+                if "zone" in all_pitches.columns:
+                    out_zone = all_pitches["zone"].isin([11, 12, 13, 14])
+                else:
+                    out_zone = pd.Series(False, index=all_pitches.index)
                 rows.append({
                     "batter": batter,
                     "avg": line.get("avg"),
@@ -662,6 +680,9 @@ def _build_player_metric_rows(df: pd.DataFrame) -> pd.DataFrame:
                     "slg": line.get("slg"),
                     "ops": line.get("ops"),
                     "k_pct": line.get("k_pct"),
+                    "bb_pct": line.get("bb_pct"),
+                    "chase_pct": float((swings & out_zone).sum() / out_zone.sum() * 100) if int(out_zone.sum()) else np.nan,
+                    "whiff_pct": float(whiffs.sum() / swings.sum() * 100) if int(swings.sum()) else np.nan,
                 })
 
     if not contact.empty:
@@ -1887,96 +1908,6 @@ def plot_batted_ball_profile(ax_spray, ax_bars, spray_df: pd.DataFrame, sd: dict
                  ha="center", va="center", transform=ax_bars.transAxes)
 
 
-# ─────────────────────────────── PANEL 4 — PLATE DISCIPLINE ─────────────────
-
-def plot_plate_discipline(ax, sd: dict):
-    _clean(ax)
-    _border(ax)
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-
-    DISC_BARS = [
-        ("K%",      sd.get("k_pct"),     True),
-        ("BB%",     sd.get("bb_pct"),    False),
-        ("CHASE%",  sd.get("chase_pct"), True),
-        ("WHIFF%",  sd.get("whiff_pct"), True),
-        ("Z-SWING%", sd.get("z_swing_pct"), False),
-        ("O-CONTACT%", sd.get("o_contact_pct"), False),
-    ]
-    valid = [(l, v, g) for l, v, g in DISC_BARS if v is not None]
-
-    _MLB_AVG = {
-        "K%": 21.0, "BB%": 8.1, "CHASE%": 29.0,
-        "WHIFF%": 26.0, "Z-SWING%": 67.0, "O-CONTACT%": 53.0,
-    }
-    _REFS = {
-        "K%":     (18.0, 28.0),
-        "BB%":    (6.0,  10.0),
-        "CHASE%": (24.0, 34.0),
-        "WHIFF%": (22.0, 32.0),
-        "Z-SWING%": (62.0, 72.0),
-        "O-CONTACT%": (46.0, 60.0),
-    }
-
-    _MAX_FILL = {
-        "K%": 45, "BB%": 20, "CHASE%": 55,
-        "WHIFF%": 50, "Z-SWING%": 85, "O-CONTACT%": 85,
-    }
-
-    n       = len(valid)
-    label_w = 0.38
-    bar_x0  = label_w + 0.02
-    bar_max = 0.36
-    val_x   = bar_x0 + bar_max + 0.02
-    row_h   = 0.74 / max(n, 1)
-    y_top   = 0.85
-
-    _panel_title(ax, "PLATE DISCIPLINE", "vs MLB avg")
-
-    for i, (label, val, low_is_good) in enumerate(valid):
-        yc    = y_top - i * row_h - row_h * 0.5
-        mlb_avg = _MLB_AVG.get(label)
-        if mlb_avg is not None:
-            above_avg = val > mlb_avg
-            good_above = not low_is_good
-            color = "#D22D49" if (above_avg == good_above) else "#3373C4"
-        else:
-            color = PALETTE["text_secondary"]
-        max_f = _MAX_FILL.get(label, 50)
-        fill  = min(val / max_f, 1.0) * bar_max
-
-        ax.add_patch(FancyBboxPatch(
-            (bar_x0, yc - row_h * 0.32), bar_max, row_h * 0.64,
-            boxstyle="round,pad=0.005", lw=0,
-            facecolor=PALETTE["table_alt"], transform=ax.transAxes, zorder=1,
-        ))
-        if fill > 0.003:
-            ax.add_patch(FancyBboxPatch(
-                (bar_x0, yc - row_h * 0.32), fill, row_h * 0.64,
-                boxstyle="round,pad=0.005", lw=0,
-                facecolor=color, alpha=0.88, transform=ax.transAxes, zorder=2,
-            ))
-
-        mlb_avg = _MLB_AVG.get(label)
-        if mlb_avg is not None:
-            avg_fill = min(mlb_avg / max_f, 1.0) * bar_max
-            ax.plot([bar_x0 + avg_fill, bar_x0 + avg_fill],
-                    [yc - row_h * 0.38, yc + row_h * 0.38],
-                    color=PALETTE["text_primary"], lw=1.5, alpha=0.65,
-                    transform=ax.transAxes, zorder=3)
-
-        ax.text(label_w - 0.01, yc, label,
-                color=PALETTE["text_secondary"], fontsize=9.5, fontweight="black",
-                ha="right", va="center", transform=ax.transAxes)
-        ax.text(val_x, yc, f"{val:.1f}%",
-                color=color, fontsize=10, fontweight="black",
-                ha="left", va="center", transform=ax.transAxes)
-
-    ax.text(0.98, 0.04, "│ = MLB avg",
-            color=PALETTE["text_lo"], fontsize=7, ha="right", va="bottom",
-            transform=ax.transAxes)
-
-
 # ─────────────────────────────── PANEL 5 — FOOTER ───────────────────────────
 
 def plot_footer(ax, sd: dict):
@@ -2434,7 +2365,6 @@ def plot_counting_snapshot(ax, sd: dict):
     ax.set_ylim(0, 1)
 
     metrics = [
-        ("PA", sd.get("total_pa", 0), None, None),
         ("AB", sd.get("ab", 0), None, None),
         ("H", sd.get("h", 0), None, None),
         ("2B", sd.get("doubles", 0), None, None),
@@ -2442,6 +2372,7 @@ def plot_counting_snapshot(ax, sd: dict):
         ("HR", sd.get("hr", 0), None, None),
         ("XBH", sd.get("xbh", 0), None, None),
         ("BB", sd.get("bb", 0), None, None),
+        ("BB%", _metric_value_text(sd.get("bb_pct"), "pct"), "bb_pct", sd.get("bb_pct")),
         ("K", sd.get("k", 0), None, None),
         ("AVG", _metric_value_text(sd.get("avg"), "rate"), "avg", sd.get("avg")),
         ("OBP", _metric_value_text(sd.get("obp"), "rate"), "obp", sd.get("obp")),
