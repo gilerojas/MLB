@@ -40,19 +40,25 @@ class DerbyHitter:
     barrel_pct: float
     hard_hit_pct: float
     avg_hr_distance: float
+    avg_bat_speed: float
+    bs75_pct: float
+    avg_hr_ev: float
+    avg_hr_la: float
+    max_hr_distance: float
+    competitive_swings: int
 
 
 # Snapshot through games of July 12, 2026. Values combine live MLB season totals
 # with contact-quality events from the production Statcast warehouse.
 FIELD = (
-    DerbyHitter(656941, "Kyle Schwarber", "PHI", 32, 93.4, 113.2, 19.3, 53.1, 404.0),
-    DerbyHitter(700250, "Ben Rice", "NYY", 29, 92.1, 110.9, 15.3, 47.6, 389.0),
-    DerbyHitter(691406, "Junior Caminero", "TB", 28, 93.2, 116.9, 13.6, 51.6, 408.0),
-    DerbyHitter(691023, "Jordan Walker", "STL", 22, 94.2, 116.6, 14.1, 51.5, 406.0),
-    DerbyHitter(808959, "Munetaka Murakami", "CWS", 20, 94.1, 114.1, 20.0, 58.4, 408.0),
-    DerbyHitter(575929, "Willson Contreras", "STL", 20, 90.6, 114.4, 14.2, 46.7, 407.0),
-    DerbyHitter(547180, "Bryce Harper", "PHI", 20, 90.1, 113.5, 11.3, 46.2, 400.0),
-    DerbyHitter(695506, "Jac Caglianone", "KC", 15, 92.9, 116.1, 14.7, 56.0, 414.0),
+    DerbyHitter(656941, "Kyle Schwarber", "PHI", 32, 93.4, 113.2, 19.4, 53.4, 403.8, 77.1, 76.0, 106.6, 28.7, 460.0, 696),
+    DerbyHitter(700250, "Ben Rice", "NYY", 29, 92.1, 110.9, 15.3, 47.6, 389.1, 72.6, 24.7, 103.6, 29.2, 433.0, 591),
+    DerbyHitter(691406, "Junior Caminero", "TB", 28, 93.2, 116.9, 13.6, 51.6, 407.6, 79.9, 88.2, 106.5, 28.1, 463.0, 595),
+    DerbyHitter(691023, "Jordan Walker", "STL", 22, 94.2, 116.6, 14.1, 51.5, 406.4, 79.2, 85.9, 107.8, 26.6, 459.0, 654),
+    DerbyHitter(808959, "Munetaka Murakami", "CWS", 20, 94.1, 114.1, 20.3, 59.3, 408.5, 75.3, 56.1, 107.4, 32.5, 451.0, 417),
+    DerbyHitter(575929, "Willson Contreras", "BOS", 20, 90.6, 114.4, 14.3, 47.1, 407.4, 76.9, 71.4, 106.5, 31.7, 449.0, 616),
+    DerbyHitter(547180, "Bryce Harper", "PHI", 20, 90.1, 113.5, 11.3, 46.2, 399.8, 74.3, 48.3, 105.5, 28.8, 457.0, 726),
+    DerbyHitter(695506, "Jac Caglianone", "KC", 15, 92.9, 116.1, 14.7, 56.0, 414.4, 77.3, 76.3, 108.0, 29.0, 444.0, 607),
 )
 
 
