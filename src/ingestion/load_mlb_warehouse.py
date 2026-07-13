@@ -17,8 +17,10 @@ Para spring training u otros tipos: --game-type S (etc.). Para cargas por fecha:
 import argparse
 import gzip
 import json
+import os
 import re
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -66,6 +68,7 @@ for _ in range(2):
     _PROJECT_ROOT = _PROJECT_ROOT.parent
 # When no CLI dates given, default Run fetches this many days (including yesterday) so you get missed days
 DEFAULT_BACKFILL_DAYS = 7
+_registry_lock = threading.Lock()
 
 
 def get_stage_from_game_type(game_type: str) -> str:
@@ -205,6 +208,44 @@ def _open_raw(path: Path):
     return open(path, encoding="utf-8")
 
 
+def _temporary_artifact_path(path: Path) -> Path:
+    token = f"{os.getpid()}.{threading.get_ident()}"
+    return path.with_name(f".{path.stem}.{token}.tmp{path.suffix}")
+
+
+def _write_gzip_json_atomic(path: Path, payload: dict) -> None:
+    """Publish a complete gzip JSON file in one filesystem operation."""
+    temporary = _temporary_artifact_path(path)
+    try:
+        with gzip.open(temporary, "wt", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _parquet_is_readable(path: Path) -> bool:
+    """Reject truncated or empty pitch artifacts before treating them as complete."""
+    try:
+        import pyarrow.parquet as pq
+
+        return pq.ParquetFile(path).metadata.num_rows > 0
+    except Exception:
+        return False
+
+
+def _write_parquet_atomic(frame: pd.DataFrame, path: Path) -> None:
+    """Write, validate, then atomically publish a parquet artifact."""
+    temporary = _temporary_artifact_path(path)
+    try:
+        frame.to_parquet(temporary, index=False)
+        if not _parquet_is_readable(temporary):
+            raise ValueError(f"Generated parquet failed validation: {path.name}")
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _raw_feed_is_played_final(path: Path) -> bool:
     """Existing raw is usable only if it reflects a played final game with plays."""
     try:
@@ -255,12 +296,12 @@ def ensure_raw(warehouse: Path, game: dict, force: bool) -> tuple[Path | None, b
         return None, False
 
     raw_dir.mkdir(parents=True, exist_ok=True)
-    with gzip.open(raw_path_gz, "wt", encoding="utf-8") as f:
-        json.dump(feed, f, ensure_ascii=False)
+    _write_gzip_json_atomic(raw_path_gz, feed)
 
     try:
         reg_path = season_registry_path(warehouse, season)
-        merge_game_data_players_from_feed(feed, reg_path)
+        with _registry_lock:
+            merge_game_data_players_from_feed(feed, reg_path)
     except Exception:
         pass
 
@@ -330,7 +371,7 @@ def process_pitches_enriched(raw_path: Path, out_dir: Path) -> bool:
 
     out_path = out_dir / f"game_{game_pk}_{date}_pitches_enriched.parquet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_parquet(out_path, index=False)
+    _write_parquet_atomic(out_df, out_path)
     return True
 
 
@@ -569,7 +610,8 @@ def main():
         print(f"Modo --from-raw: {len(games_to_process)} juegos con raw encontrados")
     else:
         # Default run (no CLI dates): always fetch last N days so "Run" gets missed games without CLI
-        default_run = not (args.dates or args.last_days is not None or args.all_stages)
+        is_past_season = args.season is not None and args.season < date.today().year
+        default_run = not (args.dates or args.last_days is not None or args.all_stages or is_past_season)
         if default_run:
             print(f"Warehouse: {args.warehouse.resolve()}")
             today = date.today()
@@ -667,16 +709,27 @@ def main():
                 )
 
         games_to_process = []
-        desc_raw = "Raw (feed)"
-        it_raw = tqdm(games, desc=desc_raw, unit="game", disable=args.quiet)
-        for g in it_raw:
-            raw_path, created = ensure_raw(args.warehouse, g, args.force)
-            if raw_path is None:
-                continue
+
+        def _fetch_raw(g: dict) -> tuple[Path | None, Path]:
+            raw_path, _ = ensure_raw(args.warehouse, g, args.force)
             stage = get_stage_from_game_type(g.get("gameType"))
-            season = str(g.get("season", args.season))
-            out_dir = args.warehouse / season / stage / "pitches_enriched"
-            games_to_process.append((raw_path, out_dir))
+            season_str = str(g.get("season", args.season))
+            out_dir = args.warehouse / season_str / stage / "pitches_enriched"
+            return raw_path, out_dir
+
+        raw_workers = min(8, max(1, args.workers * 2))
+        desc_raw = f"Raw (feed, {raw_workers} workers)"
+        with ThreadPoolExecutor(max_workers=raw_workers) as raw_ex:
+            raw_futures = {raw_ex.submit(_fetch_raw, g): g for g in games}
+            it_raw = tqdm(as_completed(raw_futures), total=len(raw_futures), desc=desc_raw, unit="game", disable=args.quiet)
+            for fut in it_raw:
+                try:
+                    raw_path, out_dir = fut.result()
+                    if raw_path is not None:
+                        games_to_process.append((raw_path, out_dir))
+                except Exception as e:
+                    g = raw_futures[fut]
+                    print(f"raw fetch error game_pk={g.get('gamePk')}: {e}", file=sys.stderr, flush=True)
 
     # Filtrar: solo procesar los que no tienen enriched (o --force)
     to_process = []
@@ -689,7 +742,13 @@ def main():
         game_pk, game_date = m.group(1), m.group(2)
         enriched_path = out_dir / f"game_{game_pk}_{game_date}_pitches_enriched.parquet"
         if enriched_path.exists() and not args.force:
-            skipped += 1
+            if _parquet_is_readable(enriched_path):
+                skipped += 1
+            else:
+                (tqdm.write if not args.quiet else print)(
+                    f"  Parquet inválido: regenerando {enriched_path.name}"
+                )
+                to_process.append((raw_path, out_dir))
         else:
             to_process.append((raw_path, out_dir))
 

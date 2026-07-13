@@ -72,7 +72,7 @@
 - Keep runtime configuration outside source control. Production reads `/srv/mlbops/env/mlbops.env` through Docker Compose as documented in `deploy/README.md`; local examples exist at `mlbops/.env.example`, `mlbops/hub/.env.local.example`, and `jobs/.env.example` and their contents were not inspected for this map.
 - Use `MLBOPS_DB_BACKEND=postgres` plus `DATABASE_URL` in production; omit or set SQLite mode for local development. Both adapters are implemented in `mlbops/api/db/database.py` and `mlbops/hub/lib/db.ts`.
 - Set path controls through `MLB_WAREHOUSE_DIR`, `MLBOPS_OUTPUTS_DIR`, `MLB_INTEL_SNAPSHOTS_DIR`, and `MLB_REPO_ROOT`; resolution logic is centralized in `mlbops/api/paths.py`.
-- Configure Hub-to-API routing with `FASTAPI_BASE_URL` or `INTERNAL_API_URL`; browser clients default to the authenticated `/api/backend` proxy through `mlbops/hub/lib/api.ts`.
+- Configure Hub-to-API routing with `FASTAPI_BASE_URL` or `INTERNAL_API_URL`; browser clients default to the authenticated `/api/backend` proxy through `mlbops/hub/lib/api.ts`. Production also requires the same strong `MLBOPS_API_SERVICE_TOKEN` in Hub and FastAPI.
 - Configure session, app password, notifications, X/Twitter, and AI providers only through environment variables consumed by `mlbops/hub/lib/security.ts`, `mlbops/hub/lib/twitter.ts`, `mlbops/hub/lib/resend.ts`, `mlbops/hub/lib/twilio.ts`, and `mlbops/api/routers/queue.py`.
 
 **Build:**

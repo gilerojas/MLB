@@ -28,7 +28,7 @@ cp deploy/vps.env.example /srv/mlbops/env/mlbops.env
 chmod 600 /srv/mlbops/env/mlbops.env
 ```
 
-Use a real `POSTGRES_PASSWORD`, `MLBOPS_SESSION_SECRET`, and `MLBOPS_APP_PASSWORD_SHA256`.
+Use a real `POSTGRES_PASSWORD`, `MLBOPS_SESSION_SECRET`, `MLBOPS_API_SERVICE_TOKEN`, and `MLBOPS_APP_PASSWORD_SHA256`.
 
 Hub login requires both secrets in `/srv/mlbops/env/mlbops.env`:
 
@@ -38,6 +38,9 @@ printf '%s' 'your-hub-password' | shasum -a 256
 
 # Mac — session signing secret (32+ chars)
 openssl rand -base64 48
+
+# Mac — private Hub-to-API credential (32+ chars)
+openssl rand -hex 32
 ```
 
 Add to `mlbops.env`:
@@ -45,6 +48,7 @@ Add to `mlbops.env`:
 ```bash
 MLBOPS_APP_PASSWORD_SHA256=<sha256-from-above>
 MLBOPS_SESSION_SECRET=<random-from-above>
+MLBOPS_API_SERVICE_TOKEN=<second-random-value>
 MLBOPS_SECURE_COOKIES=0
 ```
 
@@ -257,7 +261,8 @@ On the VPS:
 
 ```bash
 curl -s http://127.0.0.1:8000/health
-curl -s http://127.0.0.1:8000/system/readiness
+curl -s -H "x-mlbops-service-token: $MLBOPS_API_SERVICE_TOKEN" \
+  http://127.0.0.1:8000/system/readiness
 ```
 
 Through the SSH tunnel, from the Mac:

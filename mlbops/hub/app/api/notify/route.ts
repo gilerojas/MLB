@@ -8,6 +8,7 @@ import { getQueueCounts, getQueueByStatus, getRecentPosted } from "@/lib/db";
 import { sendMorningDigest } from "@/lib/resend";
 import { sendMorningDigestWhatsApp } from "@/lib/twilio";
 import { auditFromRequest, rateLimit, requireCsrf } from "@/lib/security";
+import { serverApiFetch } from "@/lib/server-api";
 
 export async function POST(req: NextRequest) {
   const csrf = await requireCsrf(req);
@@ -38,9 +39,7 @@ export async function POST(req: NextRequest) {
     // Fetch today's game count from schedule
     let games_today = 0;
     try {
-      const schedRes = await fetch(
-        `${process.env.FASTAPI_BASE_URL || "http://localhost:8000"}/schedule/today`
-      );
+      const schedRes = await serverApiFetch("/schedule/today");
       if (schedRes.ok) {
         const sched = await schedRes.json();
         games_today = sched.games?.length || 0;

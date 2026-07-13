@@ -25,13 +25,14 @@ services:
     environment:
       MLBOPS_DB_BACKEND: postgres
       MLBOPS_RUNTIME: vps
+      MLBOPS_API_SERVICE_TOKEN: ${MLBOPS_API_SERVICE_TOKEN:?MLBOPS_API_SERVICE_TOKEN is required}
       DATABASE_URL: postgresql://${POSTGRES_USER:-mlbops}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mlbops}
       MLB_REPO_ROOT: /app
       MLB_WAREHOUSE_DIR: /data/warehouse/mlb
       MLBOPS_OUTPUTS_DIR: /outputs
       MLB_INTEL_SNAPSHOTS_DIR: /app/morning_intel/snapshots
       HUB_CORS_ORIGINS: http://127.0.0.1:3001,http://localhost:3001,http://hub:3000
-      MLBOPS_STRICT_CORS: "0"
+      MLBOPS_STRICT_CORS: "1"
     volumes:
       - .:/app
       - ${MLBOPS_WAREHOUSE_DIR:-/srv/mlbops/warehouse/mlb}:/data/warehouse/mlb
@@ -55,11 +56,13 @@ services:
     environment:
       MLBOPS_DB_BACKEND: postgres
       MLBOPS_RUNTIME: vps
+      MLBOPS_API_SERVICE_TOKEN: ${MLBOPS_API_SERVICE_TOKEN:?MLBOPS_API_SERVICE_TOKEN is required}
       DATABASE_URL: postgresql://${POSTGRES_USER:-mlbops}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mlbops}
       FASTAPI_BASE_URL: http://api:8000
       INTERNAL_API_URL: http://api:8000
       MLBOPS_OUTPUTS_DIR: /outputs
       MLBOPS_SECURE_COOKIES: "0"
+      MLBOPS_TRUST_PROXY: "0"
     depends_on:
       api:
         condition: service_started

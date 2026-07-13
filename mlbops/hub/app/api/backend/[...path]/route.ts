@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auditFromRequest, rateLimit, requireCsrf, requireSessionJson } from "@/lib/security";
+import { apiServiceHeaders, serverApiBase } from "@/lib/server-api";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 
 async function proxyToFastApi(req: NextRequest, context: RouteContext) {
   const session = WRITE_METHODS.has(req.method.toUpperCase())
@@ -18,20 +20,25 @@ async function proxyToFastApi(req: NextRequest, context: RouteContext) {
 
   const params = await context.params;
   const path = params.path.join("/");
-  const internalBase =
-    process.env.FASTAPI_BASE_URL || process.env.INTERNAL_API_URL || "http://127.0.0.1:8000";
-  const target = new URL(`/${path}${req.nextUrl.search}`, internalBase);
+  const target = new URL(`/${path}${req.nextUrl.search}`, serverApiBase());
   const headers = new Headers(req.headers);
   headers.delete("host");
   headers.delete("cookie");
   headers.delete("x-csrf-token");
+  headers.delete("authorization");
+  headers.delete("x-mlbops-service-token");
+
+  const contentLength = Number(req.headers.get("content-length") || "0");
+  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
+    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
+  }
 
   const body =
     req.method === "GET" || req.method === "HEAD" ? undefined : await req.arrayBuffer();
 
   const upstream = await fetch(target, {
     method: req.method,
-    headers,
+    headers: apiServiceHeaders(headers),
     body,
     cache: "no-store",
     redirect: "manual",

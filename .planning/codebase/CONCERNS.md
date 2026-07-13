@@ -37,12 +37,14 @@
 ## Known Bugs
 
 **Single-player card workflow ignores its input:**
+- Status: Addressed 2026-07-13. The workflow now forwards `player_id`, targeted runs bypass watchlist thresholds, and the job fails when no requested card is queued.
 - Symptoms: The manual workflow advertises `player_id`, but the generation command never reads that input and always runs the full daily generator for non-HR requests.
 - Files: `.github/workflows/generate_cards.yml`, `jobs/daily_card_generator.py`
 - Trigger: Dispatch `Generate Cards (Manual)` with a specific `player_id` and `card_type=auto`.
 - Workaround: Run the appropriate card script directly with the requested player identifier; the workflow itself has no single-player branch.
 
 **Authenticated visits to the login page are not redirected:**
+- Status: Addressed 2026-07-13. `/login` now checks the session before returning the public page.
 - Symptoms: A valid session can still render `/login`; the intended redirect to `/queue` is unreachable because `/login` returns early as a public path.
 - Files: `mlbops/hub/proxy.ts`, `mlbops/hub/app/login/page.tsx`
 - Trigger: Open `/login` while holding a valid `mlbops_session` cookie.
@@ -55,6 +57,7 @@
 - Workaround: Apply migrations only in the known compatible order or use a reviewed current-schema migration that names every copied column explicitly.
 
 **Interrupted parquet writes can be treated as complete forever:**
+- Status: Addressed 2026-07-13 for raw feed and `pitches_enriched` artifacts. Writes use atomic replacement and existing parquet files are validated before skip.
 - Symptoms: A partial or corrupt enriched parquet remains present and later ingest runs skip it solely because the path exists.
 - Files: `src/ingestion/load_mlb_warehouse.py`
 - Trigger: Terminate the process or exhaust disk space during `DataFrame.to_parquet()`.
@@ -63,27 +66,30 @@
 ## Security Considerations
 
 **FastAPI has no application authentication boundary:**
+- Status: Addressed 2026-07-13. Production FastAPI now fails closed behind a strong Hub-to-API service token, remains bound to localhost/container networking, and exposes only health and generated static assets without that credential.
 - Risk: Any client that can reach FastAPI directly can invoke mutating card, queue, watchlist, live-event, redraft, sync, and analytics endpoints without the Next.js session or CSRF checks. The Hub proxy protects only requests routed through `/api/backend`.
 - Files: `mlbops/api/main.py`, `mlbops/api/routers/cards.py`, `mlbops/api/routers/queue.py`, `mlbops/api/routers/watchlist.py`, `mlbops/api/routers/live.py`, `mlbops/hub/app/api/backend/[...path]/route.ts`, `mlbops/hub/lib/security.ts`
 - Current mitigation: Browser traffic defaults to the authenticated Next.js proxy, and selected operational endpoints also require feature flags.
 - Recommendations: Bind FastAPI to a private container/network interface, enforce firewall rules, and add service authentication or shared authorization dependencies to every sensitive FastAPI route so network topology is not the only control.
 
 **Operational filesystem paths are exposed by an API response:**
+- Status: Mitigated 2026-07-13. The response remains useful to the owner dashboard, but it now requires both a valid Hub session and the internal API service credential in production.
 - Risk: `/system/paths` returns absolute repository, warehouse, snapshot, and output paths. Direct API reachability exposes deployment layout that can aid further attacks or leak operator-specific paths.
 - Files: `mlbops/api/main.py`, `mlbops/api/paths.py`
 - Current mitigation: Access through the Hub proxy requires a session.
 - Recommendations: Return readiness booleans and logical identifiers to normal clients; place absolute paths behind an administrator-only diagnostic endpoint and protect FastAPI itself.
 
 **Rate limiting trusts client-controlled forwarding data and retains buckets indefinitely:**
+- Status: Addressed for the single-instance VPS deployment on 2026-07-13. Forwarded addresses are ignored unless explicitly trusted, addresses are validated, expired buckets are pruned, and bucket cardinality is capped. A shared limiter is still required before running multiple Hub replicas.
 - Risk: A caller can vary `x-forwarded-for` to bypass per-IP limits and grow the process-global `Map` without bound. Limits also reset on restart and are not shared across Next.js replicas.
 - Files: `mlbops/hub/lib/security.ts`, `mlbops/hub/app/api/auth/login/route.ts`, `mlbops/hub/app/api/backend/[...path]/route.ts`
 - Current mitigation: Per-action, per-IP counters limit ordinary traffic in a single process.
 - Recommendations: Accept forwarding headers only from a trusted proxy, use the platform-provided client address, expire stored keys, cap bucket cardinality, and move login/write limits to a shared store or edge control when running multiple replicas.
 
 **Session revocation is client-side only:**
-- Risk: Session tokens are self-contained and valid for 12 hours; logout clears the browser cookie but cannot invalidate a copied token before expiry.
+- Risk: Session tokens are self-contained and valid for 8 hours by default; logout clears the browser cookie but cannot invalidate a copied token before expiry.
 - Files: `mlbops/hub/lib/security.ts`, `mlbops/hub/proxy.ts`, `mlbops/hub/app/api/auth/logout/route.ts`
-- Current mitigation: Tokens are HMAC-signed, HTTP-only, same-site cookies with CSRF tokens, and production requires a sufficiently long secret in the Node route implementation.
+- Current mitigation: Tokens are HMAC-signed, HTTP-only, same-site cookies with CSRF tokens, production validates the secret in both middleware and Node routes, and the TTL is bounded/configurable from 1 to 24 hours.
 - Recommendations: Store active session IDs or a revocation epoch server-side, rotate session IDs on sensitive changes, and consolidate signing/verification so `proxy.ts` and `security.ts` cannot diverge.
 
 ## Performance Bottlenecks
@@ -95,6 +101,7 @@
 - Improvement path: Build date/player/team rollups during ingest, query only required columns and partitions through DuckDB/Polars/pyarrow datasets, record cache memory metrics, and avoid duplicating caches across workers.
 
 **Card subprocesses have no execution timeout or concurrency budget:**
+- Status: Partially addressed 2026-07-13. Card scripts now use a bounded runner with configurable concurrency, queue wait, execution timeout, and process-group termination. Persisted asynchronous job state remains future work.
 - Problem: A stalled card script occupies a thread and child process indefinitely; concurrent requests can launch several CPU- and memory-heavy pandas/matplotlib jobs.
 - Files: `mlbops/api/routers/cards.py`, `scripts/batter_card_daily.py`, `scripts/batter_card_seasonal.py`, `scripts/mallitalytics_daily_card.py`
 - Cause: `_run_script()` calls `subprocess.run()` without `timeout`, while each endpoint delegates directly to Starlette's shared thread pool.
@@ -112,7 +119,7 @@
 - Files: `src/ingestion/load_mlb_warehouse.py`, `src/ingestion/player_registry.py`, `src/ingestion/season_exports.py`, `.github/workflows/daily_ingest.yml`
 - Why fragile: Raw gzip and parquet outputs are written directly to final paths, file existence is used as completion state, and schedule/export artifacts are separate writes. Only the player registry uses a temp-file replacement pattern.
 - Safe modification: Preserve idempotent date-targeted ingest, publish every artifact through temp file plus atomic replace, validate gzip/parquet readability before marking success, and keep `--force` recovery behavior.
-- Test coverage: No automated failure-injection tests cover interrupted writes, partial dates, late Statcast availability, or concurrent ingest workers.
+- Test coverage: Atomic gzip/parquet publication and corrupt-parquet rejection now have focused tests. Partial dates, late Statcast availability, and concurrent-worker failure injection remain uncovered.
 
 **SQLite/Postgres compatibility translation:**
 - Files: `mlbops/api/db/database.py`, `mlbops/hub/lib/db.ts`, `mlbops/api/db/schema_postgres.sql`
@@ -198,7 +205,7 @@
 - Priority: High
 
 **Ingest correctness and recovery:**
-- What's not tested: Feed parsing, Statcast merge keys, atomic publication, corrupt existing files, late data, schedule refresh, and rerun idempotency. Existing `test_parquet.py` and `test_parse.py` are print-driven scripts with fixed local data paths rather than assertions.
+- What's not tested: Feed parsing, Statcast merge keys, late data, schedule refresh, and rerun idempotency. Atomic publication and corrupt existing files now have assertion-based tests; existing `test_parquet.py` and `test_parse.py` remain print-driven scripts with fixed local data paths.
 - Files: `src/ingestion/load_mlb_warehouse.py`, `src/ingestion/boxscore_aggregate.py`, `test_parquet.py`, `test_parse.py`
 - Risk: Missing or malformed warehouse data propagates into every card, insight, and leaderboard.
 - Priority: High
@@ -216,11 +223,11 @@
 - Priority: High
 
 **CI quality gates:**
-- What's not tested: No tracked workflow runs pytest, Python compilation/lint/type checks, TypeScript checks, Next.js builds, migration tests, or browser tests as a required gate.
+- What's not tested: A tracked workflow now runs Python compilation, focused `unittest` coverage, and TypeScript checks. Python lint/type checks, Next.js builds, migration tests, and browser tests are not yet required gates.
 - Files: `.github/workflows/daily_ingest.yml`, `.github/workflows/generate_cards.yml`, `.github/workflows/morning_intel.yml`, `mlbops/hub/package.json`
 - Risk: Scheduled automation and deployable branches can execute unverified code.
 - Priority: High
 
 ---
 
-*Concerns audit: 2026-07-10*
+*Concerns audit: 2026-07-13*

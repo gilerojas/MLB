@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { MorningIntelRunPanel } from "@/components/MorningIntelRunPanel";
 import { PipelineChecklist } from "@/components/PipelineChecklist";
-import { getApiBase } from "@/lib/api";
+import { serverApiFetch } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 
@@ -327,12 +327,11 @@ function PipelineRow({
 // ── page ───────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage() {
-  const base = getApiBase();
   let data: BriefingPayload | null = null;
   let error: string | null = null;
 
   try {
-    const res = await fetch(`${base}/briefing`, {
+    const res = await serverApiFetch("/briefing", {
       cache: "no-store",
       signal: AbortSignal.timeout(60_000),
     });

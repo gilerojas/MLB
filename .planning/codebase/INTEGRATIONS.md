@@ -70,11 +70,11 @@
 
 **Auth Provider:**
 - Custom single-owner password session; no external identity provider is used.
-  - Implementation: `mlbops/hub/app/api/auth/login/route.ts` validates a configured password or SHA-256 hash through `mlbops/hub/lib/security.ts`, then issues a 12-hour HMAC-SHA256 signed `mlbops_session` HTTP-only cookie.
+  - Implementation: `mlbops/hub/app/api/auth/login/route.ts` validates a configured password or SHA-256 hash through `mlbops/hub/lib/security.ts`, then issues an 8-hour-by-default HMAC-SHA256 signed `mlbops_session` HTTP-only cookie.
   - Session secrets: `MLBOPS_SESSION_SECRET` or `SESSION_SECRET`; production requires at least 32 characters.
   - Password configuration: `MLBOPS_APP_PASSWORD_SHA256` / `APP_PASSWORD_SHA256`, or the plain-password fallbacks `MLBOPS_APP_PASSWORD` / `APP_PASSWORD`.
-  - Request protection: CSRF tokens, same-origin checks, per-process IP rate buckets, and database-backed audit events in `mlbops/hub/lib/security.ts`.
-  - Enforcement: `mlbops/hub/proxy.ts` protects Hub pages and API routes; `mlbops/hub/app/api/backend/[...path]/route.ts` removes browser cookies and proxies authenticated requests to FastAPI.
+  - Request protection: CSRF tokens, same-origin checks, bounded/expiring per-process rate buckets, security response headers, and database-backed audit events in `mlbops/hub/lib/security.ts`.
+  - Enforcement: `mlbops/hub/proxy.ts` protects Hub pages and API routes; `mlbops/hub/app/api/backend/[...path]/route.ts` removes browser credentials and adds `MLBOPS_API_SERVICE_TOKEN` when proxying authenticated requests to FastAPI. FastAPI independently enforces that service credential in production.
 
 ## Monitoring & Observability
 

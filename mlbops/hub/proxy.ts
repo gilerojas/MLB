@@ -5,6 +5,9 @@ const SESSION_COOKIE = "mlbops_session";
 function getSecret(): string {
   const secret = process.env.MLBOPS_SESSION_SECRET || process.env.SESSION_SECRET || "";
   if (secret.trim().length >= 32) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Set MLBOPS_SESSION_SECRET to a random value of at least 32 characters.");
+  }
   return "dev-only-mlbops-session-secret-change-before-travel";
 }
 
@@ -45,8 +48,21 @@ async function hasValidSession(req: NextRequest): Promise<boolean> {
   if (!body || !sig || extra) return false;
   if (!safeEqual(await hmac(body), sig)) return false;
   try {
-    const payload = JSON.parse(decodeBase64url(body)) as { exp?: number };
-    return Boolean(payload.exp && payload.exp > Math.floor(Date.now() / 1000));
+    const payload = JSON.parse(decodeBase64url(body)) as {
+      exp?: number;
+      iat?: number;
+      sid?: string;
+      csrf?: string;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    return Boolean(
+      payload.exp &&
+        payload.iat &&
+        payload.sid &&
+        payload.csrf &&
+        payload.iat <= now + 60 &&
+        payload.exp > now
+    );
   } catch {
     return false;
   }
@@ -54,7 +70,6 @@ async function hasValidSession(req: NextRequest): Promise<boolean> {
 
 function isPublicPath(pathname: string): boolean {
   return (
-    pathname === "/login" ||
     pathname.startsWith("/api/auth/login") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico" ||
@@ -65,9 +80,14 @@ function isPublicPath(pathname: string): boolean {
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  if (pathname === "/login") {
+    if (await hasValidSession(req)) {
+      return NextResponse.redirect(new URL("/queue", req.url));
+    }
+    return NextResponse.next();
+  }
   if (isPublicPath(pathname)) return NextResponse.next();
   if (await hasValidSession(req)) {
-    if (pathname === "/login") return NextResponse.redirect(new URL("/queue", req.url));
     return NextResponse.next();
   }
   if (pathname.startsWith("/api/")) {
@@ -81,4 +101,3 @@ export async function proxy(req: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|ico|css|js|map)$).*)"],
 };
-

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { IntelStandoutsPanel } from "@/components/IntelStandoutsPanel";
 import { MorningIntelRunPanel } from "@/components/MorningIntelRunPanel";
-import { getApiBase } from "@/lib/api";
+import { serverApiFetch } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 
@@ -629,15 +629,14 @@ function MilestoneWatchList({
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default async function IntelPage() {
-  const base = getApiBase();
   let list: IntelListResponse | null = null;
   let paths: SystemPathsPayload | null = null;
   let err: string | null = null;
 
   try {
     const [pathsRes, listRes] = await Promise.all([
-      fetch(`${base}/system/paths`, { cache: "no-store" }),
-      fetch(`${base}/intel/snapshots?days=120&limit=1&include_body=true`, { cache: "no-store" }),
+      serverApiFetch("/system/paths", { cache: "no-store" }),
+      serverApiFetch("/intel/snapshots?days=120&limit=1&include_body=true", { cache: "no-store" }),
     ]);
     if (pathsRes.ok) paths = (await pathsRes.json()) as SystemPathsPayload;
     if (!listRes.ok) err = await listRes.text();
@@ -659,7 +658,7 @@ export default async function IntelPage() {
           </p>
           {err && (
             <p className="mt-2 border border-red-900/40 bg-red-950/20 px-3 py-2 text-xs text-red-300">
-              {err.slice(0, 240)} — FastAPI at {base}?
+              {err.slice(0, 240)} — FastAPI unavailable
             </p>
           )}
         </div>
@@ -713,7 +712,7 @@ export default async function IntelPage() {
             return (
               <article key={snap.anchor} className="border border-outline-variant/30 bg-surface p-4">
                 <h2 className="text-sm font-headline font-semibold text-foreground">{snap.anchor}</h2>
-                <Link href={`${base}/intel/snapshots/${snap.anchor}`} className="text-sm text-tertiary hover:underline mt-2 inline-block" target="_blank" rel="noreferrer">
+                <Link href={`/api/backend/intel/snapshots/${snap.anchor}`} className="text-sm text-tertiary hover:underline mt-2 inline-block" target="_blank" rel="noreferrer">
                   Open JSON →
                 </Link>
               </article>
@@ -745,7 +744,7 @@ export default async function IntelPage() {
                   <p className="text-xs font-mono text-muted mt-0.5">ANCHOR: {snap.anchor}</p>
                 </div>
                 <Link
-                  href={`${base}/intel/snapshots/${snap.anchor}`}
+                  href={`/api/backend/intel/snapshots/${snap.anchor}`}
                   className="shrink-0 border border-outline px-3 py-1 font-mono text-xs text-slate-400 hover:bg-accent-bg hover:text-foreground transition-colors uppercase tracking-wide"
                   target="_blank"
                   rel="noreferrer"

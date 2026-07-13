@@ -35,8 +35,14 @@ jobs:
       - name: Generate cards
         working-directory: ${{ github.workspace }}
         run: |
+          if [[ -f /srv/mlbops/env/mlbops.env ]]; then
+            set -a
+            source /srv/mlbops/env/mlbops.env
+            set +a
+          fi
           PYTHON="mlb_env/bin/python"
           DATE="${{ github.event.inputs.date }}"
+          PLAYER_ID="${{ github.event.inputs.player_id }}"
           TYPE="${{ github.event.inputs.card_type }}"
 
           if [[ "$TYPE" == "hr_tracker" ]]; then
@@ -45,7 +51,12 @@ jobs:
 
           else
             echo "Running daily card generator for $DATE..."
-            $PYTHON jobs/daily_card_generator.py --date "$DATE"
+            ARGS=(--date "$DATE")
+            if [[ -n "$PLAYER_ID" ]]; then
+              echo "Targeting player ID $PLAYER_ID."
+              ARGS+=(--player-id "$PLAYER_ID")
+            fi
+            $PYTHON jobs/daily_card_generator.py "${ARGS[@]}"
           fi
 
       - name: Print output files

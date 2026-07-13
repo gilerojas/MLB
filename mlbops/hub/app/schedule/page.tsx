@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getApiBase } from "@/lib/api";
+import { serverApiFetch } from "@/lib/server-api";
 import { ScheduleGameCard, type ScheduleGame } from "@/components/ScheduleGameCard";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ function formatScheduleHeaderDate(dateStr: string): string {
 
 async function fetchGames(dateStr: string): Promise<{ date: string; games: ScheduleGame[] }> {
   try {
-    const res = await fetch(`${getApiBase()}/schedule/${dateStr}`, { cache: "no-store" });
+    const res = await serverApiFetch(`/schedule/${dateStr}`, { cache: "no-store" });
     if (!res.ok) throw new Error("Schedule fetch failed");
     return res.json();
   } catch {

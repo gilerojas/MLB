@@ -11,11 +11,13 @@ Daily card generator — runs every morning at 10 AM ET.
 Usage:
     python jobs/daily_card_generator.py               # uses yesterday
     python jobs/daily_card_generator.py --date 2025-04-15
+    python jobs/daily_card_generator.py --date 2025-04-15 --player-id 605141
     python jobs/daily_card_generator.py --seed-watchlist   # only seed DB, no cards
 """
 import argparse
 import gzip
 import json
+import os
 import re
 import sys
 from datetime import date, timedelta
@@ -35,6 +37,11 @@ WATCHLIST_JSON = Path(__file__).parent / "player_watchlist.json"
 # Score thresholds per priority tier — only generate if above threshold
 BATTER_MIN_SCORE = {1: 0, 2: 2, 3: 5, 4: 8, 5: 10}
 PITCHER_MIN_SCORE = {1: 0, 2: 1, 3: 3, 4: 5, 5: 8}
+
+
+def api_service_headers() -> dict[str, str]:
+    token = os.getenv("MLBOPS_API_SERVICE_TOKEN", "").strip()
+    return {"x-mlbops-service-token": token} if token else {}
 
 
 def seed_watchlist_to_db():
@@ -174,7 +181,15 @@ def get_game_performers(feed: dict, watchlist_ids: set) -> dict:
     return {"batters": batters, "pitchers": pitchers}
 
 
-def trigger_batter_card(player_id: int, feed_path: Path, player_name: str, game_date: str):
+def find_player_performances(performers: dict, player_id: int) -> dict:
+    """Return every batting and pitching appearance for one requested player."""
+    return {
+        kind: [row for row in performers.get(kind, []) if row[0] == player_id]
+        for kind in ("batters", "pitchers")
+    }
+
+
+def trigger_batter_card(player_id: int, feed_path: Path, player_name: str, game_date: str) -> bool:
     try:
         resp = requests.post(
             f"{FASTAPI_BASE}/cards/batter",
@@ -184,18 +199,21 @@ def trigger_batter_card(player_id: int, feed_path: Path, player_name: str, game_
                 "dark": False,
                 "tweet_text": f"{player_name} | {game_date} | #Mallitalytics #MLB",
             },
+            headers=api_service_headers(),
             timeout=120,
         )
         if resp.status_code == 200:
             data = resp.json()
             print(f"    ✓ Batter card queued: {player_name} (id={data['id']})")
+            return True
         else:
             print(f"    ✗ Batter card failed for {player_name}: {resp.text[:200]}")
     except Exception as e:
         print(f"    ✗ Batter card error for {player_name}: {e}")
+    return False
 
 
-def trigger_pitcher_card(player_id: int, game_date: str, player_name: str):
+def trigger_pitcher_card(player_id: int, game_date: str, player_name: str) -> bool:
     try:
         resp = requests.post(
             f"{FASTAPI_BASE}/cards/pitcher",
@@ -205,18 +223,21 @@ def trigger_pitcher_card(player_id: int, game_date: str, player_name: str):
                 "dark": False,
                 "tweet_text": f"{player_name} | {game_date} | #Mallitalytics #MLB",
             },
+            headers=api_service_headers(),
             timeout=120,
         )
         if resp.status_code == 200:
             data = resp.json()
             print(f"    ✓ Pitcher card queued: {player_name} (id={data['id']})")
+            return True
         else:
             print(f"    ✗ Pitcher card failed for {player_name}: {resp.text[:200]}")
     except Exception as e:
         print(f"    ✗ Pitcher card error for {player_name}: {e}")
+    return False
 
 
-def run(game_date: str):
+def run(game_date: str, player_id: int | None = None) -> int:
     print(f"\n{'='*60}")
     print(f"  Daily Card Generator — {game_date}")
     print(f"{'='*60}")
@@ -236,7 +257,7 @@ def run(game_date: str):
 
     if not games:
         print("  No final games found — nothing to generate.")
-        return
+        return 0
 
     print(f"\n[3/4] Finding warehouse files and scoring performances…")
     cards_generated = 0
@@ -257,6 +278,16 @@ def run(game_date: str):
 
         performers = get_game_performers(feed, watchlist_ids)
 
+        if player_id is not None:
+            target = find_player_performances(performers, player_id)
+            for pid, pname, score, _ in target["batters"]:
+                print(f"    Requested batter: {pname} (score={score:.1f})")
+                cards_generated += int(trigger_batter_card(pid, feed_path, pname, game_date))
+            for pid, pname, score, _ in target["pitchers"]:
+                print(f"    Requested pitcher: {pname} (score={score:.1f})")
+                cards_generated += int(trigger_pitcher_card(pid, game_date, pname))
+            continue
+
         # Process watchlist batters in this game
         for pid, pname, score, in_watchlist in performers["batters"]:
             if pid not in batter_ids:
@@ -265,8 +296,7 @@ def run(game_date: str):
             min_score = BATTER_MIN_SCORE.get(priority, 10)
             if score >= min_score:
                 print(f"    Batter: {pname} (score={score:.1f}, priority={priority})")
-                trigger_batter_card(pid, feed_path, pname, game_date)
-                cards_generated += 1
+                cards_generated += int(trigger_batter_card(pid, feed_path, pname, game_date))
             else:
                 print(f"    Batter: {pname} — below threshold (score={score:.1f} < {min_score}), skipping.")
 
@@ -278,8 +308,7 @@ def run(game_date: str):
             min_score = PITCHER_MIN_SCORE.get(priority, 8)
             if score >= min_score:
                 print(f"    Pitcher: {pname} (score={score:.1f}, priority={priority})")
-                trigger_pitcher_card(pid, game_date, pname)
-                cards_generated += 1
+                cards_generated += int(trigger_pitcher_card(pid, game_date, pname))
             else:
                 print(f"    Pitcher: {pname} — below threshold (score={score:.1f} < {min_score}), skipping.")
 
@@ -291,8 +320,7 @@ def run(game_date: str):
         if top_bat:
             pid, pname, score, _ = top_bat
             print(f"    Breakout batter: {pname} (score={score:.1f}) → generating card")
-            trigger_batter_card(pid, feed_path, pname, game_date)
-            cards_generated += 1
+            cards_generated += int(trigger_batter_card(pid, feed_path, pname, game_date))
 
         # Top non-watchlist pitcher
         top_pit = next(
@@ -302,15 +330,18 @@ def run(game_date: str):
         if top_pit:
             pid, pname, score, _ = top_pit
             print(f"    Breakout pitcher: {pname} (score={score:.1f}) → generating card")
-            trigger_pitcher_card(pid, game_date, pname)
-            cards_generated += 1
+            cards_generated += int(trigger_pitcher_card(pid, game_date, pname))
 
     print(f"\n[4/4] Done — {cards_generated} card(s) queued for review.")
+    if player_id is not None and cards_generated == 0:
+        print(f"  Player {player_id} did not appear in a completed game on {game_date}.")
+    return cards_generated
 
 
 def main():
     parser = argparse.ArgumentParser(description="Mallitalytics Daily Card Generator")
-    parser.add_argument("--date", default=None, help="YYYY-MM-DD (default: yesterday)")
+    parser.add_argument("--date", default=None, help="YYYY-MM-DD or yesterday (default: yesterday)")
+    parser.add_argument("--player-id", type=int, default=None, help="Generate only this player's card(s)")
     parser.add_argument("--seed-watchlist", action="store_true", help="Only seed watchlist DB and exit")
     args = parser.parse_args()
 
@@ -318,8 +349,12 @@ def main():
         seed_watchlist_to_db()
         return
 
-    game_date = args.date or str(date.today() - timedelta(days=1))
-    run(game_date)
+    game_date = args.date or "yesterday"
+    if game_date.strip().lower() == "yesterday":
+        game_date = str(date.today() - timedelta(days=1))
+    cards_generated = run(game_date, player_id=args.player_id)
+    if args.player_id is not None and cards_generated == 0:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

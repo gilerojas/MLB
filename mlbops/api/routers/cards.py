@@ -12,9 +12,9 @@ POST /cards/games-of-day → runs games_of_day_board.py
 """
 import csv
 import json
+import os as _os
 import re
 import secrets
-import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -35,6 +35,12 @@ from api.paths import (
     safe_is_dir,
     truncate_tweet_text_to_cap,
 )
+from api.services.script_runner import (
+    ScriptCapacityError,
+    ScriptFailedError,
+    ScriptTimeoutError,
+    default_script_runner,
+)
 
 STATS_BASE = "https://statsapi.mlb.com/api/v1"
 
@@ -42,7 +48,6 @@ REPO_ROOT = get_repo_root()
 WAREHOUSE_ROOT = get_warehouse_dir()
 OUTPUTS_ROOT = get_outputs_dir()
 MLB_PYTHON = sys.executable
-import os as _os
 _API_HOST = _os.getenv("FASTAPI_STATIC_BASE", "http://127.0.0.1:8000")
 STATIC_BASE = f"{_API_HOST.rstrip('/')}/static"
 
@@ -153,18 +158,17 @@ def _hr_tracker_tweet_from_stdout(stdout: str) -> str:
 
 def _run_script(cmd: list[str]) -> tuple[str, str]:
     """Run a card script and return (stdout, stderr). Raises HTTPException on failure."""
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=str(REPO_ROOT),
-    )
-    if result.returncode != 0:
+    try:
+        return default_script_runner.run(cmd, cwd=REPO_ROOT)
+    except ScriptCapacityError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ScriptTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ScriptFailedError as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Script failed:\n{result.stderr[-2000:]}",
-        )
-    return result.stdout, result.stderr
+            detail=f"Script failed:\n{exc.stderr[-2000:]}",
+        ) from exc
 
 
 def _extract_saved_path(stdout: str) -> Optional[Path]:
@@ -496,7 +500,6 @@ def _generate_hr_tracker_sync(req: HRTrackerRequest) -> dict:
         "--output-dir", str(OUTPUTS_ROOT),
         "--warehouse", str(WAREHOUSE_ROOT),
         "--warehouse-only",
-        "--no-season-counts",
     ]
 
     stdout, _ = _run_script(cmd)
@@ -532,6 +535,32 @@ async def generate_hr_tracker(req: HRTrackerRequest):
 
 
 def _pitching_index_tweet(csv_path: Path, game_date: str) -> str:
+    def _as_float(row: dict, key: str) -> Optional[float]:
+        try:
+            raw = row.get(key)
+            if raw in (None, ""):
+                return None
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _as_int(row: dict, key: str) -> Optional[int]:
+        val = _as_float(row, key)
+        return int(val) if val is not None else None
+
+    def _fmt_number(val: Optional[float], digits: int = 1) -> str:
+        return f"{val:.{digits}f}" if val is not None else "--"
+
+    def _fmt_int(val: Optional[int]) -> str:
+        return str(val) if val is not None else "--"
+
+    def _date_label(raw_date: str) -> str:
+        try:
+            d = date.fromisoformat(raw_date)
+            return f"{d.strftime('%B')} {d.day}"
+        except ValueError:
+            return raw_date
+
     try:
         with csv_path.open(newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
@@ -540,26 +569,43 @@ def _pitching_index_tweet(csv_path: Path, game_date: str) -> str:
     if not rows:
         return (
             f"Pitching Index — {game_date}\n"
-            "MalliScore blends command, whiffs, workload, and xwOBA suppression.\n"
+            "MalliScore blends dominance, run prevention, and workload.\n"
             "#Mallitalytics"
         )
 
-    top = rows[:3]
-    lines = [f"Pitching Index — {game_date}", ""]
-    for row in top:
-        try:
-            score = float(row.get("malli_score") or 0)
-            xwoba = float(row.get("xwoba_allowed") or 0)
-            csw = float(row.get("csw_pct") or 0)
-            chase = float(row.get("chase_pct") or 0)
-        except ValueError:
-            score, xwoba, csw, chase = 0.0, 0.0, 0.0, 0.0
-        lines.append(
-            f"{row.get('rank')}. {row.get('pitcher')} ({row.get('team')}): "
-            f"{score:.1f} MalliScore, {xwoba:.3f} xwOBA, {csw:.1f}% CSW, {chase:.1f}% Chase"
-        )
-    lines.extend(["", "#Mallitalytics"])
-    return "\n".join(lines)
+    leader = rows[0]
+    pitcher = str(leader.get("pitcher") or "Pitching Index leader").strip()
+    opponent = str(leader.get("opponent") or "?").strip().upper()
+    score = _as_float(leader, "malli_score")
+    outs = _as_int(leader, "outs")
+    pitches = _as_int(leader, "pitches")
+    whiffs = _as_int(leader, "whiffs")
+    chase = _as_float(leader, "chase_pct")
+    dominance = _as_float(leader, "dominance_score")
+    run_prevention = _as_float(leader, "run_prevention_score")
+    workload = _as_float(leader, "workload")
+    summary = str(leader.get("summary") or "").strip()
+    line = summary.split(",", 1)[1].strip() if "," in summary else summary
+
+    return "\n".join(
+        [
+            f"Pitching Index leader from {_date_label(game_date)}:",
+            "",
+            f"{pitcher} — {_fmt_number(score)} MalliScore vs {opponent}",
+            "",
+            f"{_fmt_int(outs)} outs, {_fmt_int(pitches)} pitches",
+            f"{_fmt_int(whiffs)} whiffs, {_fmt_number(chase)}% Chase",
+            line,
+            "",
+            f"Dominance: {_fmt_number(dominance)}",
+            f"Run prevention: {_fmt_number(run_prevention)}",
+            f"Workload: {_fmt_number(workload, 2)}x",
+            "",
+            "More on the Pitching Index card.",
+            "",
+            "#Mallitalytics",
+        ]
+    )
 
 
 def _generate_pitching_index_sync(req: PitchingIndexRequest) -> dict:

@@ -28,6 +28,7 @@ from api.paths import (
     get_warehouse_dir,
     safe_is_dir,
 )
+from api.security import ServiceAuthMiddleware, is_production_runtime
 from api.routers import analytics, briefing, cards, fantasy, insights, intel, leaderboards, live, queue, schedule, watchlist
 from api.routers import system_readiness
 
@@ -61,13 +62,19 @@ _cors_mw: dict = {
 if os.getenv("MLBOPS_STRICT_CORS", "").strip().lower() not in ("1", "true", "yes"):
     _cors_mw["allow_origin_regex"] = r"^http://(127\.0\.0\.1|localhost)(:\d+)?$"
 
+_production_runtime = is_production_runtime()
+
 app = FastAPI(
     title="Mallitalytics MLB Hub",
     description="Content queue API for MLB card generation and Twitter posting.",
     version="1.0.0",
+    docs_url=None if _production_runtime else "/docs",
+    redoc_url=None if _production_runtime else "/redoc",
+    openapi_url=None if _production_runtime else "/openapi.json",
 )
 
 app.add_middleware(CORSMiddleware, **_cors_mw)
+app.add_middleware(ServiceAuthMiddleware)
 
 # Serve generated card PNGs
 app.mount("/static", StaticFiles(directory=str(OUTPUTS_DIR)), name="static")
