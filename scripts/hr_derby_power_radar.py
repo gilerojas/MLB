@@ -187,27 +187,31 @@ def draw_radar_card(
         overlay_draw.ellipse((px - 2.5, py - 2.5, px + 2.5, py + 2.5), fill=rgba(gold, 255), outline=rgba(ink, 230), width=1)
     canvas.alpha_composite(overlay)
 
-    label_font = load_jetbrains_mono(9, bold=True)
+    label_font = load_jetbrains_mono(9)
+    value_font = load_jetbrains_mono(9, bold=True)
     for index, (label, field, _, _, value_format) in enumerate(AXES):
         angle = -math.pi / 2 + index * 2 * math.pi / len(AXES)
         lx = cx + (radius + 16) * math.cos(angle)
         ly = cy + (radius + 16) * math.sin(angle)
         value = value_format.format(float(getattr(player, field)))
-        text = f"{label} {value}"
-        tw = text_width(draw, text, label_font)
+        label_text = f"{label} "
+        label_width = text_width(draw, label_text, label_font)
+        value_width = text_width(draw, value, value_font)
+        total_width = label_width + value_width
         if math.cos(angle) > 0.25:
             tx = lx
         elif math.cos(angle) < -0.25:
-            tx = lx - tw
+            tx = lx - total_width
         else:
-            tx = lx - tw / 2
+            tx = lx - total_width / 2
         if math.sin(angle) < -0.65:
             ty = ly - 7
         elif math.sin(angle) > 0.65:
             ty = ly - 2
         else:
             ty = ly - 5
-        draw.text((tx, ty), text, fill=slate, font=label_font)
+        draw.text((tx, ty), label_text, fill=slate, font=label_font)
+        draw.text((tx + label_width, ty), value, fill=orange, font=value_font)
 
 
 def render(out_path: Path) -> Path:
