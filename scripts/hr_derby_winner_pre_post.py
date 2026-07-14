@@ -368,7 +368,6 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
     small_bold = load_montserrat(12, bold=True)
     name_font = load_montserrat(16, bold=True)
     meta_font = load_montserrat(11, bold=True)
-    mono_small = load_jetbrains_mono(11, bold=True)
     mono_value = load_jetbrains_mono(15, bold=True)
 
     draw.text((44, 37), "DOES WINNING THE DERBY CHANGE A HITTER?", fill=ink, font=title_font)
@@ -439,10 +438,8 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
         delta = float(result.get("ops_delta") or 0)
         delta_text = f"{delta:+.3f}".replace("+0.", "+.").replace("-0.", "-.")
         ops_text = f"OPS {_format_rate(pre.get('ops'))} → {_format_rate(post.get('ops'))}"
-        draw.text((summary_x, y + 8), ops_text, fill=ink, font=mono_value)
-        draw.text((1129 - text_width(draw, delta_text, mono_value), y + 8), delta_text, fill=_delta_color(delta), font=mono_value)
-        hr_text = f"HR/100 PA {float(pre.get('hr_per_100_pa') or 0):.1f} → {float(post.get('hr_per_100_pa') or 0):.1f}"
-        draw.text((summary_x, y + 35), hr_text, fill=slate, font=mono_small)
+        draw.text((summary_x, y + 21), ops_text, fill=ink, font=mono_value)
+        draw.text((1129 - text_width(draw, delta_text, mono_value), y + 21), delta_text, fill=_delta_color(delta), font=mono_value)
 
     footer_y = HEIGHT - 35
     draw.line((44, footer_y - 13, WIDTH - 44, footer_y - 13), fill=lerp(slate, cream, 0.58), width=1)
