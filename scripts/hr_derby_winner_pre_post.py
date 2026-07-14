@@ -35,6 +35,7 @@ EVENT_RANGE = 40
 OPS_FLOOR = 0.450
 OPS_CEILING = 1.350
 REFERENCE_OPS = 0.750
+BRAND_LOGO_PATH = REPO_ROOT / "assets" / "brand" / "mallitalytics_horizontal_footer.png"
 
 
 @dataclass(frozen=True)
@@ -339,6 +340,14 @@ def _draw_line_segments(
                 draw.ellipse((px - 2, py - 2, px + 2, py + 2), fill=color)
 
 
+def _paste_footer_logo(image: Image.Image, *, right: int, top: int, height: int = 24) -> None:
+    """Place the approved transparent horizontal logo in the chart footer."""
+    source = Image.open(BRAND_LOGO_PATH).convert("RGBA")
+    width = round(source.width * height / source.height)
+    source = source.resize((width, height), Image.Resampling.LANCZOS)
+    image.alpha_composite(source, (right - width, top))
+
+
 def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Path:
     cream = rgb("warm_cream")
     off = rgb("off_white")
@@ -448,8 +457,7 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
     draw.text((legend_x + 32, footer_y), "before", fill=slate, font=small_font)
     draw.line((legend_x + 98, footer_y + 7, legend_x + 123, footer_y + 7), fill=after, width=3)
     draw.text((legend_x + 130, footer_y), "after", fill=slate, font=small_font)
-    handle = "@Mallitalytics"
-    draw.text((WIDTH - 44 - text_width(draw, handle, small_font), footer_y), handle, fill=slate, font=small_font)
+    _paste_footer_logo(image, right=WIDTH - 44, top=footer_y - 5)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.convert("RGB").save(out_path, "PNG", optimize=True)
