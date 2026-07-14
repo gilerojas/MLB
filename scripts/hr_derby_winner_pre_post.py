@@ -299,19 +299,44 @@ def _draw_line_segments(
     *,
     before_color: tuple[int, int, int],
     after_color: tuple[int, int, int],
+    background: tuple[int, int, int],
 ) -> None:
-    previous: tuple[float, float, int] | None = None
+    series: dict[str, list[list[tuple[float, float]]]] = {"before": [], "after": []}
+    current_segment: list[tuple[float, float]] = []
+    current_side: str | None = None
+    previous_relative: int | None = None
     for point in points:
         value = point.get("rolling_ops")
         if value is None:
-            previous = None
+            if current_side and current_segment:
+                series[current_side].append(current_segment)
+            current_segment = []
+            current_side = None
+            previous_relative = None
             continue
         relative = int(point["relative_game"])
-        current = (_plot_x(relative, x0, x1), _plot_y(float(value), y0, y1), relative)
-        if previous is not None and abs(relative - previous[2]) == 1:
-            color = after_color if relative > 0 else before_color
-            draw.line((previous[0], previous[1], current[0], current[1]), fill=color, width=3)
-        previous = current
+        side = "after" if relative > 0 else "before"
+        coordinate = (_plot_x(relative, x0, x1), _plot_y(float(value), y0, y1))
+        if current_side != side or previous_relative is None or abs(relative - previous_relative) != 1:
+            if current_side and current_segment:
+                series[current_side].append(current_segment)
+            current_segment = [coordinate]
+            current_side = side
+        else:
+            current_segment.append(coordinate)
+        previous_relative = relative
+    if current_side and current_segment:
+        series[current_side].append(current_segment)
+
+    for side, color in (("before", before_color), ("after", after_color)):
+        under_stroke = lerp(color, background, 0.72)
+        for segment in series[side]:
+            if len(segment) < 2:
+                continue
+            draw.line(segment, fill=under_stroke, width=7, joint="curve")
+            draw.line(segment, fill=color, width=3, joint="curve")
+            for px, py in (segment[0], segment[-1]):
+                draw.ellipse((px - 2, py - 2, px + 2, py + 2), fill=color)
 
 
 def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Path:
@@ -338,28 +363,35 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
     mono_value = load_jetbrains_mono(15, bold=True)
 
     draw.text((44, 37), "DOES WINNING THE DERBY CHANGE A HITTER?", fill=ink, font=title_font)
-    draw.text((46, 82), "15-GAME ROLLING OPS  ·  LAST 7 COMPLETED CHAMPIONS WITH POST-EVENT DATA", fill=slate, font=subtitle_font)
+    draw.text(
+        (46, 82),
+        "LAST 7 COMPLETED CHAMPIONS  ·  REGULAR-SEASON PERFORMANCE AROUND THE DERBY",
+        fill=slate,
+        font=subtitle_font,
+    )
 
     improved = sum(1 for result in results if float(result.get("ops_delta") or 0) > 0)
     declined = sum(1 for result in results if float(result.get("ops_delta") or 0) < 0)
     draw.rounded_rectangle((944, 37, 1156, 101), radius=10, fill=off, outline=lerp(slate, cream, 0.48), width=2)
-    draw.text((963, 52), "30-GAME OPS", fill=slate, font=small_bold)
+    draw.text((963, 52), "30-GAME RESULT", fill=slate, font=small_bold)
     badge = f"{improved} UP  ·  {declined} DOWN"
     draw.text((963, 73), badge, fill=orange, font=small_bold)
 
     plot_x0, plot_x1 = 318, 887
     summary_x = 922
     center_x = _plot_x(0, plot_x0, plot_x1)
-    draw.text((44, 119), "WINNER", fill=slate, font=small_bold)
-    draw.text((plot_x0, 119), "-40 GAMES", fill=before, font=small_bold)
+    draw.text((44, 113), "WINNER", fill=slate, font=small_bold)
+    draw.text((plot_x0, 108), "TREND: 15-GAME ROLLING OPS", fill=ink, font=small_bold)
+    draw.text((plot_x0, 128), "-40 GAMES", fill=before, font=small_bold)
     derby_label = "DERBY"
-    draw.text((center_x - text_width(draw, derby_label, small_bold) / 2, 119), derby_label, fill=orange, font=small_bold)
+    draw.text((center_x - text_width(draw, derby_label, small_bold) / 2, 128), derby_label, fill=orange, font=small_bold)
     right_label = "+40 GAMES"
-    draw.text((plot_x1 - text_width(draw, right_label, small_bold), 119), right_label, fill=after, font=small_bold)
-    draw.text((summary_x, 119), "30G BEFORE → AFTER", fill=slate, font=small_bold)
+    draw.text((plot_x1 - text_width(draw, right_label, small_bold), 128), right_label, fill=after, font=small_bold)
+    draw.text((summary_x, 108), "SUMMARY: 30-GAME OPS", fill=ink, font=small_bold)
+    draw.text((summary_x, 128), "BEFORE → AFTER", fill=slate, font=small_bold)
 
-    row_top = 140
-    row_h = 67
+    row_top = 148
+    row_h = 66
     for index, result in enumerate(results):
         y = row_top + index * row_h
         if index % 2 == 0:
@@ -388,6 +420,7 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
             graph_y1,
             before_color=before,
             after_color=after,
+            background=off if index % 2 == 0 else cream,
         )
 
         pre = result["pre_30"]
@@ -402,7 +435,12 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
 
     footer_y = HEIGHT - 35
     draw.line((44, footer_y - 13, WIDTH - 44, footer_y - 13), fill=lerp(slate, cream, 0.58), width=1)
-    draw.text((44, footer_y), "Equal 30-game windows · Regular season only · Data: MLB Stats API", fill=slate, font=small_font)
+    draw.text(
+        (44, footer_y),
+        "Lines: trailing 15-game OPS · Summary: equal 30-game OPS windows · Data: MLB Stats API",
+        fill=slate,
+        font=small_font,
+    )
     legend_x = 684
     draw.line((legend_x, footer_y + 7, legend_x + 25, footer_y + 7), fill=before, width=3)
     draw.text((legend_x + 32, footer_y), "before", fill=slate, font=small_font)
