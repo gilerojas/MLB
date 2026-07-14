@@ -380,18 +380,20 @@ def render(results: list[dict[str, Any]], out_path: Path, cache_dir: Path) -> Pa
     plot_x0, plot_x1 = 318, 887
     summary_x = 922
     center_x = _plot_x(0, plot_x0, plot_x1)
-    draw.text((44, 113), "WINNER", fill=slate, font=small_bold)
-    draw.text((plot_x0, 108), "TREND: 15-GAME ROLLING OPS", fill=ink, font=small_bold)
-    draw.text((plot_x0, 128), "-40 GAMES", fill=before, font=small_bold)
+    header_y = 118
+    tick_y = 137
+    draw.text((44, header_y), "WINNER", fill=slate, font=small_bold)
+    draw.text((plot_x0, header_y), "TREND: 15-GAME ROLLING OPS", fill=ink, font=small_bold)
+    draw.text((plot_x0, tick_y), "-40 GAMES", fill=before, font=small_bold)
     derby_label = "DERBY"
-    draw.text((center_x - text_width(draw, derby_label, small_bold) / 2, 128), derby_label, fill=orange, font=small_bold)
+    draw.text((center_x - text_width(draw, derby_label, small_bold) / 2, tick_y), derby_label, fill=orange, font=small_bold)
     right_label = "+40 GAMES"
-    draw.text((plot_x1 - text_width(draw, right_label, small_bold), 128), right_label, fill=after, font=small_bold)
-    draw.text((summary_x, 108), "SUMMARY: 30-GAME OPS", fill=ink, font=small_bold)
-    draw.text((summary_x, 128), "BEFORE → AFTER", fill=slate, font=small_bold)
+    draw.text((plot_x1 - text_width(draw, right_label, small_bold), tick_y), right_label, fill=after, font=small_bold)
+    draw.text((summary_x, header_y), "SUMMARY: 30-GAME OPS", fill=ink, font=small_bold)
+    draw.text((summary_x, tick_y), "BEFORE → AFTER", fill=slate, font=small_bold)
 
-    row_top = 148
-    row_h = 66
+    row_top = 157
+    row_h = 64
     for index, result in enumerate(results):
         y = row_top + index * row_h
         if index % 2 == 0:
