@@ -1,6 +1,6 @@
-# Morning intel: warehouse + Stats API + Claude + queue + Resend/Twilio.
-# hub.db at Drive: MLB/hub/hub.db (rclone copyto).
-# Intel JSON snapshots: MLB/morning_intel/snapshots/ (rclone sync) — pull before run, push after (for local mlbops hub).
+# Morning Intel newsletter: current-season Statcast + MLB APIs + Claude + Resend.
+# This job is read-only with respect to the production queue and only downloads
+# the enriched pitch files needed for league-wide signals.
 
 name: Morning Intel
 
@@ -130,12 +130,25 @@ jobs:
             printf '%s\n' "[${remote}]" 'type = drive' 'scope = drive' 'service_account_file = /tmp/gdrive_sa.json' "root_folder_id = ${GDRIVE_FOLDER_ID}" > ~/.config/rclone/rclone.conf
           fi
 
-      - name: Pull warehouse + hub.db + intel snapshots
+      - name: Pull newsletter inputs
         run: |
-          mkdir -p data/warehouse/mlb data morning_intel/snapshots
-          rclone sync "${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}" data/warehouse/mlb --transfers 8
-          rclone copyto "${RCLONE_REMOTE}:MLB/hub/hub.db" "data/hub.db" || echo "::warning::no hub.db on remote yet"
-          rclone sync "${RCLONE_REMOTE}:${GDRIVE_INTEL_SNAPSHOTS_PATH}" morning_intel/snapshots --transfers 4 || echo "::warning::no intel snapshots on remote yet"
+          PITCH_DIR="data/warehouse/mlb/${MLB_SEASON}/regular_season/pitches_enriched"
+          mkdir -p "$PITCH_DIR" morning_intel/snapshots
+          rclone copy \
+            "${RCLONE_REMOTE}:${GDRIVE_WAREHOUSE_PATH}/${MLB_SEASON}/regular_season/pitches_enriched" \
+            "$PITCH_DIR" \
+            --include "*.parquet" \
+            --fast-list \
+            --transfers 16 \
+            --checkers 32 \
+            --stats 30s \
+            --stats-one-line
+          rclone sync \
+            "${RCLONE_REMOTE}:${GDRIVE_INTEL_SNAPSHOTS_PATH}" \
+            morning_intel/snapshots \
+            --fast-list \
+            --transfers 4 \
+            || echo "::warning::no intel snapshots on remote yet"
 
       - name: Run morning intel
         env:
@@ -149,17 +162,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MPLBACKEND: Agg
         run: |
-          CMD=(python morning_intel/morning_intel.py --season "${MLB_SEASON}")
+          CMD=(python morning_intel/morning_intel.py --season "${MLB_SEASON}" --skip-queue)
           D="${{ github.event.inputs.anchor_date }}"
           test -n "$D" && CMD+=(--date "$D")
           "${CMD[@]}"
-
-      - name: Push hub.db
-        if: always()
-        run: |
-          test -f ~/.config/rclone/rclone.conf || exit 0
-          test -f data/hub.db || exit 0
-          rclone copyto data/hub.db "${RCLONE_REMOTE}:MLB/hub/hub.db"
 
       - name: Push intel snapshots
         if: always()

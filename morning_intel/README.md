@@ -18,7 +18,7 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_WHATSAPP_TO` | Digest WhatsApp |
 | `PUBLIC_STATIC_BASE_URL` | Card image URLs in queue (e.g. `http://localhost:8000/static`) |
 
-GitHub Actions: set the same values as **repository secrets** (see workflow file).
+GitHub Actions: set the same values as **repository secrets** (see workflow file). The scheduled newsletter runs with `--skip-queue`; it does not copy or modify the legacy Drive `hub.db`.
 
 **Run locally**
 

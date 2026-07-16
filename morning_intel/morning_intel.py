@@ -1607,7 +1607,7 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
             print(f"  Twilio error: {e}")
 
 
-def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude):
+def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_queue=False):
     report = IntelReport(anchor_date=anchor.isoformat(), season=season)
     yesterday = anchor - timedelta(days=1)
     today = anchor
@@ -1716,8 +1716,9 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude):
         report.tweet_drafts = ["(Claude skipped)"]
     else:
         report.tweet_drafts = generate_tweet_drafts_claude(findings, n=5)
-    if dry_run:
-        print("\n[DRY RUN] Skip queue inserts")
+    if dry_run or skip_queue:
+        reason = "DRY RUN" if dry_run else "READ-ONLY NEWSLETTER"
+        print(f"\n[{reason}] Skip queue inserts")
     else:
         season_y = anchor.year
         for i, tw in enumerate(report.tweet_drafts):
@@ -1773,6 +1774,11 @@ def main():
     parser.add_argument("--skip-notify", action="store_true")
     parser.add_argument("--skip-claude", action="store_true")
     parser.add_argument(
+        "--skip-queue",
+        action="store_true",
+        help="Send/write the briefing without inserting generated drafts into the content queue.",
+    )
+    parser.add_argument(
         "--skip-cards",
         action="store_true",
         help="Deprecated compatibility flag; Morning Intel no longer generates watchlist cards.",
@@ -1781,7 +1787,15 @@ def main():
     anchor = date.fromisoformat(args.date) if args.date else date.today()
     season = args.season or anchor.year
     print(f"\n{'='*60}\n  Morning Intel — anchor={anchor} season={season}\n{'='*60}")
-    run_intel(anchor, season, args.stage, args.dry_run, args.skip_notify, args.skip_claude)
+    run_intel(
+        anchor,
+        season,
+        args.stage,
+        args.dry_run,
+        args.skip_notify,
+        args.skip_claude,
+        skip_queue=args.skip_queue,
+    )
 
 
 if __name__ == "__main__":
