@@ -4,9 +4,9 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 
 | Path | Purpose |
 |------|---------|
-| `morning_intel.py` | Main CLI — warehouse + Stats API + Claude drafts + queue + email/WhatsApp |
+| `morning_intel.py` | Main CLI — MLB news + scores + Statcast signals + Claude drafts + newsletter email |
 | `morning_digest.py` | Deprecated stub (points you to `morning_intel.py`) |
-| `snapshots/` | JSON digests written each run |
+| `snapshots/` | JSON data and HTML newsletter previews written each run |
 
 **Environment variables** (create `morning_intel/.env` — gitignored — or reuse `jobs/.env`; both are loaded)
 
@@ -28,6 +28,6 @@ python morning_intel/morning_intel.py --dry-run --skip-notify --skip-claude
 
 **GitHub Actions:** `.github/workflows/morning_intel.yml` (after daily warehouse ingest).
 
-**Watchlist:** Shared with card jobs — canonical file is `jobs/player_watchlist.json` (not cron-specific; just where those scripts already read from).
+The briefing has no player-watchlist dependency. It scans league-wide news and qualified Statcast signals, then writes a private content notebook into the email.
 
 **About `jobs/`:** That directory holds other automation (`daily_card_generator.py`, `weekly_report.py`, etc.). It is **not** tied to cron — only `crontab.example` documents optional local schedules. Production timing for intel is **GitHub Actions**, not your Mac.

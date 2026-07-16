@@ -15,11 +15,6 @@ on:
         description: "Anchor YYYY-MM-DD (blank = yesterday UTC)"
         required: false
         default: ""
-      skip_cards:
-        description: "Skip card subprocesses"
-        required: false
-        default: false
-        type: boolean
 
 env:
   GDRIVE_WAREHOUSE_PATH: MLB/warehouse/mlb
@@ -157,7 +152,6 @@ jobs:
           CMD=(python morning_intel/morning_intel.py --season "${MLB_SEASON}")
           D="${{ github.event.inputs.anchor_date }}"
           test -n "$D" && CMD+=(--date "$D")
-          test "${{ github.event.inputs.skip_cards }}" = "true" && CMD+=(--skip-cards)
           "${CMD[@]}"
 
       - name: Push hub.db

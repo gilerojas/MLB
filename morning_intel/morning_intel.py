@@ -11,14 +11,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
 
@@ -40,10 +43,10 @@ from src import batter_recent as _br  # noqa: E402
 from src import pitcher_recent as _pr  # noqa: E402
 
 WAREHOUSE_ROOT = REPO_ROOT / "data" / "warehouse" / "mlb"
-WATCHLIST_JSON = REPO_ROOT / "jobs" / "player_watchlist.json"
 OUTPUTS_ROOT = REPO_ROOT / "outputs"
 INTEL_OUT = _INTEL_DIR / "snapshots"
 STATS_BASE = "https://statsapi.mlb.com/api/v1"
+MLB_NEWS_RSS = "https://www.mlb.com/feeds/news/rss.xml"
 SPORT_ID = 1
 PARQUET_NAME_RE = re.compile(r"game_(\d+)_(\d{8})_pitches_enriched\.parquet$", re.I)
 READ_COLS = [
@@ -184,6 +187,8 @@ def diversify_milestones_by_stat(
 class IntelReport:
     anchor_date: str
     season: int
+    news_stories: list[dict] = field(default_factory=list)
+    yesterday_results: list[str] = field(default_factory=list)
     transactions: list[str] = field(default_factory=list)
     transactions_detail: list[dict] = field(default_factory=list)
     probables_today: list[str] = field(default_factory=list)
@@ -192,8 +197,6 @@ class IntelReport:
     milestones_detail: list[dict] = field(default_factory=list)
     anomalies_pitchers: list[dict] = field(default_factory=list)
     anomalies_batters: list[dict] = field(default_factory=list)
-    watchlist_pulse: list[str] = field(default_factory=list)
-    watchlist_pulse_detail: list[dict] = field(default_factory=list)
     tweet_drafts: list[str] = field(default_factory=list)
     queue_ids: list[int] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -251,19 +254,6 @@ def _norm_game_date_series(s: pd.Series) -> pd.Series:
             except Exception:
                 out.append(None)
     return pd.Series(out, index=s.index)
-
-
-def load_watchlist_json():
-    data = json.loads(WATCHLIST_JSON.read_text(encoding="utf-8"))
-    return data if isinstance(data, list) else []
-
-
-def watchlist_id_set(wl):
-    return {int(p["player_id"]) for p in wl if p.get("player_id") is not None}
-
-
-def watchlist_by_id(wl):
-    return {int(p["player_id"]): p for p in wl if p.get("player_id") is not None}
 
 
 def iter_enriched_parquets(season: int, stage: str = "regular_season"):
@@ -1025,6 +1015,81 @@ def hydrate_anomaly_names(items, names):
         it["player_name"] = names.get(it["player_id"], str(it["player_id"]))
 
 
+def parse_mlb_news_rss(xml_text: str, limit: int = 6) -> list[dict]:
+    """Parse MLB's public RSS feed into a small, safe newsletter payload."""
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+
+    stories: list[dict] = []
+    seen: set[str] = set()
+    for item in root.findall("./channel/item"):
+        title = (item.findtext("title") or "").strip()
+        url = (item.findtext("link") or "").strip()
+        if not title or not url.startswith("https://www.mlb.com/") or url in seen:
+            continue
+        seen.add(url)
+        published_raw = (item.findtext("pubDate") or "").strip()
+        published = ""
+        if published_raw:
+            try:
+                published = parsedate_to_datetime(published_raw).isoformat()
+            except (TypeError, ValueError, OverflowError):
+                published = published_raw
+        author = (item.findtext("{http://purl.org/dc/elements/1.1/}creator") or "MLB.com").strip()
+        image_node = item.find("image")
+        image_url = (image_node.get("href") or "").strip() if image_node is not None else ""
+        if image_url and not image_url.startswith("https://"):
+            image_url = ""
+        stories.append({
+            "title": title,
+            "url": url,
+            "author": author or "MLB.com",
+            "published_at": published,
+            "image_url": image_url,
+        })
+        if len(stories) >= limit:
+            break
+    return stories
+
+
+def api_mlb_news(limit: int = 6) -> list[dict]:
+    try:
+        response = requests.get(MLB_NEWS_RSS, timeout=20)
+        response.raise_for_status()
+        return parse_mlb_news_rss(response.text, limit=limit)
+    except Exception:
+        return []
+
+
+def api_game_results(day: date) -> list[str]:
+    """Return concise final scores for the previous day's MLB slate."""
+    try:
+        response = requests.get(
+            f"{STATS_BASE}/schedule",
+            params={"sportId": SPORT_ID, "date": day.isoformat()},
+            timeout=20,
+        )
+        response.raise_for_status()
+        lines: list[str] = []
+        for date_block in response.json().get("dates") or []:
+            for game in date_block.get("games") or []:
+                if (game.get("status") or {}).get("abstractGameState") != "Final":
+                    continue
+                teams = game.get("teams") or {}
+                away = teams.get("away") or {}
+                home = teams.get("home") or {}
+                away_name = (away.get("team") or {}).get("name", "Away")
+                home_name = (home.get("team") or {}).get("name", "Home")
+                lines.append(
+                    f"{away_name} {away.get('score', 0)} · {home_name} {home.get('score', 0)}"
+                )
+        return lines
+    except Exception:
+        return []
+
+
 def api_transactions(day):
     ds = day.isoformat()
     try:
@@ -1201,13 +1266,13 @@ def api_season_hitting_pitching(person_ids, season):
 def build_findings_blob(report: IntelReport) -> str:
     blob = {
         "anchor_date": report.anchor_date,
+        "news_headlines": [story.get("title") for story in report.news_stories[:6]],
+        "yesterday_results": report.yesterday_results,
         "transactions": report.transactions[:20],
         "probables_today": report.probables_today[:12],
         "milestones": report.milestones[:20],
         "pitcher_anomalies": report.anomalies_pitchers[:15],
         "batter_anomalies": report.anomalies_batters[:15],
-        "watchlist_pulse": report.watchlist_pulse,
-        "watchlist_pulse_detail": report.watchlist_pulse_detail[:25],
         "notes": report.notes,
     }
     return json.dumps(blob, indent=2, default=str)
@@ -1234,6 +1299,8 @@ Given the following morning intel summary, write exactly {n} distinct tweet draf
 - Plain text only, no markdown.
 - Optional hashtags: at most one line may include #Mallitalytics or #MLB — not every tweet needs hashtags.
 - Lead with the most interesting number or comparison when possible.
+- Treat news headlines as link context only. Never invent article details that are not present in the summary.
+- Prefer measured Mallitalytics data signals for statistical claims.
 
 Intel summary:
 {findings_summary}
@@ -1326,39 +1393,168 @@ def _anomaly_window_phrase(a: dict) -> str:
 
 def render_digest_plain(report: IntelReport) -> str:
     lines = [
-        f"Mallitalytics Morning Intel — {report.anchor_date}", "",
-        "— Transactions (sample) —",
+        f"MALLITALYTICS MORNING INTEL | {report.anchor_date}", "",
+        "THE LEADOFF",
     ]
-    lines += report.transactions[:20] or ["(none)"]
-    lines += ["", "— Probables today —"]
-    lines += report.probables_today[:15] or ["(none)"]
-    lines += ["", "— Probables tomorrow —"]
-    lines += report.probables_tomorrow[:15] or ["(none)"]
-    lines += ["", "— Milestones —"]
-    lines += report.milestones[:20] or ["(none)"]
-    lines += ["", "— Pitcher anomalies —"]
-    for a in report.anomalies_pitchers[:12]:
+    lines += [f"- {s['title']} — {s['url']}" for s in report.news_stories[:6]] or ["No headlines available."]
+    lines += ["", "LAST NIGHT"]
+    lines += report.yesterday_results or ["No final games."]
+    lines += ["", "DATA SIGNALS — PITCHERS"]
+    for anomaly in report.anomalies_pitchers[:5]:
         lines.append(
-            f"{a.get('player_name')} ({_anomaly_window_phrase(a)} · {a['metric']}) "
-            f"{a['window']} vs baseline {a['baseline']} (Δ{a['delta']})"
+            f"{anomaly.get('player_name')} · {anomaly['metric']}: "
+            f"{anomaly['window']} vs {anomaly['baseline']} (Δ{anomaly['delta']})"
         )
     if not report.anomalies_pitchers:
-        lines.append("(none)")
-    lines += ["", "— Batter anomalies —"]
-    for a in report.anomalies_batters[:12]:
+        lines.append("No qualified pitcher signals.")
+    lines += ["", "DATA SIGNALS — HITTERS"]
+    for anomaly in report.anomalies_batters[:5]:
         lines.append(
-            f"{a.get('player_name')} ({_anomaly_window_phrase(a)} · {a['metric']}) "
-            f"{a['window']} vs baseline {a['baseline']} (Δ{a['delta']})"
+            f"{anomaly.get('player_name')} · {anomaly['metric']}: "
+            f"{anomaly['window']} vs {anomaly['baseline']} (Δ{anomaly['delta']})"
         )
     if not report.anomalies_batters:
-        lines.append("(none)")
-    lines += ["", "— Watchlist pulse —"]
-    lines += report.watchlist_pulse
-    lines += ["", "— Tweet drafts —"]
+        lines.append("No qualified hitter signals.")
+    lines += ["", "TODAY'S BOARD"]
+    lines += report.probables_today[:15] or ["(none)"]
+    lines += ["", "TOMORROW"]
+    lines += report.probables_tomorrow[:15] or ["(none)"]
+    lines += ["", "ROSTER WIRE"]
+    lines += report.transactions[:12] or ["(none)"]
+    lines += ["", "MILESTONE RADAR"]
+    lines += report.milestones[:20] or ["(none)"]
+    lines += ["", "CONTENT NOTEBOOK (PRIVATE)"]
     lines += [f"{i+1}. {t}" for i, t in enumerate(report.tweet_drafts)]
     if report.notes:
-        lines += ["", "— Notes —"] + report.notes
+        lines += ["", "PIPELINE NOTES"] + report.notes
     return "\n".join(lines)
+
+
+def _email_date(value: str) -> str:
+    try:
+        return date.fromisoformat(value).strftime("%A, %B %-d, %Y")
+    except ValueError:
+        return value
+
+
+def _email_list(items: list[str], empty: str = "Nothing to report.", limit: int = 8) -> str:
+    rows = items[:limit] or [empty]
+    return "".join(
+        "<tr><td style='padding:9px 0;border-bottom:1px solid #e5e7eb;"
+        "font-size:14px;line-height:1.45;color:#263548'>"
+        f"{html.escape(str(row))}</td></tr>"
+        for row in rows
+    )
+
+
+def _anomaly_rows(items: list[dict], empty: str) -> str:
+    if not items:
+        return (
+            "<tr><td style='padding:12px 0;color:#6b7788;font-size:14px'>"
+            f"{html.escape(empty)}</td></tr>"
+        )
+    rows = []
+    for item in items[:5]:
+        name = html.escape(str(item.get("player_name") or item.get("player_id") or "Unknown"))
+        metric = html.escape(str(item.get("metric") or "Signal"))
+        window = html.escape(str(item.get("window") or "—"))
+        baseline = html.escape(str(item.get("baseline") or "—"))
+        delta = html.escape(str(item.get("delta") or "—"))
+        rows.append(
+            "<tr><td style='padding:10px 0;border-bottom:1px solid #e5e7eb'>"
+            f"<div style='font-size:14px;font-weight:700;color:#172235'>{name}</div>"
+            f"<div style='font-size:12px;line-height:1.45;color:#667386;margin-top:3px'>{metric} · "
+            f"{window} vs {baseline} · <span style='color:#007f78'>Δ{delta}</span></div>"
+            "</td></tr>"
+        )
+    return "".join(rows)
+
+
+def render_digest_html(report: IntelReport) -> str:
+    """Render a responsive, email-client-safe private morning newsletter."""
+    stories = report.news_stories[:6]
+    lead = stories[0] if stories else None
+    lead_html = ""
+    if lead:
+        image_url = html.escape(str(lead.get("image_url") or ""), quote=True)
+        image_html = (
+            f"<img src='{image_url}' alt='' width='620' style='display:block;width:100%;"
+            "height:auto;max-height:310px;object-fit:cover;border:0'>"
+            if image_url else ""
+        )
+        lead_html = (
+            "<tr><td style='padding:0 0 18px'>"
+            f"<a href='{html.escape(str(lead['url']), quote=True)}' style='text-decoration:none'>{image_html}"
+            "<div style='padding:16px 18px;background:#122033'>"
+            "<div style='font-size:11px;font-weight:700;color:#43c5bc;text-transform:uppercase'>Top story</div>"
+            f"<div style='font-size:22px;line-height:1.25;font-weight:800;color:#ffffff;margin-top:6px'>{html.escape(str(lead['title']))}</div>"
+            f"<div style='font-size:12px;color:#aeb9c8;margin-top:8px'>{html.escape(str(lead.get('author') or 'MLB.com'))} · MLB.com</div>"
+            "</div></a></td></tr>"
+        )
+    secondary_news = "".join(
+        "<tr><td style='padding:10px 0;border-bottom:1px solid #e5e7eb'>"
+        f"<a href='{html.escape(str(story['url']), quote=True)}' style='font-size:14px;line-height:1.4;"
+        f"font-weight:700;color:#172235;text-decoration:none'>{html.escape(str(story['title']))}</a>"
+        f"<div style='font-size:11px;color:#7a8696;margin-top:3px'>{html.escape(str(story.get('author') or 'MLB.com'))}</div>"
+        "</td></tr>"
+        for story in stories[1:]
+    ) or "<tr><td style='padding:12px 0;color:#6b7788'>No MLB headlines available.</td></tr>"
+
+    tweet_rows = "".join(
+        "<tr><td style='padding:10px 0;border-bottom:1px solid #dbe4ee;font-size:13px;"
+        f"line-height:1.5;color:#263548'><strong style='color:#d85a1a'>{idx}.</strong> {html.escape(tweet)}</td></tr>"
+        for idx, tweet in enumerate(report.tweet_drafts[:5], 1)
+    ) or "<tr><td style='padding:10px 0;color:#6b7788'>No drafts generated.</td></tr>"
+
+    return f"""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>@media only screen and (max-width:680px){{.shell{{width:100%!important}}.pad{{padding-left:18px!important;padding-right:18px!important}}.col{{display:block!important;width:100%!important}}}}</style>
+</head><body style="margin:0;padding:0;background:#eef1f4;font-family:Arial,Helvetica,sans-serif">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#eef1f4"><tr><td align="center" style="padding:24px 8px">
+<table role="presentation" class="shell" width="680" cellspacing="0" cellpadding="0" border="0" style="width:680px;max-width:680px;background:#ffffff">
+<tr><td class="pad" style="padding:26px 30px 22px;background:#0b1726;border-top:4px solid #e96724">
+  <div style="font-size:12px;font-weight:700;color:#43c5bc;text-transform:uppercase">Mallitalytics</div>
+  <div style="font-size:28px;line-height:1.15;font-weight:800;color:#ffffff;margin-top:5px">Morning Intel</div>
+  <div style="font-size:13px;color:#aeb9c8;margin-top:8px">{html.escape(_email_date(report.anchor_date))} · Your daily baseball briefing</div>
+</td></tr>
+<tr><td class="pad" style="padding:24px 30px 8px">
+  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:12px">The leadoff</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{lead_html}{secondary_news}</table>
+</td></tr>
+<tr><td class="pad" style="padding:20px 30px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+    <td class="col" width="49%" valign="top" style="padding-right:10px">
+      <div style="font-size:11px;font-weight:800;color:#2b6cb0;text-transform:uppercase;margin-bottom:6px">Last night</div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_email_list(report.yesterday_results, 'No final games.', 10)}</table>
+    </td>
+    <td class="col" width="49%" valign="top" style="padding-left:10px">
+      <div style="font-size:11px;font-weight:800;color:#007f78;text-transform:uppercase;margin-bottom:6px">Today&apos;s board</div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_email_list(report.probables_today, 'No games scheduled.', 10)}</table>
+    </td>
+  </tr></table>
+</td></tr>
+<tr><td class="pad" style="padding:20px 30px;background:#f7f9fb;border-top:1px solid #dfe5eb;border-bottom:1px solid #dfe5eb">
+  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:10px">Mallitalytics data signals</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+    <td class="col" width="49%" valign="top" style="padding-right:10px"><div style="font-size:13px;font-weight:800;color:#172235">Pitchers</div><table role="presentation" width="100%">{_anomaly_rows(report.anomalies_pitchers, 'No qualified pitcher signals.')}</table></td>
+    <td class="col" width="49%" valign="top" style="padding-left:10px"><div style="font-size:13px;font-weight:800;color:#172235">Hitters</div><table role="presentation" width="100%">{_anomaly_rows(report.anomalies_batters, 'No qualified hitter signals.')}</table></td>
+  </tr></table>
+</td></tr>
+<tr><td class="pad" style="padding:22px 30px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+    <td class="col" width="49%" valign="top" style="padding-right:10px"><div style="font-size:11px;font-weight:800;color:#7c3f98;text-transform:uppercase;margin-bottom:6px">Roster wire</div><table role="presentation" width="100%">{_email_list(report.transactions, 'No notable moves.', 8)}</table></td>
+    <td class="col" width="49%" valign="top" style="padding-left:10px"><div style="font-size:11px;font-weight:800;color:#a06a00;text-transform:uppercase;margin-bottom:6px">Milestone radar</div><table role="presentation" width="100%">{_email_list(report.milestones, 'No milestones in range.', 8)}</table></td>
+  </tr></table>
+</td></tr>
+<tr><td class="pad" style="padding:22px 30px;background:#edf3f8;border-top:1px solid #d7e1ea">
+  <div style="font-size:11px;font-weight:800;color:#d85a1a;text-transform:uppercase">Private content notebook</div>
+  <div style="font-size:12px;color:#6b7788;margin:5px 0 8px">Starting points for today&apos;s Mallitalytics posts. Review before publishing.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{tweet_rows}</table>
+</td></tr>
+<tr><td class="pad" style="padding:18px 30px;background:#0b1726;color:#8fa0b4;font-size:11px;line-height:1.5">
+  News links: MLB.com · Data: MLB Stats API and Statcast · Internal edition<br>Mallitalytics turns baseball data into useful context.
+</td></tr>
+</table></td></tr></table></body></html>"""
 
 
 def send_resend_twilio(subject, html_body, plain_body, dry):
@@ -1375,7 +1571,8 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
                 headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                 json={
                     "from": resend_from, "to": resend_to, "subject": subject,
-                    "html": f"<pre style='font-family:monospace;white-space:pre-wrap'>{html_body}</pre>",
+                    "html": html_body,
+                    "text": plain_body,
                 },
                 timeout=20,
             )
@@ -1410,11 +1607,13 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
             print(f"  Twilio error: {e}")
 
 
-def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_cards):
+def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude):
     report = IntelReport(anchor_date=anchor.isoformat(), season=season)
     yesterday = anchor - timedelta(days=1)
     today = anchor
     tomorrow = anchor + timedelta(days=1)
+    report.news_stories = api_mlb_news(limit=6)
+    report.yesterday_results = api_game_results(yesterday)
     df = pd.DataFrame()
     indexed = iter_enriched_parquets(season, stage)
     if not indexed:
@@ -1439,11 +1638,8 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_car
                 detect_batter_anomalies(df, anchor),
             )
     ids = list({int(a["player_id"]) for a in report.anomalies_pitchers + report.anomalies_batters})
-    wl = load_watchlist_json()
-    wl_ids = [int(p["player_id"]) for p in wl]
     mile_ids = list(dict.fromkeys(
-        wl_ids
-        + [int(a["player_id"]) for a in report.anomalies_pitchers[:15]]
+        [int(a["player_id"]) for a in report.anomalies_pitchers[:15]]
         + [int(a["player_id"]) for a in report.anomalies_batters[:15]]
     ))
     all_people_ids = list(dict.fromkeys(ids + mile_ids))
@@ -1515,10 +1711,6 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_car
     mlines, mdetail = diversify_milestones_by_stat(mlines, mdetail, cap=45)
     report.milestones = mlines
     report.milestones_detail = mdetail
-    st_prev_wl = api_season_hitting_pitching(wl_ids, season - 1)
-    report.watchlist_pulse, report.watchlist_pulse_detail = build_watchlist_pulse(
-        df, anchor, wl, st, st_prev_wl, season,
-    )
     findings = build_findings_blob(report)
     if skip_claude:
         report.tweet_drafts = ["(Claude skipped)"]
@@ -1537,64 +1729,12 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_car
             )
             if qid:
                 report.queue_ids.append(qid)
-        if not skip_cards:
-            wset = watchlist_id_set(wl)
-            wmap = watchlist_by_id(wl)
-            game_date_str = anchor.isoformat()
-            queued_cards = set()
-
-            def maybe_card(a, ctype):
-                pid = int(a["player_id"])
-                if pid not in wset:
-                    return
-                pos = (wmap[pid].get("position") or "").lower()
-                key = (ctype, pid)
-                if key in queued_cards:
-                    return
-                if ctype == "pitcher_card":
-                    if pos not in ("pitcher", "two-way"):
-                        return
-                    if pos == "two-way" and a.get("role") != "pitcher":
-                        return
-                    png = run_pitcher_card(pid, game_date_str)
-                    role_meta = "pitcher"
-                else:
-                    if pos not in ("batter", "two-way"):
-                        return
-                    if pos == "two-way" and a.get("role") != "batter":
-                        return
-                    png = run_batter_card(pid, game_date_str)
-                    role_meta = "batter"
-                if not png or not png.exists():
-                    return
-                pname = wmap[pid].get("player_name", str(pid))
-                wlab = a.get("window_label")
-                if not wlab and a.get("window_days") is not None:
-                    wlab = f"{a['window_days']}d vs baseline"
-                if not wlab:
-                    wlab = "vs baseline"
-                tweet = (
-                    f"{pname} — {a.get('metric')} ({wlab}) "
-                    f"Δ{a['delta']} #Mallitalytics"
-                )
-                q = queue_card(
-                    ctype, png, tweet, game_date_str, season_y, pid, pname,
-                    meta={"source": "morning_intel", "anomaly": a, "role": role_meta},
-                )
-                if q:
-                    report.queue_ids.append(q)
-                    queued_cards.add(key)
-
-            for a in report.anomalies_pitchers:
-                if a.get("role") == "pitcher":
-                    maybe_card(a, "pitcher_card")
-            for a in report.anomalies_batters:
-                if a.get("role") == "batter":
-                    maybe_card(a, "batter_card")
     INTEL_OUT.mkdir(parents=True, exist_ok=True)
     snap_path = INTEL_OUT / f"intel_{anchor.isoformat()}.json"
     snap_path.write_text(json.dumps({
         "anchor": report.anchor_date,
+        "news_stories": report.news_stories,
+        "yesterday_results": report.yesterday_results,
         "transactions": report.transactions,
         "transactions_detail": report.transactions_detail,
         "probables_today": report.probables_today,
@@ -1603,18 +1743,24 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_car
         "milestones_detail": report.milestones_detail,
         "anomalies_pitchers": report.anomalies_pitchers,
         "anomalies_batters": report.anomalies_batters,
-        "watchlist_pulse": report.watchlist_pulse,
-        "watchlist_pulse_detail": report.watchlist_pulse_detail,
         "tweet_drafts": report.tweet_drafts,
         "queue_ids": report.queue_ids,
         "notes": report.notes,
     }, indent=2, default=str), encoding="utf-8")
     print(f"  Wrote {snap_path}")
     plain = render_digest_plain(report)
+    newsletter_html = render_digest_html(report)
+    html_path = INTEL_OUT / f"intel_{anchor.isoformat()}.html"
+    html_path.write_text(newsletter_html, encoding="utf-8")
+    print(f"  Wrote {html_path}")
     print("\n" + plain)
     if not skip_notify:
-        esc = plain.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        send_resend_twilio(f"Mallitalytics Intel | {anchor.isoformat()}", esc, plain, dry=dry_run)
+        send_resend_twilio(
+            f"Morning Intel | {anchor.strftime('%b %-d')}",
+            newsletter_html,
+            plain,
+            dry=dry_run,
+        )
     return report
 
 
@@ -1626,12 +1772,16 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-notify", action="store_true")
     parser.add_argument("--skip-claude", action="store_true")
-    parser.add_argument("--skip-cards", action="store_true")
+    parser.add_argument(
+        "--skip-cards",
+        action="store_true",
+        help="Deprecated compatibility flag; Morning Intel no longer generates watchlist cards.",
+    )
     args = parser.parse_args()
     anchor = date.fromisoformat(args.date) if args.date else date.today()
     season = args.season or anchor.year
     print(f"\n{'='*60}\n  Morning Intel — anchor={anchor} season={season}\n{'='*60}")
-    run_intel(anchor, season, args.stage, args.dry_run, args.skip_notify, args.skip_claude, args.skip_cards)
+    run_intel(anchor, season, args.stage, args.dry_run, args.skip_notify, args.skip_claude)
 
 
 if __name__ == "__main__":

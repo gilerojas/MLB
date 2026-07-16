@@ -98,6 +98,7 @@ mlbops/hub/.next/
 mlbops/hub/node_modules/
 jobs/.env
 morning_intel/.env
+morning_intel/snapshots/*.html
 morning_intel/snapshots/*.json
 !morning_intel/snapshots/.gitkeep
 data/hub.db
