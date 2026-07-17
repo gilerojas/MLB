@@ -4,8 +4,8 @@ Mallitalytics Daily Pitcher Card
 Generates a single-game pitching card (PNG) from a Statcast pitches_enriched parquet:
 header (name, bio, box score, Zone%, Whiffs, CSW%, GB%), hard contact heatmap, movement
 profile with arm angle, pitch tendencies by count, and an arsenal table (velo, spin,
-break, Chase%, Whiff%, Str%, Zone%, BS75+%, xwOBA). Chase%, Whiff%, and BS75+% use swings
-as the denominator; Str% and Zone% use pitches. Uses a default game and pitcher
+break, Chase%, Whiff%, Str%, Zone%, BS75+%, xwOBA). Chase% uses out-of-zone pitches,
+Whiff% uses swings, BS75+% uses tracked swings, and Str%/Zone% use pitches. Uses a default game and pitcher
 defined in CONFIG; use --random to pick a game from the warehouse instead.
 
 CLI:
@@ -99,6 +99,8 @@ def _resolved_output_dir() -> Path:
 if str(_ROOT_MLB) not in sys.path:
     sys.path.insert(0, str(_ROOT_MLB))
 from src.mlb_headshot import neutralize_mlb_headshot_background
+from src.arm_angle import add_effective_arm_angle, raw_path_for_parquet
+from src.pitching_performances.malli_score import OutingRawMetrics, default_league_norms, malliscore_v2
 
 # -----------------------------------------------------------------
 # CONFIG
@@ -127,8 +129,20 @@ def load_pitch_metric_benchmarks(season: int):
     global _BENCHMARK_CACHE
     if season in _BENCHMARK_CACHE:
         return _BENCHMARK_CACHE[season]
-    cfg_path = _PARENT / "config" / f"pitch_metric_benchmarks_{season}.json"
-    if not cfg_path.exists():
+    # Current-season cards use the most recent completed season so colors do
+    # not drift every day. Historical cards keep their matching season when
+    # that benchmark exists.
+    reference_season = min(int(season), 2025)
+    candidates = [reference_season]
+    if reference_season != 2025:
+        candidates.append(2025)
+    candidates.append(2024)
+    cfg_path = next(
+        (_PARENT / "config" / f"pitch_metric_benchmarks_{year}.json" for year in candidates
+         if (_PARENT / "config" / f"pitch_metric_benchmarks_{year}.json").exists()),
+        None,
+    )
+    if cfg_path is None:
         return None
     try:
         with cfg_path.open("r", encoding="utf-8") as f:
@@ -193,20 +207,26 @@ _PALETTE_LIGHT = {
 
 PALETTE = _PALETTE_LIGHT if LIGHT_MODE else _PALETTE_DARK
 
-if LIGHT_MODE:
-    GRAD_METRIC_LO = "#FFFBEB"   # pale cream (low efficiency)
-    GRAD_METRIC_HI = "#B45309"   # deep amber (high efficiency = good for pitcher)
-    GRAD_VELO_LO   = "#FDE8CC"
-    GRAD_VELO_HI   = "#B84010"
-    GRAD_XWOBA_LO  = "#FFFBEB"   # pale cream (low xwOBA = good, same as other metrics)
-    GRAD_XWOBA_HI  = "#B45309"   # deep amber (high xwOBA = bad for pitcher)
-else:
-    GRAD_METRIC_LO = "#1E2A38"
-    GRAD_METRIC_HI = "#DD6B20"   # warm amber (dark mode)
-    GRAD_VELO_LO   = "#251A0A"
-    GRAD_VELO_HI   = "#E8712B"
-    GRAD_XWOBA_LO  = "#1E2A38"   # same as GRAD_METRIC_LO
-    GRAD_XWOBA_HI  = "#DD6B20"   # warm amber
+QUALITY_STOPS_LIGHT = (
+    (0.00, "#5E7895"),  # poor: cold blue
+    (0.28, "#83A7A3"),  # below average: muted teal
+    (0.50, "#E5DDD1"),  # average: warm neutral
+    (0.72, "#D9A13B"),  # above average: gold
+    (0.87, "#D66A2C"),  # great: orange
+    (1.00, "#B83B2F"),  # elite: warm red
+)
+QUALITY_STOPS_DARK = (
+    (0.00, "#365570"),
+    (0.28, "#477A78"),
+    (0.50, "#6E6A63"),
+    (0.72, "#B88930"),
+    (0.87, "#D4652A"),
+    (1.00, "#C34535"),
+)
+QUALITY_CMAP = mpl.colors.LinearSegmentedColormap.from_list(
+    "mallitalytics_pitch_quality",
+    QUALITY_STOPS_LIGHT if LIGHT_MODE else QUALITY_STOPS_DARK,
+)
 
 PITCH_COLOURS = {
     'FF': {'colour': '#C94B68', 'name': '4-Seam Fastball'},
@@ -855,7 +875,11 @@ def process_pitches(df):
         df['zone'] = 14
     df['in_zone']    = (df['zone'] < 10) & (df['zone'] > 0)
     df['out_zone']   = (df['zone'] > 10) | (df['zone'] == 0)
-    df['chase']      = (~df['in_zone']) & df['swing']
+    df['chase']      = df['out_zone'] & df['swing']
+    if 'bat_speed' in df.columns:
+        df['tracked_swing'] = df['swing'] & pd.to_numeric(df['bat_speed'], errors='coerce').notna()
+    else:
+        df['tracked_swing'] = False
     # Strikes: 'S' (called/swinging) or 'X' (in play) — both count as strikes per Savant Str%
     df['is_strike']  = df['type'].astype(str).str.strip().str.upper().isin(('S', 'X'))
     if 'pfx_z' in df.columns and df['pfx_z'].notna().any():
@@ -918,10 +942,10 @@ def compute_box_score(df):
     gb_pct = (gb / bip) if (bip >= 5 and has_bb_type) else None
 
     fast_swing_pct = None
-    if 'bat_speed' in df.columns and df['swing'].any():
-        n_sw = int(df['swing'].sum())
+    if 'bat_speed' in df.columns and df['tracked_swing'].any():
+        n_sw = int(df['tracked_swing'].sum())
         if n_sw >= 1:
-            fast_swing_pct = float((df['swing'] & (df['bat_speed'] >= FAST_SWING_MPH)).sum()) / float(n_sw)
+            fast_swing_pct = float((df['tracked_swing'] & (df['bat_speed'] >= FAST_SWING_MPH)).sum()) / float(n_sw)
 
     zone_pct = df['in_zone'].sum() / n * 100 if n else 0
     return dict(
@@ -935,13 +959,14 @@ def compute_box_score(df):
 def group_arsenal(df, min_pitches=MIN_PITCHES):
     df = df.copy()
     if 'bat_speed' in df.columns:
-        df['_fg75'] = df['swing'] & (df['bat_speed'] >= FAST_SWING_MPH)
+        df['_fg75'] = df['tracked_swing'] & (df['bat_speed'] >= FAST_SWING_MPH)
     else:
         df['_fg75'] = False
     g = df.groupby('pitch_type').agg(
         count=('pitch_type','count'), velo=('release_speed','mean'), pfx_z=('pfx_z_in','mean'),
         pfx_x=('pfx_x_in','mean'), spin=('release_spin_rate','mean'), extension=('release_extension','mean'),
         rel_x=('release_pos_x','mean'), rel_z=('release_pos_z','mean'), swing=('swing','sum'),
+        tracked_swing=('tracked_swing', 'sum'),
         whiff=('whiff','sum'), in_zone=('in_zone','sum'), out_zone=('out_zone','sum'), chase=('chase','sum'),
         fast_ge_75=('_fg75', 'sum'),
         xwoba=('estimated_woba_using_speedangle','mean'), delta_re=('delta_run_exp','sum'),
@@ -957,11 +982,11 @@ def group_arsenal(df, min_pitches=MIN_PITCHES):
     total = len(df)
     g['usage_pct']    = g['count'] / total
     sw = g['swing'].replace(0, np.nan)
-    # Whiff% / Chase% / BS75+%: denominator = swings (Str% / Zone% still per pitch)
+    # Whiff% uses swings; Chase% uses out-of-zone pitches; BS75+ uses tracked swings.
     g['whiff_pct']    = g['whiff'] / sw
     g['str_pct']      = g['strikes'] / g['count']   # strikes / pitches
     g['zone_pct']     = g['in_zone'] / g['count']   # in-zone / pitches
-    g['chase_pct']    = g['chase'] / sw
+    g['chase_pct']    = g['chase'] / g['out_zone'].replace(0, np.nan)
     g['rv100']        = -g['delta_re'] / g['count'] * 100
     gb_denom = g['bip'].replace(0, np.nan)
     # GB%: ground balls as a share of balls IN PLAY (not all pitches)
@@ -971,7 +996,7 @@ def group_arsenal(df, min_pitches=MIN_PITCHES):
     g['hard_hit_pct'] = (g['hard_hit'] / gb_denom).fillna(0.0).clip(upper=1.0)
 
     # BS75+%: swings with bat speed ≥ FAST_SWING_MPH, as a share of all swings on that pitch type
-    g['fast_swing_pct'] = g['fast_ge_75'] / sw
+    g['fast_swing_pct'] = g['fast_ge_75'] / g['tracked_swing'].replace(0, np.nan)
 
     g['name']   = g['pitch_type'].map(DICT_PITCH).fillna(g['pitch_type'])
     g['colour'] = g['pitch_type'].map(DICT_COLOUR).fillna('#9C8975')
@@ -1032,6 +1057,95 @@ def _grad_color(val, vmin, vmax, lo_hex, hi_hex, invert=False):
     lo, hi = np.array(mpl.colors.to_rgb(lo_hex)), np.array(mpl.colors.to_rgb(hi_hex))
     return mpl.colors.to_hex(lo + t * (hi - lo))
 
+
+_PERCENTILE_KEYS = (("p5", 0.05), ("p20", 0.20), ("p40", 0.40),
+                    ("p60", 0.60), ("p80", 0.80), ("p95", 0.95))
+
+
+def _metric_benchmark(benchmarks, metric_key: str, pitch_type: str | None = None):
+    """Return pitch-type benchmark when available, then the global fallback."""
+    if not benchmarks:
+        return None
+    aliases = {
+        "whiff_per_swing": ("whiff_per_swing", "whiff_per_pitch"),
+        "chase_per_out_zone": ("chase_per_out_zone", "chase_per_swing", "chase_per_pitch"),
+        "fast_swing_per_tracked_swing": ("fast_swing_per_tracked_swing", "fast_swing_per_swing"),
+    }
+    keys = aliases.get(metric_key, (metric_key,))
+    if pitch_type:
+        pitch_metrics = (benchmarks.get("by_pitch_type") or {}).get(str(pitch_type), {})
+        for key in keys:
+            if pitch_metrics.get(key):
+                return pitch_metrics[key]
+    for key in keys:
+        if benchmarks.get(key):
+            return benchmarks[key]
+    return None
+
+
+def _benchmark_percentile(value: float, benchmark: dict | None) -> float:
+    """Interpolate a raw metric onto its historical percentile curve."""
+    if benchmark:
+        pairs = [
+            (float(benchmark[key]), percentile)
+            for key, percentile in _PERCENTILE_KEYS
+            if benchmark.get(key) is not None
+        ]
+        pairs.sort(key=lambda item: item[0])
+        if len(pairs) >= 2:
+            xs = np.array([item[0] for item in pairs], dtype=float)
+            ys = np.array([item[1] for item in pairs], dtype=float)
+            return float(np.clip(np.interp(float(value), xs, ys), 0.0, 1.0))
+    return 0.50
+
+
+def _benchmark_midpoint(benchmark: dict | None, fallback: float) -> float:
+    if not benchmark:
+        return fallback
+    p40, p60 = benchmark.get("p40"), benchmark.get("p60")
+    if p40 is not None and p60 is not None:
+        return (float(p40) + float(p60)) / 2.0
+    return float(benchmark.get("mean", fallback))
+
+
+def _stabilized_rate(
+    successes: float,
+    attempts: float,
+    benchmark: dict | None,
+    *,
+    prior_strength: float,
+    fallback_mean: float,
+) -> float:
+    """Empirical-Bayes rate used only for visual grading of small samples."""
+    n = max(float(attempts or 0), 0.0)
+    prior_mean = _benchmark_midpoint(benchmark, fallback_mean)
+    return (max(float(successes or 0), 0.0) + prior_strength * prior_mean) / (n + prior_strength)
+
+
+def _stabilized_mean(
+    value: float,
+    sample_size: float,
+    benchmark: dict | None,
+    *,
+    prior_strength: float,
+    fallback_mean: float,
+) -> float:
+    n = max(float(sample_size or 0), 0.0)
+    prior_mean = _benchmark_midpoint(benchmark, fallback_mean)
+    if not np.isfinite(float(value)):
+        return prior_mean
+    return (float(value) * n + prior_strength * prior_mean) / (n + prior_strength)
+
+
+def _quality_percentile(value: float, benchmark: dict | None, *, higher_is_better: bool) -> float:
+    raw_percentile = _benchmark_percentile(value, benchmark)
+    return raw_percentile if higher_is_better else 1.0 - raw_percentile
+
+
+def _quality_color(value: float, benchmark: dict | None, *, higher_is_better: bool) -> str:
+    quality_percentile = _quality_percentile(value, benchmark, higher_is_better=higher_is_better)
+    return mpl.colors.to_hex(QUALITY_CMAP(float(np.clip(quality_percentile, 0.0, 1.0))))
+
 def _fmt_movement(pfx_x_in, pfx_z_in, _hand: str):
     try:
         if np.isnan(pfx_x_in) or np.isnan(pfx_z_in):
@@ -1074,11 +1188,12 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
 
     row1 = [("IP", box['ip'], PALETTE["text_primary"]), ("H", box['h'], PALETTE["text_primary"]), ("R", box.get('er', 0), PALETTE["text_primary"])]
     row2 = [("K", box['k'], PALETTE["accent_orange"]), ("BB", box['bb'], PALETTE["accent_orange"]), ("HR", box['hr'], PALETTE["accent_orange"])]
-    # Stats block: 3 cols in [0.630, 0.875], logo in [0.885, 0.975]
+    # Official line, MalliScore, and team mark each get a dedicated zone.
     vline_x = 0.610
-    logo_x  = 0.882
-    bx0     = 0.660     # center of first column
-    dx      = 0.075     # column spacing → cols at 0.660, 0.735, 0.810
+    score_divider_x = 0.820
+    logo_x  = 0.915
+    bx0     = 0.650
+    dx      = 0.068
 
     # Value (big) on top, label (small) below — clearly paired
     for i, (lbl, val, col) in enumerate(row1):
@@ -1087,7 +1202,7 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ax.text(xp, 0.63, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
 
     # Subtle horizontal separator between rows
-    ax.plot([vline_x + 0.01, logo_x - 0.01], [0.54, 0.54], color=PALETTE["border"], lw=0.8, alpha=0.6, transform=ax.transAxes)
+    ax.plot([vline_x + 0.01, score_divider_x - 0.01], [0.54, 0.54], color=PALETTE["border"], lw=0.8, alpha=0.6, transform=ax.transAxes)
 
     for i, (lbl, val, col) in enumerate(row2):
         xp = bx0 + i * dx
@@ -1095,9 +1210,22 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ax.text(xp, 0.23, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
 
     ax.plot([vline_x, vline_x], [0.08, 0.95], color=PALETTE["border"], lw=1.2, transform=ax.transAxes)
+    ax.plot([score_divider_x, score_divider_x], [0.15, 0.88], color=PALETTE["border"], lw=0.9, alpha=0.75, transform=ax.transAxes)
+
+    malli_score = box.get('malli_score')
+    if malli_score is not None and np.isfinite(float(malli_score)):
+        score_value = float(malli_score)
+        score_color = mpl.colors.to_hex(QUALITY_CMAP(np.clip(score_value / 100.0, 0.0, 1.0)))
+        score_x = (score_divider_x + logo_x) / 2.0
+        ax.text(score_x, 0.73, f"{score_value:.1f}", color=PALETTE["text_primary"], fontsize=25,
+                fontweight='black', ha='center', va='center', transform=ax.transAxes)
+        ax.text(score_x, 0.42, "MALLISCORE", color=PALETTE["text_lo"], fontsize=8.5,
+                fontweight='black', ha='center', va='center', transform=ax.transAxes)
+        ax.plot([score_x - 0.018, score_x + 0.018], [0.27, 0.27], color=score_color,
+                lw=3.0, solid_capstyle='round', transform=ax.transAxes)
 
     if logo_img:
-        al = ax.inset_axes([logo_x, 0.08, 1.0 - logo_x - 0.01, 0.84])
+        al = ax.inset_axes([logo_x, 0.12, 1.0 - logo_x - 0.012, 0.76])
         al.imshow(np.array(logo_img))
         al.axis('off')
     ax.plot([0, 1], [0.02, 0.02], color=PALETTE["accent_orange"], lw=2.5, alpha=0.8, transform=ax.transAxes)
@@ -1193,7 +1321,7 @@ def plot_damage_heatmap(ax, arsenal, df):
         txt.set_color(PALETTE["accent_green"] if no_damage else PALETTE["text_secondary"])
         txt.set_fontweight('bold')
 
-def plot_movement(ax, arsenal, df, hand):
+def plot_movement(ax, arsenal, df, hand, arm_angle_meta=None):
     _clean(ax); _border(ax)
     # Statcast pfx_x is catcher-frame (+ = toward 1B). Plot uses -pfx_x for BOTH hands so that
     # clusters sit on the same side as the Arm/Glove captions (TJ / public-analyst style):
@@ -1236,11 +1364,17 @@ def plot_movement(ax, arsenal, df, hand):
     ax.axhline(0, color=line_c, lw=1.8, alpha=0.95, zorder=1)
     ax.axvline(0, color=line_c, lw=1.8, alpha=0.95, zorder=1)
 
-    # Arm slot reference: only when arm_angle is present in data (often missing in ST)
+    # Arm slot reference: draw only official Statcast/Hawkeye arm_angle.
+    # TJStats estimates remain in metadata, but are not rendered as Mallitalytics facts.
     # Intuitive placement: RHP → ray on the right of y-axis; LHP → ray on the left
     arm_deg = np.nan
-    if 'arm_angle' in df.columns:
-        arm_deg = df['arm_angle'].dropna().mean()
+    source = ""
+    if isinstance(arm_angle_meta, dict):
+        source = str(arm_angle_meta.get("arm_angle_source") or "")
+    use_official_arm_angle = source in {"official", "official_plus_tj_model"}
+    arm_col = 'arm_angle'
+    if use_official_arm_angle and arm_col in df.columns:
+        arm_deg = df[arm_col].dropna().mean()
         if not np.isnan(arm_deg) and abs(arm_deg) < 90:
             rad = np.deg2rad(abs(arm_deg))
             L = 1.0 * min(x_lim, (z_hi - z_lo) * 0.5)
@@ -1399,7 +1533,7 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
     col11  = "BS75+%" if _has_bs75 else "Zone%"
     last_col = "xwOBA*" if _has_xwoba else "HH%*"
 
-    COLS   = ["Pitch", "#", "Pitch%", "Velo", "Spin", "Ext.", "HB", "IVB", "Chase%", "Whiffs", "Str%", col11, last_col]
+    COLS   = ["Pitch", "#", "Pitch%", "Velo", "Spin", "Ext.", "HB", "IVB", "Chase%", "Whiffs · %", "Str%", col11, last_col]
     WIDTHS = [0.178, 0.044, 0.060, 0.060, 0.056, 0.052, 0.062, 0.062, 0.064, 0.064, 0.064, 0.064, 0.082]
     WIDTHS = [w / sum(WIDTHS) for w in WIDTHS]
 
@@ -1420,12 +1554,14 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
 
     total = arsenal['count'].sum()
     tsw = arsenal['swing'].sum()
-    # All row: whiff/chase/BS75 use total swings; str/zone/xwOBA still per pitch
+    # All row uses the same denominators as the pitch rows.
     aw = arsenal['whiff'].sum() / tsw if tsw else np.nan
     astr = arsenal['strikes'].sum() / total if 'strikes' in arsenal.columns and total else np.nan  # strikes / included pitches
     az = arsenal['in_zone'].sum() / total if total else np.nan        # in-zone / included pitches
     axw = (arsenal['xwoba'] * arsenal['count']).sum() / total if total else np.nan  # weighted xwOBA (included pitches)
-    ach = arsenal['chase'].sum() / tsw if tsw else np.nan
+    total_out_zone = arsenal['out_zone'].sum() if 'out_zone' in arsenal.columns else 0
+    ach = arsenal['chase'].sum() / total_out_zone if total_out_zone else np.nan
+    total_tracked_swings = arsenal['tracked_swing'].sum() if 'tracked_swing' in arsenal.columns else 0
     all_fast_swing_pct = box.get('fast_swing_pct')  # game-level: fast swings / swings
 
     def _safe(v):
@@ -1440,12 +1576,30 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
     rows = []
     for _, r in arsenal.iterrows():
         hb_str, ivb_str = _fmt_movement(r['pfx_x'], r['pfx_z'], hand)
-        rows.append(dict(name=r['name'], count=int(r['count']), pct=f"{r['usage_pct']:.1%}", velo=f"{r['velo']:.1f}" if _safe(r['velo']) else "--", spin=f"{r['spin']:.0f}" if _safe(r.get('spin', np.nan)) else "--", ext=f"{r['extension']:.1f}" if _safe(r.get('extension', np.nan)) else "--", hb=hb_str, ivb=ivb_str, raw_whiff=r['whiff_pct'], whiffs=int(r.get('whiff', 0) or 0), raw_str=r.get('str_pct', np.nan), raw_chase=r.get('chase_pct', np.nan), raw_zone=r['zone_pct'], raw_xwoba=r['xwoba'], raw_hh_pct=r.get('hard_hit_pct', np.nan), raw_fast_swing=r.get('fast_swing_pct', np.nan), colour=r['colour'], is_all=False))
+        rows.append(dict(
+            pitch_type=str(r['pitch_type']), name=r['name'], count=int(r['count']),
+            pct=f"{r['usage_pct']:.1%}", velo=f"{r['velo']:.1f}" if _safe(r['velo']) else "--",
+            spin=f"{r['spin']:.0f}" if _safe(r.get('spin', np.nan)) else "--",
+            ext=f"{r['extension']:.1f}" if _safe(r.get('extension', np.nan)) else "--",
+            hb=hb_str, ivb=ivb_str, raw_whiff=r['whiff_pct'], whiffs=int(r.get('whiff', 0) or 0),
+            swings=int(r.get('swing', 0) or 0), raw_str=r.get('str_pct', np.nan),
+            strikes=int(r.get('strikes', 0) or 0), raw_chase=r.get('chase_pct', np.nan),
+            chases=int(r.get('chase', 0) or 0), out_zone=int(r.get('out_zone', 0) or 0),
+            raw_zone=r['zone_pct'], raw_xwoba=r['xwoba'], bip=int(r.get('bip', 0) or 0),
+            raw_hh_pct=r.get('hard_hit_pct', np.nan), raw_fast_swing=r.get('fast_swing_pct', np.nan),
+            tracked_swings=int(r.get('tracked_swing', 0) or 0),
+            fast_swings=int(round(float(r.get('fast_swing_pct', 0) or 0) * int(r.get('tracked_swing', 0) or 0))),
+            colour=r['colour'], is_all=False,
+        ))
     # All row: show the full pitch count from the header so numbers stay consistent (even if some rare pitch types are filtered out by MIN_PITCHES)
-    rows.append(dict(name='All', count=int(box['total_pitches']), pct='100%', velo='--', spin='--', ext='--', hb='--', ivb='--',
+    rows.append(dict(pitch_type=None, name='All', count=int(box['total_pitches']), pct='100%', velo='--', spin='--', ext='--', hb='--', ivb='--',
                      whiffs=int(arsenal['whiff'].sum()) if 'whiff' in arsenal.columns else int(box.get('whiffs', 0) or 0),
-                     raw_whiff=aw, raw_str=astr, raw_chase=ach, raw_zone=az, raw_xwoba=axw,
-                     raw_hh_pct=ahh, raw_fast_swing=all_fast_swing_pct, colour=PALETTE["text_lo"], is_all=True))
+                     swings=int(tsw), raw_whiff=aw, strikes=int(arsenal['strikes'].sum()), raw_str=astr,
+                     chases=int(arsenal['chase'].sum()), out_zone=int(total_out_zone), raw_chase=ach,
+                     raw_zone=az, raw_xwoba=axw, bip=int(total_bip), raw_hh_pct=ahh,
+                     tracked_swings=int(total_tracked_swings),
+                     fast_swings=int(round(float(all_fast_swing_pct or 0) * total_tracked_swings)),
+                     raw_fast_swing=all_fast_swing_pct, colour=PALETTE["text_lo"], is_all=True))
 
     def _range(key, league_key=None):
         # Fallback: per-game range from rows (excluding All row)
@@ -1474,26 +1628,6 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
             return (lo, hi)
         except Exception:
             return data_rng
-
-    # League-anchored ranges where available; fall back to game-only spread
-    chase_range       = _range('raw_chase',       league_key="chase_per_swing")
-    whiff_range       = _range('raw_whiff',       league_key="whiff_per_swing")
-    str_range         = _range('raw_str',         league_key="strike_per_pitch")
-    fast_swing_range  = _range('raw_fast_swing',   league_key="fast_swing_per_swing")
-    xw_range          = _range('raw_xwoba',       league_key="xwoba_allowed")
-
-    velo_vals = [float(r['velo']) for r in rows if not r['is_all'] and r['velo'] != '--']
-    velo_data_range = (min(velo_vals), max(velo_vals)) if len(velo_vals) >= 2 else (85.0, 100.0)
-    if benchmarks and "velocity_mph" in benchmarks:
-        try:
-            vbm = benchmarks["velocity_mph"]
-            v_lo = float(vbm.get("p20", vbm.get("p5")))
-            v_hi = float(vbm.get("p80", vbm.get("p95")))
-            velo_range = (v_lo, v_hi) if v_hi > v_lo else velo_data_range
-        except Exception:
-            velo_range = velo_data_range
-    else:
-        velo_range = velo_data_range
 
     pill_lw, pill_ec = (0.8, PALETTE["border"]) if LIGHT_MODE else (0.0, "none")
 
@@ -1530,7 +1664,8 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                 if row['velo'] != '--' and not row['is_all']:
                     try:
                         vv = float(row['velo'])
-                        bc = _grad_color(vv, velo_range[0], velo_range[1], GRAD_VELO_LO, GRAD_VELO_HI)
+                        bm = _metric_benchmark(benchmarks, "velocity_mph", row.get('pitch_type'))
+                        bc = _quality_color(vv, bm, higher_is_better=True)
                         tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                         ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=0, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                         ax.text(xc, yc, row['velo'], ha='center', va='center', fontsize=13, fontweight='black', color=tc, transform=ax.transAxes, zorder=2)
@@ -1556,7 +1691,12 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                 cv = row['raw_chase']
                 vs = f"{cv:.0%}" if _safe(cv) else "--"
                 if vs != "--" and not row['is_all']:
-                    bc = _grad_color(cv, chase_range[0], chase_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
+                    bm = _metric_benchmark(benchmarks, "chase_per_out_zone", row.get('pitch_type'))
+                    graded = _stabilized_rate(
+                        row.get('chases', 0), row.get('out_zone', 0), bm,
+                        prior_strength=10.0, fallback_mean=0.28,
+                    )
+                    bc = _quality_color(graded, bm, higher_is_better=True)
                     tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                     ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                     ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
@@ -1564,19 +1704,29 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
 
             elif ci == 9:
                 wv = row['raw_whiff']
-                vs = str(row.get('whiffs', 0)) if _safe(wv) else "--"
+                vs = f"{row.get('whiffs', 0)} · {wv:.0%}" if _safe(wv) else "--"
                 if vs != "--" and not row['is_all']:
-                    bc = _grad_color(wv, whiff_range[0], whiff_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
+                    bm = _metric_benchmark(benchmarks, "whiff_per_swing", row.get('pitch_type'))
+                    graded = _stabilized_rate(
+                        row.get('whiffs', 0), row.get('swings', 0), bm,
+                        prior_strength=8.0, fallback_mean=0.25,
+                    )
+                    bc = _quality_color(graded, bm, higher_is_better=True)
                     tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                     ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
-                    ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
+                    ax.text(xc, yc, vs, ha='center', va='center', fontsize=10.5, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
                 else: ax.text(xc, yc, vs, ha='center', va='center', fontsize=13, color=PALETTE["text_lo"], transform=ax.transAxes)
 
             elif ci == 10:
                 sv = row['raw_str']
                 vs = f"{sv:.0%}" if _safe(sv) else "--"
                 if vs != "--" and not row['is_all']:
-                    bc = _grad_color(sv, str_range[0], str_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
+                    bm = _metric_benchmark(benchmarks, "strike_per_pitch", row.get('pitch_type'))
+                    graded = _stabilized_rate(
+                        row.get('strikes', 0), row.get('count', 0), bm,
+                        prior_strength=12.0, fallback_mean=0.65,
+                    )
+                    bc = _quality_color(graded, bm, higher_is_better=True)
                     tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                     ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                     ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
@@ -1587,7 +1737,12 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                     fv = row['raw_fast_swing']
                     vs = f"{fv:.0%}" if _safe(fv) else "--"
                     if vs != "--" and not row['is_all']:
-                        bc = _grad_color(fv, fast_swing_range[0], fast_swing_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
+                        bm = _metric_benchmark(benchmarks, "fast_swing_per_tracked_swing", row.get('pitch_type'))
+                        graded = _stabilized_rate(
+                            row.get('fast_swings', 0), row.get('tracked_swings', 0), bm,
+                            prior_strength=8.0, fallback_mean=0.30,
+                        )
+                        bc = _quality_color(graded, bm, higher_is_better=False)
                         tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                         ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                         ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
@@ -1597,8 +1752,12 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                     zv = row.get('raw_zone', np.nan)
                     vs = f"{zv:.0%}" if _safe(zv) else "--"
                     if vs != "--" and not row['is_all']:
-                        zone_range = _range('raw_zone', league_key="zone_per_pitch")
-                        bc = _grad_color(zv, zone_range[0], zone_range[1], GRAD_METRIC_LO, GRAD_METRIC_HI)
+                        bm = _metric_benchmark(benchmarks, "zone_per_pitch", row.get('pitch_type'))
+                        graded = _stabilized_rate(
+                            float(zv) * row.get('count', 0), row.get('count', 0), bm,
+                            prior_strength=12.0, fallback_mean=0.50,
+                        )
+                        bc = _quality_color(graded, bm, higher_is_better=True)
                         tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                         ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                         ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='bold', color=tc, transform=ax.transAxes, zorder=2)
@@ -1609,7 +1768,12 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                     xv = row['raw_xwoba']
                     vs = f"{xv:.3f}" if _safe(xv) else "--"
                     if vs != "--" and not row['is_all']:
-                        bc = _grad_color(xv, xw_range[0], xw_range[1], GRAD_XWOBA_LO, GRAD_XWOBA_HI)
+                        bm = _metric_benchmark(benchmarks, "xwoba_allowed", row.get('pitch_type'))
+                        graded = _stabilized_mean(
+                            xv, row.get('bip', 0), bm,
+                            prior_strength=5.0, fallback_mean=0.320,
+                        )
+                        bc = _quality_color(graded, bm, higher_is_better=False)
                         tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                         ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w * 1.05, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                         ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='black', color=tc, transform=ax.transAxes, zorder=2)
@@ -1618,8 +1782,8 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                     hv = row.get('raw_hh_pct', np.nan)
                     vs = f"{hv:.0%}" if _safe(hv) else "--"
                     if vs != "--" and not row['is_all']:
-                        hh_range = _range('raw_hh_pct')
-                        bc = _grad_color(hv, hh_range[0], hh_range[1], GRAD_XWOBA_LO, GRAD_XWOBA_HI)
+                        bm = _metric_benchmark(benchmarks, "hard_hit_allowed", row.get('pitch_type'))
+                        bc = _quality_color(hv, bm, higher_is_better=False)
                         tc = '#111111' if _lum(bc) > 0.50 else '#FFFFFF'
                         ax.add_patch(FancyBboxPatch((pill_x, pill_y), pill_w * 1.05, pill_h, boxstyle="round,pad=0.006", lw=pill_lw, edgecolor=pill_ec, facecolor=bc, alpha=0.95, transform=ax.transAxes, zorder=1))
                         ax.text(xc, yc, vs, ha='center', va='center', fontsize=12, fontweight='black', color=tc, transform=ax.transAxes, zorder=2)
@@ -1681,25 +1845,15 @@ def plot_footer(ax, card_flags=None):
     ax.text(0.01, 0.50, "@Mallitalytics", color=PALETTE["accent_orange"], fontsize=12, fontweight='black', va='center', transform=ax.transAxes)
     ax.text(0.99, 0.50, "Data: MLB \u00b7 Statcast", color=PALETTE["text_secondary"], fontsize=11, fontweight='bold', ha='right', va='center', transform=ax.transAxes)
 
-    # Build notes only for stats actually shown on this card
-    notes = []
-    if card_flags.get('has_xwoba', True):
-        notes.append("* xwOBA: quality of contact allowed \u2014 lower is better for pitcher")
-    else:
-        notes.append("* HH%: hard-hit balls in play (EV \u2265 95 mph) as share of BIP \u2014 lower is better")
-    notes.append("* Hard contact: EV \u2265 95 mph or xwOBA \u2265 0.350")
-    notes.append("* Whiffs: pitch-level whiff count; Chase% and whiff shading use swings; Str% & Zone% use pitches")
-    if card_flags.get('has_bs75', True):
-        notes.append("* BS75+%: swings with bat speed \u2265 75 mph \u00f7 swings (Statcast)")
+    notes = [
+        "* Color = 2025 pitch-type quality percentile; small samples stabilized toward league average",
+        "* Cold = poor for pitcher \u2192 warm = elite; lower xwOBA and BS75+ are better",
+        "* Whiffs shown as count \u00b7 rate; Chase% = chases \u00f7 out-of-zone pitches; BS75+ = fast \u00f7 tracked swings",
+    ]
 
     kw = dict(color=PALETTE["text_secondary"], fontsize=9.0, ha='center', va='center', transform=ax.transAxes)
     n = len(notes)
-    if n == 2:
-        ys = [0.70, 0.30]
-    elif n == 4:
-        ys = [0.84, 0.60, 0.38, 0.16]
-    else:
-        ys = [0.78, 0.50, 0.22][:n]
+    ys = [0.78, 0.50, 0.22][:n]
     for note, y in zip(notes, ys):
         ax.text(0.5, y, note, **kw)
 
@@ -1797,6 +1951,83 @@ def _outs_from_ip_str(ip) -> int:
         o = 0
     o = min(max(o, 0), 2)
     return inn * 3 + o
+
+
+def _outing_xwoba_allowed(df: pd.DataFrame) -> float:
+    """One expected result per plate appearance, matching MalliScore's slate input."""
+    required = {'at_bat_number', 'pitch_number'}
+    if not required.issubset(df.columns):
+        return math.nan
+    sort_cols = [c for c in ('inning', 'at_bat_number', 'pitch_number') if c in df.columns]
+    pa = df.sort_values(sort_cols).groupby('at_bat_number', dropna=False).tail(1).copy()
+    if 'estimated_woba_using_speedangle' in pa.columns:
+        expected = pd.to_numeric(pa['estimated_woba_using_speedangle'], errors='coerce')
+    else:
+        expected = pd.Series(np.nan, index=pa.index, dtype=float)
+    if {'woba_value', 'woba_denom'}.issubset(pa.columns):
+        woba = pd.to_numeric(pa['woba_value'], errors='coerce')
+        denom = pd.to_numeric(pa['woba_denom'], errors='coerce').fillna(0)
+        expected = expected.where(expected.notna(), woba.where(denom > 0))
+    values = expected.dropna()
+    return float(values.mean()) if len(values) else math.nan
+
+
+def _compute_malli_score(df: pd.DataFrame, box: dict) -> float:
+    pitches = max(int(box.get('total_pitches') or len(df)), 1)
+    outs = _outs_from_ip_str(box.get('ip'))
+    ip = outs / 3.0 if outs else 0.0
+    out_zone = int(df['out_zone'].sum()) if 'out_zone' in df.columns else 0
+    chase_pct = (float(df['chase'].sum()) / out_zone * 100.0) if out_zone else math.nan
+    raw = OutingRawMetrics(
+        swstr_pct=float(box.get('whiffs') or 0) / pitches * 100.0,
+        called_strike_pct=float(df['description'].eq('called_strike').sum()) / pitches * 100.0,
+        chase_pct=chase_pct,
+        xwoba_allowed=_outing_xwoba_allowed(df),
+        game_whip=(float(box.get('h') or 0) + float(box.get('bb') or 0)) / ip if ip else math.nan,
+        earned_runs=int(box.get('er') or 0),
+        home_runs=int(box.get('hr') or 0),
+        pitches=pitches,
+        outs=outs,
+    )
+    return float(malliscore_v2(raw, default_league_norms())['malli_score'])
+
+
+_SLATE_MALLI_SCORE_CACHE: dict[tuple[str, str], dict[tuple[int, int | None], float]] = {}
+
+
+def _slate_malli_score(
+    parquet_path: str,
+    game_date: str,
+    pitcher_id: int,
+    game_pk: int | None,
+) -> float | None:
+    """Return the exact score used by the daily Pitching Index for this outing."""
+    warehouse = _warehouse_mlb_root_from_parquet(parquet_path)
+    if warehouse is None:
+        return None
+    cache_key = (str(warehouse), game_date)
+    scores = _SLATE_MALLI_SCORE_CACHE.get(cache_key)
+    if scores is None:
+        from src.pitching_performances.render import build_pitching_performance_rows
+
+        _, rows = build_pitching_performance_rows(
+            warehouse,
+            date_str=game_date,
+            season=int(game_date[:4]),
+            min_pitches=30,
+            top_n=500,
+        )
+        scores = {
+            (int(row["player_id"]), int(row["game_pk"]) if row.get("game_pk") is not None else None):
+                float(row["malli_score"])
+            for row in rows
+        }
+        _SLATE_MALLI_SCORE_CACHE[cache_key] = scores
+    exact = scores.get((int(pitcher_id), game_pk))
+    if exact is not None:
+        return exact
+    matches = [score for (player, _), score in scores.items() if player == int(pitcher_id)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _derive_notable_pitcher_events(df: pd.DataFrame, box: dict) -> list[dict]:
@@ -2109,6 +2340,7 @@ def _build_pitcher_card_snapshot(
             "whiffs": box.get("whiffs"),
             "csw_pct": _json_scalar_float(box.get("csw_pct"), 2),
             "gb_pct": _json_scalar_float(box.get("gb_pct"), 3) if box.get("gb_pct") is not None else None,
+            "malli_score": _json_scalar_float(box.get("malli_score"), 1),
         },
         "arsenal": _arsenal_rows_json(arsenal),
         "recent_outings": ro,
@@ -2163,6 +2395,17 @@ def render_card(parquet_path, pitcher_id, output_path):
 
     gd = df["game_date"].iloc[0]
     game_date = gd.strftime("%Y-%m-%d") if hasattr(gd, "strftime") else str(gd)[:10]
+    try:
+        exact_malli_score = _slate_malli_score(parquet_path, game_date, pitcher_id, game_pk)
+        box["malli_score"] = round(
+            exact_malli_score if exact_malli_score is not None else _compute_malli_score(df, box),
+            1,
+        )
+    except Exception:
+        try:
+            box["malli_score"] = round(_compute_malli_score(df, box), 1)
+        except Exception:
+            box["malli_score"] = None
     # Use game year for league benchmarks (e.g., 2024 regular season table)
     try:
         season_year = int(str(game_date)[:4])
@@ -2181,6 +2424,22 @@ def render_card(parquet_path, pitcher_id, output_path):
                 home_team, away_team = bh, ba
 
     bio = fetch_player_bio(pitcher_id)
+    arm_angle_meta: dict = {}
+    try:
+        feed_mode = os.environ.get("MLBOPS_ARM_ANGLE_FEED_X_MODE", "plus").strip().lower()
+        if feed_mode not in {"plus", "minus"}:
+            feed_mode = "plus"
+        df, arm_angle_meta = add_effective_arm_angle(
+            df,
+            height=bio.get("height"),
+            hand=str(hand),
+            raw_path=raw_path_for_parquet(parquet_path),
+            pitcher_id=int(pitcher_id),
+            feed_x_mode=feed_mode,
+            allow_tj_fallback=False,
+        )
+    except Exception as exc:
+        arm_angle_meta = {"arm_angle_source": "error", "arm_angle_error": str(exc)[:200]}
     opp_team = _infer_opponent_team(
         df, str(bio.get("team") or ""), game_pk=game_pk, box_data=box_data
     )
@@ -2220,7 +2479,7 @@ def render_card(parquet_path, pitcher_id, output_path):
 
     plot_header(ax_hdr, bio, box, game_date, opp_team, headshot, logo)
     plot_damage_heatmap(ax_dmg, arsenal, df)
-    plot_movement(ax_mov, arsenal, df, hand)
+    plot_movement(ax_mov, arsenal, df, hand, arm_angle_meta)
     plot_pitch_tendencies(ax_frq, arsenal, df)
     plot_legend(ax_leg, arsenal)
 
@@ -2270,6 +2529,7 @@ def render_card(parquet_path, pitcher_id, output_path):
         game_date=game_date,
         box_data=box_data,
     )
+    src_meta["arm_angle"] = arm_angle_meta
 
     snapshot = _build_pitcher_card_snapshot(
         pitcher_id=int(pitcher_id),
