@@ -1562,7 +1562,7 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
         print("\n[DRY RUN] Skip Resend/Twilio")
         return
     resend_key = os.getenv("RESEND_API_KEY", "")
-    resend_from = os.getenv("RESEND_FROM_EMAIL", "onboarding@resend.dev")
+    resend_from = os.getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev"
     resend_to = os.getenv("RESEND_TO_EMAIL", "")
     if resend_key and resend_to:
         try:
@@ -1584,6 +1584,13 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
                 print(f"  Resend failed {resp.status_code} {resp.text[:200]}")
         except Exception as e:
             print(f"  Resend error: {e}")
+    else:
+        missing = []
+        if not resend_key:
+            missing.append("RESEND_API_KEY")
+        if not resend_to:
+            missing.append("RESEND_TO_EMAIL")
+        print(f"  Email not sent; missing {', '.join(missing)}")
     tw_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
     tw_tok = os.getenv("TWILIO_AUTH_TOKEN", "")
     tw_from = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
