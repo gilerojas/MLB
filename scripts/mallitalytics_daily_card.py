@@ -1176,8 +1176,19 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
     # BUMPED: Main Name to 34
     ax.text(0.135, 0.92, bio['name'], color=PALETTE["text_primary"], fontsize=34, fontweight='black', ha='left', va='top', transform=ax.transAxes)
     
-    # BUMPED: Date/Opp to 16
+    # Date/opponent and MalliScore share one secondary information line.
     ax.text(0.135, 0.60, f"{game_date}   \u00b7   vs  {opp_team}", color=PALETTE["accent_orange"], fontsize=16, fontweight='black', ha='left', va='top', transform=ax.transAxes)
+
+    malli_score = box.get('malli_score')
+    if malli_score is not None and np.isfinite(float(malli_score)):
+        score_value = float(malli_score)
+        score_color = mpl.colors.to_hex(QUALITY_CMAP(np.clip(score_value / 100.0, 0.0, 1.0)))
+        ax.plot([0.505, 0.505], [0.555, 0.695], color=score_color, lw=3.0,
+                solid_capstyle='round', transform=ax.transAxes)
+        ax.text(0.516, 0.665, "MALLISCORE", color=PALETTE["text_lo"], fontsize=8.5,
+                fontweight='black', ha='left', va='top', transform=ax.transAxes)
+        ax.text(0.516, 0.575, f"{score_value:.1f}", color=PALETTE["text_primary"], fontsize=16,
+                fontweight='black', ha='left', va='top', transform=ax.transAxes)
 
     # BUMPED: Bio & Game Stats
     ax.text(0.135, 0.40, f"{bio['hand']}HP  \u00b7  Age {bio['age']}  \u00b7  {bio['height']}  \u00b7  {bio['weight']} lbs", color=PALETTE["text_lo"], fontsize=12, ha='left', va='top', transform=ax.transAxes)
@@ -1188,12 +1199,11 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
 
     row1 = [("IP", box['ip'], PALETTE["text_primary"]), ("H", box['h'], PALETTE["text_primary"]), ("R", box.get('er', 0), PALETTE["text_primary"])]
     row2 = [("K", box['k'], PALETTE["accent_orange"]), ("BB", box['bb'], PALETTE["accent_orange"]), ("HR", box['hr'], PALETTE["accent_orange"])]
-    # Official line, MalliScore, and team mark each get a dedicated zone.
+    # Keep the official line centered in one uninterrupted block; the logo owns the edge.
     vline_x = 0.610
-    score_divider_x = 0.820
     logo_x  = 0.915
     bx0     = 0.650
-    dx      = 0.068
+    dx      = 0.096
 
     # Value (big) on top, label (small) below — clearly paired
     for i, (lbl, val, col) in enumerate(row1):
@@ -1202,7 +1212,7 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ax.text(xp, 0.63, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
 
     # Subtle horizontal separator between rows
-    ax.plot([vline_x + 0.01, score_divider_x - 0.01], [0.54, 0.54], color=PALETTE["border"], lw=0.8, alpha=0.6, transform=ax.transAxes)
+    ax.plot([vline_x + 0.01, logo_x - 0.015], [0.54, 0.54], color=PALETTE["border"], lw=0.8, alpha=0.6, transform=ax.transAxes)
 
     for i, (lbl, val, col) in enumerate(row2):
         xp = bx0 + i * dx
@@ -1210,19 +1220,6 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ax.text(xp, 0.23, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
 
     ax.plot([vline_x, vline_x], [0.08, 0.95], color=PALETTE["border"], lw=1.2, transform=ax.transAxes)
-    ax.plot([score_divider_x, score_divider_x], [0.15, 0.88], color=PALETTE["border"], lw=0.9, alpha=0.75, transform=ax.transAxes)
-
-    malli_score = box.get('malli_score')
-    if malli_score is not None and np.isfinite(float(malli_score)):
-        score_value = float(malli_score)
-        score_color = mpl.colors.to_hex(QUALITY_CMAP(np.clip(score_value / 100.0, 0.0, 1.0)))
-        score_x = (score_divider_x + logo_x) / 2.0
-        ax.text(score_x, 0.73, f"{score_value:.1f}", color=PALETTE["text_primary"], fontsize=25,
-                fontweight='black', ha='center', va='center', transform=ax.transAxes)
-        ax.text(score_x, 0.42, "MALLISCORE", color=PALETTE["text_lo"], fontsize=8.5,
-                fontweight='black', ha='center', va='center', transform=ax.transAxes)
-        ax.plot([score_x - 0.018, score_x + 0.018], [0.27, 0.27], color=score_color,
-                lw=3.0, solid_capstyle='round', transform=ax.transAxes)
 
     if logo_img:
         al = ax.inset_axes([logo_x, 0.12, 1.0 - logo_x - 0.012, 0.76])
