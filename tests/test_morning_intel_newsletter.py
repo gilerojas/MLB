@@ -1,5 +1,6 @@
 import os
 import unittest
+from io import StringIO
 from unittest.mock import patch
 
 from morning_intel.morning_intel import (
@@ -90,7 +91,37 @@ class MorningIntelNewsletterTests(unittest.TestCase):
         call = post.call_args
         self.assertEqual(call.args[0], "https://api.z.ai/api/coding/paas/v4/chat/completions")
         self.assertEqual(call.kwargs["json"]["model"], "glm-5.2")
+        self.assertEqual(call.kwargs["json"]["max_tokens"], 4096)
         self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer test-key")
+
+    @patch.dict(
+        os.environ,
+        {"GLM_API_KEY": "test-key"},
+        clear=True,
+    )
+    @patch("morning_intel.morning_intel.requests.post")
+    def test_generate_editorial_glm_repairs_invalid_json_once(self, post):
+        first = unittest.mock.Mock()
+        first.json.return_value = {
+            "choices": [{"message": {"content": "Here is an invalid response."}}]
+        }
+        second = unittest.mock.Mock()
+        second.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '```json\n{"morning_brief":"Repaired brief.","tweet_drafts":["Draft"]}\n```'
+                    }
+                }
+            ]
+        }
+        post.side_effect = [first, second]
+
+        brief, drafts = generate_editorial_glm("{}", n=1)
+
+        self.assertEqual(brief, "Repaired brief.")
+        self.assertEqual(drafts, ["Draft"])
+        self.assertEqual(post.call_count, 2)
 
     @patch.dict(
         os.environ,
@@ -123,6 +154,28 @@ class MorningIntelNewsletterTests(unittest.TestCase):
             {"text/plain", "text/html"},
         )
         log_notification.assert_called_once()
+
+    @patch.dict(
+        os.environ,
+        {
+            "GMAIL_SMTP_USER": "sender@example.com",
+            "GMAIL_APP_PASSWORD": "abcdefghijklmnop",
+            "MORNING_INTEL_TO_EMAIL": "reader@example.com",
+        },
+        clear=True,
+    )
+    @patch("morning_intel.morning_intel.log_notification", side_effect=RuntimeError("audit unavailable"))
+    @patch("morning_intel.morning_intel.smtplib.SMTP_SSL")
+    def test_gmail_delivery_remains_sent_when_audit_log_fails(self, smtp_ssl, _log_notification):
+        output = StringIO()
+
+        with patch("sys.stdout", output):
+            send_resend_twilio("Morning Intel", "<p>Edition</p>", "Edition", dry=False)
+
+        smtp_ssl.return_value.__enter__.return_value.send_message.assert_called_once()
+        self.assertIn("Gmail SMTP ok", output.getvalue())
+        self.assertIn("Notification audit warning", output.getvalue())
+        self.assertNotIn("Email not sent", output.getvalue())
 
 
 if __name__ == "__main__":

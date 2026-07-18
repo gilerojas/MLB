@@ -1,4 +1,4 @@
-# Morning Intel newsletter: current-season Statcast + MLB APIs + Claude + Resend.
+# Morning Intel newsletter: current-season Statcast + MLB APIs + GLM 5.2 + Gmail.
 # This job is read-only with respect to the production queue and only downloads
 # the enriched pitch files needed for league-wide signals.
 

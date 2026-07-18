@@ -1311,17 +1311,19 @@ Output requirements:
 
 Return JSON only:
 {{"morning_brief":"...","tweet_drafts":["...","..."]}}"""
-    try:
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    def request_completion(request_messages: list[dict]) -> str:
         response = requests.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={
                 "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "max_tokens": 2048,
+                "messages": request_messages,
+                "max_tokens": 4096,
                 "temperature": 0.25,
                 "stream": False,
             },
@@ -1334,12 +1336,40 @@ Return JSON only:
                 part.get("text", "") if isinstance(part, dict) else str(part)
                 for part in content
             )
-        text = str(content).strip()
-        if not text.startswith("{"):
-            start, end = text.find("{"), text.rfind("}")
-            if start >= 0 and end > start:
-                text = text[start : end + 1]
-        payload = json.loads(text)
+        return str(content).strip()
+
+    def parse_payload(text: str) -> dict:
+        decoder = json.JSONDecoder()
+        for start, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                payload, _ = decoder.raw_decode(text[start:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and (
+                "morning_brief" in payload or "tweet_drafts" in payload
+            ):
+                return payload
+        raise json.JSONDecodeError("No editorial JSON object found", text, 0)
+
+    try:
+        content = request_completion(messages)
+        try:
+            payload = parse_payload(content)
+        except json.JSONDecodeError:
+            repair_messages = messages + [
+                {"role": "assistant", "content": content},
+                {
+                    "role": "user",
+                    "content": (
+                        "Your response was not valid JSON. Reformat the same grounded content "
+                        "as one valid JSON object only, with morning_brief as a string and "
+                        "tweet_drafts as an array of strings. Do not add markdown or commentary."
+                    ),
+                },
+            ]
+            payload = parse_payload(request_completion(repair_messages))
     except Exception as exc:
         print(f"  GLM editorial unavailable ({type(exc).__name__}); newsletter will continue.")
         return "", ["(AI editorial unavailable for this edition.)"]
@@ -1630,8 +1660,11 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
             if resp.status_code in (200, 201):
                 eid = resp.json().get("id")
                 print(f"  Resend ok id={eid}")
-                log_notification("morning_intel", "email", recipient, subject, plain_body[:200], "sent", eid)
                 email_sent = True
+                try:
+                    log_notification("morning_intel", "email", recipient, subject, plain_body[:200], "sent", eid)
+                except Exception as exc:
+                    print(f"  Notification audit warning: {type(exc).__name__}: {exc}")
             else:
                 print(f"  Resend failed {resp.status_code} {resp.text[:200]}")
         except Exception as e:
@@ -1650,16 +1683,19 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
                 smtp.login(gmail_user, gmail_password)
                 smtp.send_message(message)
             print("  Gmail SMTP ok")
-            log_notification(
-                "morning_intel",
-                "email",
-                recipient,
-                subject,
-                plain_body[:200],
-                "sent",
-                "gmail_smtp",
-            )
             email_sent = True
+            try:
+                log_notification(
+                    "morning_intel",
+                    "email",
+                    recipient,
+                    subject,
+                    plain_body[:200],
+                    "sent",
+                    "gmail_smtp",
+                )
+            except Exception as exc:
+                print(f"  Notification audit warning: {type(exc).__name__}: {exc}")
         except Exception as exc:
             print(f"  Gmail SMTP error: {type(exc).__name__}: {exc}")
     if not email_sent:
