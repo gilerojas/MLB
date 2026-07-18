@@ -199,6 +199,7 @@ class IntelReport:
     milestones_detail: list[dict] = field(default_factory=list)
     anomalies_pitchers: list[dict] = field(default_factory=list)
     anomalies_batters: list[dict] = field(default_factory=list)
+    editorial_brief: str = ""
     tweet_drafts: list[str] = field(default_factory=list)
     queue_ids: list[int] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -1280,58 +1281,76 @@ def build_findings_blob(report: IntelReport) -> str:
     return json.dumps(blob, indent=2, default=str)
 
 
-def anthropic_api_key():
-    return (os.getenv("ANTHROPIC_API_KEY") or os.getenv("anthropic_api_key") or "").strip()
-
-
-def generate_tweet_drafts_claude(findings_summary: str, n: int = 5):
-    key = anthropic_api_key()
+def generate_editorial_glm(findings_summary: str, n: int = 5) -> tuple[str, list[str]]:
+    """Create the grounded editorial brief and private tweet notebook with GLM."""
+    key = os.getenv("GLM_API_KEY", "").strip()
     if not key:
-        return ["(Set ANTHROPIC_API_KEY or anthropic_api_key for AI tweet drafts.)"]
-    try:
-        import anthropic
-    except ImportError:
-        return ["(Install anthropic package: pip install anthropic)"]
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
-    client = anthropic.Anthropic(api_key=key)
-    prompt = f"""You write for the X account @Mallitalytics. Voice: analytical, data-first, no fluff, no engagement bait. MLB stats and process, not hot takes.
+        return "", ["(Set GLM_API_KEY for the editorial brief and tweet drafts.)"]
+    model = os.getenv("GLM_MODEL", "glm-5.2").strip() or "glm-5.2"
+    base_url = os.getenv("GLM_BASE_URL", "https://api.z.ai/api/coding/paas/v4").rstrip("/")
+    system_prompt = """You are the editor of Mallitalytics Morning Intel, a concise daily MLB newsletter for Gilberto Rojas.
 
-Given the following morning intel summary, write exactly {n} distinct tweet drafts. Rules:
-- Each tweet MUST be under 280 characters (hard limit).
-- Plain text only, no markdown.
-- Optional hashtags: at most one line may include #Mallitalytics or #MLB — not every tweet needs hashtags.
-- Lead with the most interesting number or comparison when possible.
-- Treat news headlines as link context only. Never invent article details that are not present in the summary.
-- Prefer measured Mallitalytics data signals for statistical claims.
+Voice: analytical, useful, baseball-literate, and direct. Write like a stable professional publication, not an AI assistant.
 
-Intel summary:
+Grounding rules:
+- Use only facts explicitly present in the supplied JSON.
+- News headlines are link context only. Do not infer article details from a headline.
+- Never invent injuries, trades, scores, trends, causes, quotations, or statistics.
+- Distinguish observed Statcast changes from explanations. A change is not automatically causal.
+- If the slate is empty or data is missing, say so plainly rather than filling space.
+- Avoid hype, engagement bait, rhetorical questions, and generic baseball cliches.
+
+Return only valid JSON with keys morning_brief and tweet_drafts."""
+    user_prompt = f"""Build today's private Mallitalytics edition from this verified input:
+
 {findings_summary}
 
-Respond with a JSON array of {n} strings only, no other prose. Example: ["tweet1", "tweet2"]"""
+Output requirements:
+- morning_brief: 90-140 words, two short paragraphs separated by a blank line. Synthesize what deserves attention today and why, without repeating every section below it.
+- tweet_drafts: exactly {n} distinct plain-text drafts, each under 280 characters. Prefer measured Mallitalytics signals for statistical claims. At most one draft may use a hashtag.
+
+Return JSON only:
+{{"morning_brief":"...","tweet_drafts":["...","..."]}}"""
     try:
-        msg = client.messages.create(
-            model=model, max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "max_tokens": 2048,
+                "temperature": 0.25,
+                "stream": False,
+            },
+            timeout=90,
         )
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        if isinstance(content, list):
+            content = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in content
+            )
+        text = str(content).strip()
+        if not text.startswith("{"):
+            start, end = text.find("{"), text.rfind("}")
+            if start >= 0 and end > start:
+                text = text[start : end + 1]
+        payload = json.loads(text)
     except Exception as exc:
-        print(f"  Claude drafts unavailable ({type(exc).__name__}); newsletter will continue.")
-        return ["(AI tweet drafts unavailable for this edition.)"]
-    text = ""
-    for block in msg.content:
-        if hasattr(block, "text"):
-            text += block.text
-    text = text.strip()
-    m = re.search(r"\[[\s\S]*\]", text)
-    if m:
-        try:
-            arr = json.loads(m.group(0))
-            if isinstance(arr, list):
-                out = [str(x).strip() for x in arr if str(x).strip()]
-                return [t[:280] for t in out[:n]]
-        except json.JSONDecodeError:
-            pass
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    return [ln[:280] for ln in lines[:n]] if lines else [text[:280]]
+        print(f"  GLM editorial unavailable ({type(exc).__name__}); newsletter will continue.")
+        return "", ["(AI editorial unavailable for this edition.)"]
+    brief = str(payload.get("morning_brief") or "").strip()
+    drafts = payload.get("tweet_drafts") or []
+    if not isinstance(drafts, list):
+        drafts = []
+    clean_drafts = [str(item).strip()[:280] for item in drafts if str(item).strip()]
+    if not clean_drafts:
+        clean_drafts = ["(AI tweet drafts unavailable for this edition.)"]
+    return brief, clean_drafts[:n]
 
 
 def run_pitcher_card(player_id: int, game_date: str):
@@ -1400,8 +1419,10 @@ def _anomaly_window_phrase(a: dict) -> str:
 def render_digest_plain(report: IntelReport) -> str:
     lines = [
         f"MALLITALYTICS MORNING INTEL | {report.anchor_date}", "",
-        "THE LEADOFF",
     ]
+    if report.editorial_brief:
+        lines += ["THE READ", report.editorial_brief, ""]
+    lines += ["THE LEADOFF"]
     lines += [f"- {s['title']} — {s['url']}" for s in report.news_stories[:6]] or ["No headlines available."]
     lines += ["", "LAST NIGHT"]
     lines += report.yesterday_results or ["No final games."]
@@ -1512,6 +1533,24 @@ def render_digest_html(report: IntelReport) -> str:
         for idx, tweet in enumerate(report.tweet_drafts[:5], 1)
     ) or "<tr><td style='padding:10px 0;color:#6b7788'>No drafts generated.</td></tr>"
 
+    brief_paragraphs = [
+        html.escape(paragraph.strip()).replace("\n", "<br>")
+        for paragraph in re.split(r"\n\s*\n", report.editorial_brief)
+        if paragraph.strip()
+    ]
+    brief_html = ""
+    if brief_paragraphs:
+        brief_html = (
+            '<tr><td class="pad" style="padding:22px 30px 8px">'
+            '<div style="font-size:11px;font-weight:800;color:#007f78;text-transform:uppercase;margin-bottom:9px">The read</div>'
+            '<div style="border-left:3px solid #43c5bc;padding-left:16px">'
+            + "".join(
+                f'<p style="margin:0 0 {"10px" if idx < len(brief_paragraphs) - 1 else "0"};font-size:15px;line-height:1.55;color:#263548">{paragraph}</p>'
+                for idx, paragraph in enumerate(brief_paragraphs)
+            )
+            + "</div></td></tr>"
+        )
+
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>@media only screen and (max-width:680px){{.shell{{width:100%!important}}.pad{{padding-left:18px!important;padding-right:18px!important}}.col{{display:block!important;width:100%!important}}}}</style>
@@ -1523,6 +1562,7 @@ def render_digest_html(report: IntelReport) -> str:
   <div style="font-size:28px;line-height:1.15;font-weight:800;color:#ffffff;margin-top:5px">Morning Intel</div>
   <div style="font-size:13px;color:#aeb9c8;margin-top:8px">{html.escape(_email_date(report.anchor_date))} · Your daily baseball briefing</div>
 </td></tr>
+{brief_html}
 <tr><td class="pad" style="padding:24px 30px 8px">
   <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:12px">The leadoff</div>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{lead_html}{secondary_news}</table>
@@ -1756,9 +1796,10 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
     report.milestones_detail = mdetail
     findings = build_findings_blob(report)
     if skip_claude:
-        report.tweet_drafts = ["(Claude skipped)"]
+        report.editorial_brief = ""
+        report.tweet_drafts = ["(AI editorial skipped)"]
     else:
-        report.tweet_drafts = generate_tweet_drafts_claude(findings, n=5)
+        report.editorial_brief, report.tweet_drafts = generate_editorial_glm(findings, n=5)
     if dry_run or skip_queue:
         reason = "DRY RUN" if dry_run else "READ-ONLY NEWSLETTER"
         print(f"\n[{reason}] Skip queue inserts")
@@ -1787,6 +1828,7 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
         "milestones_detail": report.milestones_detail,
         "anomalies_pitchers": report.anomalies_pitchers,
         "anomalies_batters": report.anomalies_batters,
+        "editorial_brief": report.editorial_brief,
         "tweet_drafts": report.tweet_drafts,
         "queue_ids": report.queue_ids,
         "notes": report.notes,

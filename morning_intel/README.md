@@ -4,7 +4,7 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 
 | Path | Purpose |
 |------|---------|
-| `morning_intel.py` | Main CLI — MLB news + scores + Statcast signals + Claude drafts + newsletter email |
+| `morning_intel.py` | Main CLI — MLB news + scores + Statcast signals + GLM editorial + newsletter email |
 | `morning_digest.py` | Deprecated stub (points you to `morning_intel.py`) |
 | `snapshots/` | JSON data and HTML newsletter previews written each run |
 
@@ -12,8 +12,9 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY` or `anthropic_api_key` | Claude tweet drafts |
-| `ANTHROPIC_MODEL` | Optional; default `claude-sonnet-4-20250514` |
+| `GLM_API_KEY` | GLM editorial brief and private tweet drafts |
+| `GLM_MODEL` | Optional; default `glm-5.2` |
+| `GLM_BASE_URL` | Optional; default `https://api.z.ai/api/coding/paas/v4` |
 | `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_TO_EMAIL` | Resend delivery (optional) |
 | `GMAIL_SMTP_USER`, `GMAIL_APP_PASSWORD`, `MORNING_INTEL_TO_EMAIL` | Gmail SMTP delivery fallback; use a Google app password, never the account password |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_WHATSAPP_TO` | Digest WhatsApp |

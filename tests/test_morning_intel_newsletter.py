@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from morning_intel.morning_intel import (
     IntelReport,
+    generate_editorial_glm,
     parse_mlb_news_rss,
     render_digest_html,
     send_resend_twilio,
@@ -45,6 +46,7 @@ class MorningIntelNewsletterTests(unittest.TestCase):
         report.news_stories = parse_mlb_news_rss(RSS_FIXTURE)
         report.yesterday_results = ["No games <scheduled>"]
         report.probables_today = ["NYY (Starter A) @ BOS (Starter B)"]
+        report.editorial_brief = "First <paragraph> & detail.\n\nSecond paragraph."
         report.tweet_drafts = ["A useful <draft> & angle"]
 
         rendered = render_digest_html(report)
@@ -52,10 +54,43 @@ class MorningIntelNewsletterTests(unittest.TestCase):
         self.assertIn("Mallitalytics", rendered)
         self.assertIn("The leadoff", rendered)
         self.assertIn("Private content notebook", rendered)
+        self.assertIn("The read", rendered)
+        self.assertIn("First &lt;paragraph&gt; &amp; detail.", rendered)
         self.assertIn("Pitchers &amp; hitters", rendered)
         self.assertIn("No games &lt;scheduled&gt;", rendered)
         self.assertIn("A useful &lt;draft&gt; &amp; angle", rendered)
         self.assertNotIn("<pre", rendered)
+
+    @patch.dict(
+        os.environ,
+        {
+            "GLM_API_KEY": "test-key",
+            "GLM_MODEL": "glm-5.2",
+            "GLM_BASE_URL": "https://api.z.ai/api/coding/paas/v4",
+        },
+        clear=True,
+    )
+    @patch("morning_intel.morning_intel.requests.post")
+    def test_generate_editorial_glm_returns_grounded_brief_and_drafts(self, post):
+        post.return_value.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"morning_brief":"Watch the verified slate.\\n\\nThe data signals are measured.","tweet_drafts":["Draft one","Draft two"]}'
+                    }
+                }
+            ]
+        }
+
+        brief, drafts = generate_editorial_glm('{"anchor_date":"2026-07-18"}', n=2)
+
+        self.assertEqual(brief, "Watch the verified slate.\n\nThe data signals are measured.")
+        self.assertEqual(drafts, ["Draft one", "Draft two"])
+        post.assert_called_once()
+        call = post.call_args
+        self.assertEqual(call.args[0], "https://api.z.ai/api/coding/paas/v4/chat/completions")
+        self.assertEqual(call.kwargs["json"]["model"], "glm-5.2")
+        self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer test-key")
 
     @patch.dict(
         os.environ,
