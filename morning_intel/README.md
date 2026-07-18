@@ -14,7 +14,8 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 |----------|---------|
 | `ANTHROPIC_API_KEY` or `anthropic_api_key` | Claude tweet drafts |
 | `ANTHROPIC_MODEL` | Optional; default `claude-sonnet-4-20250514` |
-| `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_TO_EMAIL` | Digest email |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_TO_EMAIL` | Resend delivery (optional) |
+| `GMAIL_SMTP_USER`, `GMAIL_APP_PASSWORD`, `MORNING_INTEL_TO_EMAIL` | Gmail SMTP delivery fallback; use a Google app password, never the account password |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, `TWILIO_WHATSAPP_TO` | Digest WhatsApp |
 | `PUBLIC_STATIC_BASE_URL` | Card image URLs in queue (e.g. `http://localhost:8000/static`) |
 

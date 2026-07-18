@@ -15,12 +15,14 @@ import html
 import json
 import os
 import re
+import smtplib
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Optional
@@ -1290,7 +1292,7 @@ def generate_tweet_drafts_claude(findings_summary: str, n: int = 5):
         import anthropic
     except ImportError:
         return ["(Install anthropic package: pip install anthropic)"]
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
     client = anthropic.Anthropic(api_key=key)
     prompt = f"""You write for the X account @Mallitalytics. Voice: analytical, data-first, no fluff, no engagement bait. MLB stats and process, not hot takes.
 
@@ -1306,10 +1308,14 @@ Intel summary:
 {findings_summary}
 
 Respond with a JSON array of {n} strings only, no other prose. Example: ["tweet1", "tweet2"]"""
-    msg = client.messages.create(
-        model=model, max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    try:
+        msg = client.messages.create(
+            model=model, max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as exc:
+        print(f"  Claude drafts unavailable ({type(exc).__name__}); newsletter will continue.")
+        return ["(AI tweet drafts unavailable for this edition.)"]
     text = ""
     for block in msg.content:
         if hasattr(block, "text"):
@@ -1563,14 +1569,19 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
         return
     resend_key = os.getenv("RESEND_API_KEY", "")
     resend_from = os.getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev"
-    resend_to = os.getenv("RESEND_TO_EMAIL", "")
-    if resend_key and resend_to:
+    recipient = (
+        os.getenv("MORNING_INTEL_TO_EMAIL")
+        or os.getenv("RESEND_TO_EMAIL")
+        or ""
+    )
+    email_sent = False
+    if resend_key and recipient:
         try:
             resp = requests.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
                 json={
-                    "from": resend_from, "to": resend_to, "subject": subject,
+                    "from": resend_from, "to": recipient, "subject": subject,
                     "html": html_body,
                     "text": plain_body,
                 },
@@ -1579,18 +1590,43 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
             if resp.status_code in (200, 201):
                 eid = resp.json().get("id")
                 print(f"  Resend ok id={eid}")
-                log_notification("morning_intel", "email", resend_to, subject, plain_body[:200], "sent", eid)
+                log_notification("morning_intel", "email", recipient, subject, plain_body[:200], "sent", eid)
+                email_sent = True
             else:
                 print(f"  Resend failed {resp.status_code} {resp.text[:200]}")
         except Exception as e:
             print(f"  Resend error: {e}")
-    else:
-        missing = []
-        if not resend_key:
-            missing.append("RESEND_API_KEY")
-        if not resend_to:
-            missing.append("RESEND_TO_EMAIL")
-        print(f"  Email not sent; missing {', '.join(missing)}")
+    gmail_user = os.getenv("GMAIL_SMTP_USER", "").strip()
+    gmail_password = os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", "").strip()
+    if not email_sent and gmail_user and gmail_password and recipient:
+        try:
+            message = EmailMessage()
+            message["Subject"] = subject
+            message["From"] = f"Mallitalytics <{gmail_user}>"
+            message["To"] = recipient
+            message.set_content(plain_body)
+            message.add_alternative(html_body, subtype="html")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=25) as smtp:
+                smtp.login(gmail_user, gmail_password)
+                smtp.send_message(message)
+            print("  Gmail SMTP ok")
+            log_notification(
+                "morning_intel",
+                "email",
+                recipient,
+                subject,
+                plain_body[:200],
+                "sent",
+                "gmail_smtp",
+            )
+            email_sent = True
+        except Exception as exc:
+            print(f"  Gmail SMTP error: {type(exc).__name__}: {exc}")
+    if not email_sent:
+        print(
+            "  Email not sent; configure Resend or "
+            "GMAIL_SMTP_USER + GMAIL_APP_PASSWORD + MORNING_INTEL_TO_EMAIL"
+        )
     tw_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
     tw_tok = os.getenv("TWILIO_AUTH_TOKEN", "")
     tw_from = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")

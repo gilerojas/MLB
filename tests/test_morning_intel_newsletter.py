@@ -1,9 +1,12 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from morning_intel.morning_intel import (
     IntelReport,
     parse_mlb_news_rss,
     render_digest_html,
+    send_resend_twilio,
 )
 
 
@@ -53,6 +56,38 @@ class MorningIntelNewsletterTests(unittest.TestCase):
         self.assertIn("No games &lt;scheduled&gt;", rendered)
         self.assertIn("A useful &lt;draft&gt; &amp; angle", rendered)
         self.assertNotIn("<pre", rendered)
+
+    @patch.dict(
+        os.environ,
+        {
+            "GMAIL_SMTP_USER": "sender@example.com",
+            "GMAIL_APP_PASSWORD": "abcd efgh ijkl mnop",
+            "MORNING_INTEL_TO_EMAIL": "reader@example.com",
+        },
+        clear=True,
+    )
+    @patch("morning_intel.morning_intel.log_notification")
+    @patch("morning_intel.morning_intel.smtplib.SMTP_SSL")
+    def test_gmail_fallback_sends_plain_and_html_parts(self, smtp_ssl, log_notification):
+        smtp = smtp_ssl.return_value.__enter__.return_value
+
+        send_resend_twilio(
+            "Morning Intel | Jul 18",
+            "<html><body>Newsletter</body></html>",
+            "Newsletter",
+            dry=False,
+        )
+
+        smtp_ssl.assert_called_once_with("smtp.gmail.com", 465, timeout=25)
+        smtp.login.assert_called_once_with("sender@example.com", "abcdefghijklmnop")
+        message = smtp.send_message.call_args.args[0]
+        self.assertEqual(message["To"], "reader@example.com")
+        self.assertTrue(message.is_multipart())
+        self.assertEqual(
+            {part.get_content_type() for part in message.iter_parts()},
+            {"text/plain", "text/html"},
+        )
+        log_notification.assert_called_once()
 
 
 if __name__ == "__main__":
