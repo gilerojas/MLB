@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from scripts.mallitalytics_daily_card import (
+    _count_from_rate,
     _quality_percentile,
     _stabilized_rate,
     group_arsenal,
@@ -88,6 +89,11 @@ class PitcherCardHighlightingTests(unittest.TestCase):
         self.assertAlmostEqual(float(cutter["chase_pct"]), 0.50)
         self.assertEqual(int(cutter["tracked_swing"]), 2)
         self.assertAlmostEqual(float(cutter["fast_swing_pct"]), 0.50)
+
+    def test_bs75_display_count_ignores_missing_rate(self):
+        self.assertEqual(_count_from_rate(np.nan, 3), 0)
+        self.assertEqual(_count_from_rate(0.50, np.nan), 0)
+        self.assertEqual(_count_from_rate(0.50, 3), 2)
 
 
 if __name__ == "__main__":

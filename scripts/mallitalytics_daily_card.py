@@ -85,6 +85,7 @@ import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, Ellipse
 import matplotlib as mpl
+from matplotlib import font_manager
 import seaborn as sns
 from PIL import Image
 
@@ -101,6 +102,30 @@ if str(_ROOT_MLB) not in sys.path:
 from src.mlb_headshot import neutralize_mlb_headshot_background
 from src.arm_angle import add_effective_arm_angle, raw_path_for_parquet
 from src.pitching_performances.malli_score import OutingRawMetrics, default_league_norms, malliscore_v2
+
+
+def _register_card_fonts() -> tuple[str, str]:
+    """Register the bundled brand fonts for deterministic local/VPS rendering."""
+    font_dir = _ROOT_MLB / "assets" / "fonts"
+    for font_path in (
+        font_dir / "Montserrat-Regular.ttf",
+        font_dir / "Montserrat-SemiBold.ttf",
+        font_dir / "Montserrat-Bold.ttf",
+        font_dir / "JetBrainsMono.ttf",
+    ):
+        if font_path.exists():
+            try:
+                font_manager.fontManager.addfont(str(font_path))
+            except (OSError, RuntimeError):
+                pass
+    brand_path = font_dir / "Montserrat-Regular.ttf"
+    data_path = font_dir / "JetBrainsMono.ttf"
+    brand_name = font_manager.FontProperties(fname=str(brand_path)).get_name() if brand_path.exists() else "DejaVu Sans"
+    data_name = font_manager.FontProperties(fname=str(data_path)).get_name() if data_path.exists() else brand_name
+    return brand_name, data_name
+
+
+CARD_FONT_BRAND, CARD_FONT_DATA = _register_card_fonts()
 
 # -----------------------------------------------------------------
 # CONFIG
@@ -1003,6 +1028,30 @@ def group_arsenal(df, min_pitches=MIN_PITCHES):
     g = g.drop(columns=['fast_ge_75'], errors='ignore')
     return g.sort_values('count', ascending=False).reset_index(drop=True)
 
+
+def _count_from_rate(rate, denominator) -> int:
+    """Convert a rate and its denominator into a display count safely.
+
+    Pitch-type rates are intentionally NaN when no qualifying opportunities
+    exist. ``NaN or 0`` remains NaN in Python, so handle non-finite values
+    before converting to an integer for the arsenal table.
+    """
+    try:
+        rate_value = float(rate)
+    except (TypeError, ValueError):
+        rate_value = 0.0
+    if not np.isfinite(rate_value):
+        rate_value = 0.0
+
+    try:
+        denominator_value = float(denominator)
+    except (TypeError, ValueError):
+        denominator_value = 0.0
+    if not np.isfinite(denominator_value):
+        denominator_value = 0.0
+
+    return int(round(rate_value * max(0.0, denominator_value)))
+
 def fetch_player_bio(pitcher_id):
     url = f"https://statsapi.mlb.com/api/v1/people?personIds={pitcher_id}&hydrate=currentTeam"
     try:
@@ -1173,25 +1222,42 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ai.set_ylim(0, 1)
         ai.axis("off")
 
-    # BUMPED: Main Name to 34
-    ax.text(0.135, 0.92, bio['name'], color=PALETTE["text_primary"], fontsize=34, fontweight='black', ha='left', va='top', transform=ax.transAxes)
-    
-    # Date/opponent and MalliScore share one secondary information line.
-    ax.text(0.135, 0.60, f"{game_date}   \u00b7   vs  {opp_team}", color=PALETTE["accent_orange"], fontsize=16, fontweight='black', ha='left', va='top', transform=ax.transAxes)
+    player_name = str(bio['name'])
+    name_size = 34 if len(player_name) <= 18 else 30 if len(player_name) <= 23 else 27
+    ax.text(0.135, 0.92, player_name, color=PALETTE["text_primary"], fontsize=name_size,
+            fontweight='bold', ha='left', va='top', transform=ax.transAxes)
+    ax.text(0.135, 0.60, f"{game_date}   \u00b7   vs  {opp_team}", color=PALETTE["accent_orange"],
+            fontsize=15, fontweight='bold', ha='left', va='top', transform=ax.transAxes)
+    ax.text(0.135, 0.40,
+            f"{bio['hand']}HP  \u00b7  Age {bio['age']}  \u00b7  {bio['height']}  \u00b7  {bio['weight']} lbs",
+            color=PALETTE["text_lo"], fontsize=11.5, ha='left', va='top', transform=ax.transAxes)
 
+    identity_divider_x = 0.535
+    score_divider_x = 0.655
+    ax.plot([identity_divider_x, identity_divider_x], [0.31, 0.93], color=PALETTE["border"],
+            lw=1.0, transform=ax.transAxes)
+    ax.plot([score_divider_x, score_divider_x], [0.08, 0.95], color=PALETTE["border"],
+            lw=1.2, transform=ax.transAxes)
+
+    # MalliScore is an analytical bridge between identity and the official line.
     malli_score = box.get('malli_score')
     if malli_score is not None and np.isfinite(float(malli_score)):
         score_value = float(malli_score)
-        score_color = mpl.colors.to_hex(QUALITY_CMAP(np.clip(score_value / 100.0, 0.0, 1.0)))
-        ax.plot([0.505, 0.505], [0.555, 0.695], color=score_color, lw=3.0,
+        score_norm = float(np.clip(score_value / 100.0, 0.0, 1.0))
+        score_color = mpl.colors.to_hex(QUALITY_CMAP(score_norm))
+        score_x0, score_x1 = 0.553, 0.637
+        ax.text(score_x0, 0.82, "MALLISCORE", color=PALETTE["text_lo"], fontsize=8.5,
+                fontweight='bold', ha='left', va='top', transform=ax.transAxes)
+        ax.text(score_x0, 0.68, f"{score_value:.1f}", color=PALETTE["text_primary"], fontsize=26,
+                fontweight='bold', ha='left', va='top', transform=ax.transAxes)
+        ax.plot([score_x0, score_x1], [0.42, 0.42], color=PALETTE["border"], lw=4.0,
                 solid_capstyle='round', transform=ax.transAxes)
-        ax.text(0.516, 0.665, "MALLISCORE", color=PALETTE["text_lo"], fontsize=8.5,
-                fontweight='black', ha='left', va='top', transform=ax.transAxes)
-        ax.text(0.516, 0.575, f"{score_value:.1f}", color=PALETTE["text_primary"], fontsize=16,
-                fontweight='black', ha='left', va='top', transform=ax.transAxes)
+        ax.plot([score_x0, score_x0 + (score_x1 - score_x0) * score_norm], [0.42, 0.42],
+                color=score_color, lw=4.0, solid_capstyle='round', transform=ax.transAxes)
+        marker_x = score_x0 + (score_x1 - score_x0) * score_norm
+        ax.scatter([marker_x], [0.42], s=24, color=score_color, edgecolors=PALETTE["header_bg"],
+                   linewidths=0.8, zorder=4, transform=ax.transAxes)
 
-    # BUMPED: Bio & Game Stats
-    ax.text(0.135, 0.40, f"{bio['hand']}HP  \u00b7  Age {bio['age']}  \u00b7  {bio['height']}  \u00b7  {bio['weight']} lbs", color=PALETTE["text_lo"], fontsize=12, ha='left', va='top', transform=ax.transAxes)
     summary = f"{box['total_pitches']} Pitches  \u00b7  {box['zone_pct']:.1f}% Zone  \u00b7  {box['whiffs']} Whiffs  \u00b7  CSW  {box['csw_pct']:.1f}%"
     if box.get('gb_pct') is not None:
         summary += f"  \u00b7  {box['gb_pct']*100:.0f}% GB"
@@ -1199,11 +1265,10 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
 
     row1 = [("IP", box['ip'], PALETTE["text_primary"]), ("H", box['h'], PALETTE["text_primary"]), ("R", box.get('er', 0), PALETTE["text_primary"])]
     row2 = [("K", box['k'], PALETTE["accent_orange"]), ("BB", box['bb'], PALETTE["accent_orange"]), ("HR", box['hr'], PALETTE["accent_orange"])]
-    # Keep the official line centered in one uninterrupted block; the logo owns the edge.
-    vline_x = 0.610
+    # Official line stays distinct from the analytical grade; the logo owns the edge.
     logo_x  = 0.915
-    bx0     = 0.650
-    dx      = 0.096
+    bx0     = 0.690
+    dx      = 0.090
 
     # Value (big) on top, label (small) below — clearly paired
     for i, (lbl, val, col) in enumerate(row1):
@@ -1212,14 +1277,13 @@ def plot_header(ax, bio, box, game_date, opp_team, headshot_img, logo_img):
         ax.text(xp, 0.63, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
 
     # Subtle horizontal separator between rows
-    ax.plot([vline_x + 0.01, logo_x - 0.015], [0.54, 0.54], color=PALETTE["border"], lw=0.8, alpha=0.6, transform=ax.transAxes)
+    ax.plot([score_divider_x + 0.012, logo_x - 0.015], [0.54, 0.54], color=PALETTE["border"],
+            lw=0.8, alpha=0.6, transform=ax.transAxes)
 
     for i, (lbl, val, col) in enumerate(row2):
         xp = bx0 + i * dx
         ax.text(xp, 0.50, str(val), color=col, fontsize=26, fontweight='black', ha='center', va='top', transform=ax.transAxes)
         ax.text(xp, 0.23, lbl, color=PALETTE["text_lo"], fontsize=11, fontweight='bold', ha='center', va='top', transform=ax.transAxes)
-
-    ax.plot([vline_x, vline_x], [0.08, 0.95], color=PALETTE["border"], lw=1.2, transform=ax.transAxes)
 
     if logo_img:
         al = ax.inset_axes([logo_x, 0.12, 1.0 - logo_x - 0.012, 0.76])
@@ -1307,7 +1371,7 @@ def plot_damage_heatmap(ax, arsenal, df):
     else:
         h_dmg = mlines.Line2D([], [], marker='*', linestyle='none', markersize=11,
                                markerfacecolor=PALETTE["accent_red"], markeredgecolor=star_edge,
-                               markeredgewidth=0.7, label="★ Hard contact (EV ≥95 | xwOBA ≥.350)")
+                               markeredgewidth=0.7, label="Hard contact (EV ≥95 | xwOBA ≥.350)")
         leg = ax.legend(handles=[h_dmg], loc='lower center',
                         fontsize=8.5, frameon=True, framealpha=0.92,
                         edgecolor=PALETTE["border"], facecolor=bg_col,
@@ -1585,7 +1649,7 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
             raw_zone=r['zone_pct'], raw_xwoba=r['xwoba'], bip=int(r.get('bip', 0) or 0),
             raw_hh_pct=r.get('hard_hit_pct', np.nan), raw_fast_swing=r.get('fast_swing_pct', np.nan),
             tracked_swings=int(r.get('tracked_swing', 0) or 0),
-            fast_swings=int(round(float(r.get('fast_swing_pct', 0) or 0) * int(r.get('tracked_swing', 0) or 0))),
+            fast_swings=_count_from_rate(r.get('fast_swing_pct'), r.get('tracked_swing')),
             colour=r['colour'], is_all=False,
         ))
     # All row: show the full pitch count from the header so numbers stay consistent (even if some rare pitch types are filtered out by MIN_PITCHES)
@@ -1595,7 +1659,7 @@ def plot_arsenal_table(ax, arsenal, hand, box, benchmarks=None, card_flags=None)
                      chases=int(arsenal['chase'].sum()), out_zone=int(total_out_zone), raw_chase=ach,
                      raw_zone=az, raw_xwoba=axw, bip=int(total_bip), raw_hh_pct=ahh,
                      tracked_swings=int(total_tracked_swings),
-                     fast_swings=int(round(float(all_fast_swing_pct or 0) * total_tracked_swings)),
+                     fast_swings=_count_from_rate(all_fast_swing_pct, total_tracked_swings),
                      raw_fast_swing=all_fast_swing_pct, colour=PALETTE["text_lo"], is_all=True))
 
     def _range(key, league_key=None):
@@ -1839,7 +1903,15 @@ def plot_footer(ax, card_flags=None):
     _clean(ax, PALETTE["card_bg"])
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
     ax.axhline(0.97, color=PALETTE["border"], linewidth=1.0)
-    ax.text(0.01, 0.50, "@Mallitalytics", color=PALETTE["accent_orange"], fontsize=12, fontweight='black', va='center', transform=ax.transAxes)
+    footer_logo_path = _PARENT / "assets" / "brand" / "mallitalytics_horizontal_footer.png"
+    if footer_logo_path.exists():
+        logo_ax = ax.inset_axes([0.01, 0.24, 0.13, 0.52])
+        with Image.open(footer_logo_path) as footer_logo:
+            logo_ax.imshow(np.asarray(footer_logo.convert("RGBA")))
+        logo_ax.axis("off")
+    else:
+        ax.text(0.01, 0.50, "@Mallitalytics", color=PALETTE["accent_orange"], fontsize=12,
+                fontweight='black', va='center', transform=ax.transAxes)
     ax.text(0.99, 0.50, "Data: MLB \u00b7 Statcast", color=PALETTE["text_secondary"], fontsize=11, fontweight='bold', ha='right', va='center', transform=ax.transAxes)
 
     notes = [
@@ -2358,7 +2430,7 @@ def _build_pitcher_card_snapshot(
 
 def render_card(parquet_path, pitcher_id, output_path):
     mpl.rcParams['figure.dpi']  = 200
-    mpl.rcParams['font.family'] = 'DejaVu Sans'
+    mpl.rcParams['font.family'] = CARD_FONT_BRAND
 
     df_raw  = load_game(parquet_path, pitcher_id)
     df      = process_pitches(df_raw)
@@ -2460,8 +2532,8 @@ def render_card(parquet_path, pitcher_id, output_path):
     #  0 Header | 1 sep-top | 2 Panels | 3 Legend strip | 4 sep-bot | 5 Table
     gs = gridspec.GridSpec(
         6, 3, figure=fig,
-        height_ratios=[1.4, 0.05, 3.5, 0.50, 0.05, n_rows * 0.55],
-        width_ratios=[1, 1, 1], hspace=0.10, wspace=0.06,
+        height_ratios=[1.4, 0.04, 3.5, 0.40, 0.03, n_rows * 0.55],
+        width_ratios=[1, 1, 1], hspace=0.075, wspace=0.06,
         left=0.02, right=0.98, top=0.98, bottom=0.07,
     )
 
