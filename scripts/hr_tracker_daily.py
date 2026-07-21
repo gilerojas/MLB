@@ -22,6 +22,7 @@ Usage:
 """
 import argparse
 import sys
+from collections import Counter
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,7 +35,13 @@ _REPO_ROOT = _SCRIPT_DIR.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.hr_tracker import get_hrs_for_date, render_hr_tracker_image
+from src.hr_tracker import (
+    build_category_history,
+    category_lead_count,
+    get_hrs_for_date,
+    record_caption_lines,
+    render_hr_tracker_image,
+)
 from src.hr_tracker.extract import extract_hrs_from_feed
 from src.hr_tracker.name_display import last_name_compact as _last_name
 
@@ -200,15 +207,19 @@ def _hr_line(r: dict, compact: bool = False, show_flags: bool = False) -> str:
     hr_in_stage = r.get("hr_in_stage")
     stage = r.get("stage", "")
 
+    stage_abbrev = {"spring_training": "ST", "regular_season": "", "wbc": "WBC"}.get(
+        stage, stage[:2].upper() if stage else ""
+    )
+
     if compact:
         batter = _last_name(batter)
         pitcher = _last_name(pitcher)
         stadium = _short_venue(stadium)
-
-    # Regular season is the default context for daily posts; only special stages need a label.
-    stage_abbrev = {"spring_training": "ST", "regular_season": "", "wbc": "WBC"}.get(
-        stage, stage[:2].upper() if stage else ""
-    )
+        if hr_in_stage is not None:
+            if stage_abbrev:
+                batter = f"{batter} ({hr_in_stage} {stage_abbrev})"
+            else:
+                batter = f"{batter} ({hr_in_stage})"
 
     flag = COUNTRY_FLAGS.get((team or "").upper(), "") if show_flags else ""
     prefix = f"{flag} " if flag else ""
@@ -218,10 +229,12 @@ def _hr_line(r: dict, compact: bool = False, show_flags: bool = False) -> str:
         parts.append(f"{prefix}{batter} ({team})")
     else:
         parts.append(f"{prefix}{batter}")
-    if hr_in_stage is not None and stage_abbrev:
-        parts.append(f" ({hr_in_stage} {stage_abbrev})")
-    elif hr_in_stage is not None:
-        parts.append(f" ({hr_in_stage})")
+    # hr_in_stage is folded into batter name in compact mode above
+    if hr_in_stage is not None and not compact:
+        if stage_abbrev:
+            parts[-1] = parts[-1] + f" ({hr_in_stage} {stage_abbrev})"
+        else:
+            parts[-1] = parts[-1] + f" ({hr_in_stage})"
 
     stat_parts = []
     if ev is not None:
@@ -292,6 +305,7 @@ def build_tweet(
             tweet += f"\n{hashtag}"
         return tweet
 
+    intro_line = f"{intro_line} · {len(hrs)} HR"
     lines_raw = [_hr_line(r, compact=compact, show_flags=show_flags) for r in hrs]
     idx_top_ev = _longest_and_top_ev_indexes(hrs)[1]
     limit = len(lines_raw) if tweet_hr_line_limit is None else min(tweet_hr_line_limit, len(lines_raw))
@@ -334,6 +348,146 @@ def build_tweet(
     tweet = f"{intro_line}\n\n{body}"
     if hashtag:
         tweet += f"\n{hashtag}"
+    return tweet
+
+
+def _ordinal(value: int) -> str:
+    if 10 <= value % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(value % 10, "th")
+    return f"{value}{suffix}"
+
+
+def _story_caption_lines(
+    hrs: list[dict],
+    date_str: str,
+    day_fmt: str,
+    category_history: dict,
+) -> list[str]:
+    """Build a compact daily storyline for the standardized HR Tracker card."""
+    hardest = max(
+        (row for row in hrs if row.get("ev_mph") is not None),
+        key=lambda row: float(row["ev_mph"]),
+        default=hrs[0],
+    )
+    longest = max(
+        (row for row in hrs if row.get("distance_ft") is not None),
+        key=lambda row: float(row["distance_ft"]),
+        default=hrs[0],
+    )
+    player_counts = Counter(str(row.get("batter") or "?") for row in hrs)
+    team_counts = Counter(str(row.get("team_abbrev") or "?") for row in hrs)
+    player_high = max(player_counts.values())
+    player_leaders = sorted(name for name, count in player_counts.items() if count == player_high)
+    team_high = max(team_counts.values())
+    team_leaders = sorted(team for team, count in team_counts.items() if count == team_high)
+    weekday = datetime.strptime(date_str, "%Y-%m-%d").strftime("%A")
+    year = date_str[:4]
+
+    hardest_name = str(hardest.get("batter") or "?")
+    hardest_team = str(hardest.get("team_abbrev") or "?")
+    hardest_ev = float(hardest.get("ev_mph") or 0)
+    longest_name = str(longest.get("batter") or "?")
+    longest_team = str(longest.get("team_abbrev") or "?")
+    longest_distance = int(float(longest.get("distance_ft") or 0))
+
+    record_lines = record_caption_lines(category_history, date_str)
+    has_daily_record = any("DAILY HR HIGH" in line for line in record_lines)
+    if has_daily_record:
+        hero = player_leaders[0] if len(player_leaders) == 1 else hardest_name
+        hook = f"{hero} powered the loudest MLB home run day of {year}."
+    elif player_high >= 3 and len(player_leaders) == 1:
+        hook = f"{player_leaders[0]} owned {weekday}'s power slate with {player_high} HR."
+    elif player_counts[hardest_name] >= 2:
+        hook = f"{hardest_name} supplied the loudest swing in a {len(hrs)}-HR {weekday}."
+    else:
+        hook = f"{len(hrs)} home runs left the yard across MLB on {weekday}."
+
+    hardest_leads = category_lead_count(
+        category_history,
+        date_str,
+        "hardest",
+        int(hardest.get("batter_id") or 0),
+    )
+    longest_leads = category_lead_count(
+        category_history,
+        date_str,
+        "longest",
+        int(longest.get("batter_id") or 0),
+    )
+    hardest_suffix = (
+        f"; {_ordinal(hardest_leads)} daily EV lead" if hardest_leads and hardest_leads > 1 else ""
+    )
+    longest_suffix = (
+        f"; {_ordinal(longest_leads)} daily distance lead"
+        if longest_leads and longest_leads > 1
+        else ""
+    )
+
+    if len(team_leaders) == 1:
+        club_line = f"-> {team_leaders[0]} led MLB clubs with {team_high} HR"
+    else:
+        club_line = f"-> {len(team_leaders)} clubs tied for the team high at {team_high} HR"
+    hard_count = sum(float(row.get("ev_mph") or 0) >= 105 for row in hrs)
+    club_line += f"; {hard_count} HR reached 105+ mph"
+
+    body = [
+        hook,
+        "",
+        f"-> Hardest: {hardest_name} ({hardest_team}), {hardest_ev:.1f} mph{hardest_suffix}",
+        f"-> Longest: {longest_name} ({longest_team}), {longest_distance} ft{longest_suffix}",
+        club_line,
+    ]
+    return [*record_lines, "", *body] if record_lines else body
+
+
+def build_story_tweet(
+    hrs: list[dict],
+    date_str: str,
+    day_fmt: str,
+    category_history: dict,
+    *,
+    intro: str | None = None,
+    hashtag: str | None = None,
+    max_len: int = 280,
+) -> str:
+    """Render the daily storyline without cutting a sentence or metric line in half."""
+    if not hrs:
+        return build_tweet(
+            hrs,
+            date_str,
+            day_fmt,
+            intro=intro,
+            hashtag=hashtag,
+            max_len=max_len,
+        )
+
+    lines = _story_caption_lines(hrs, date_str, day_fmt, category_history)
+    if intro:
+        lines.insert(0, intro)
+        lines.insert(1, "")
+    if hashtag:
+        lines.append(hashtag)
+
+    tweet = "\n".join(lines)
+    while len(tweet) > max_len and len(lines) > 1:
+        removable = next(
+            (
+                index
+                for index in range(len(lines) - 1, -1, -1)
+                if lines[index].startswith("->")
+            ),
+            None,
+        )
+        if removable is None:
+            break
+        del lines[removable]
+        while lines and not lines[-1]:
+            lines.pop()
+        tweet = "\n".join(lines)
+    if len(tweet) > max_len:
+        tweet = tweet[: max(0, max_len - 1)].rstrip() + "…"
     return tweet
 
 
@@ -462,6 +616,22 @@ def main() -> None:
     hrs = sorted(hrs, key=lambda r: -(r.get("distance_ft") or 0))
 
     fmt = args.format
+    category_history = None
+    if (
+        fmt in ("tweet", "image", "all")
+        and not args.wbc
+        and not args.spring_training
+        and args.warehouse.exists()
+    ):
+        try:
+            category_history = build_category_history(
+                args.warehouse,
+                int(args.date[:4]),
+                args.date,
+            )
+        except Exception as exc:
+            print(f"HR category history unavailable: {exc}", file=sys.stderr)
+
     compact = not args.full_names
     if fmt in ("text", "all"):
         text = build_text_block(hrs, args.date, day_fmt, compact=compact, show_flags=show_flags)
@@ -477,17 +647,28 @@ def main() -> None:
         except ValueError:
             _cap = 10_000
         _cap = max(1, min(250_000, _cap))
-        tweet = build_tweet(
-            hrs,
-            args.date,
-            day_fmt,
-            intro=args.intro,
-            hashtag=args.hashtag,
-            compact=compact,
-            show_flags=show_flags,
-            max_len=_cap,
-            tweet_hr_line_limit=None if args.tweet_all_hr_lines else 5,
-        )
+        if category_history and not args.tweet_all_hr_lines:
+            tweet = build_story_tweet(
+                hrs,
+                args.date,
+                day_fmt,
+                category_history,
+                intro=args.intro,
+                hashtag=args.hashtag,
+                max_len=min(_cap, 280),
+            )
+        else:
+            tweet = build_tweet(
+                hrs,
+                args.date,
+                day_fmt,
+                intro=args.intro,
+                hashtag=args.hashtag,
+                compact=compact,
+                show_flags=show_flags,
+                max_len=_cap,
+                tweet_hr_line_limit=None if args.tweet_all_hr_lines else 5,
+            )
         if fmt == "all":
             print("--- Tweet ---")
         print(tweet)
@@ -495,7 +676,12 @@ def main() -> None:
 
     if fmt in ("image", "all"):
         out_path = args.output_dir / f"hr_tracker_{args.date.replace('-', '')}.png"
-        render_hr_tracker_image(hrs, args.date, out_path)
+        render_hr_tracker_image(
+            hrs,
+            args.date,
+            out_path,
+            category_history=category_history,
+        )
         print(f"\nImage: {out_path}")
 
     if fmt == "text" and not hrs:
