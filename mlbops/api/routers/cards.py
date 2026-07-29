@@ -168,13 +168,13 @@ def _recent_showdown_pairs(game_date: str, days: int = 7) -> list[tuple[str, str
     cutoff = target - timedelta(days=days)
     pairs: list[tuple[str, str]] = []
     for item in list_queue(limit=100, sort_by="created_at", order="desc"):
-        if item.get("status") == "rejected":
+        if item.get("status") != "posted":
             continue
         try:
             item_date = date.fromisoformat(str(item.get("game_date") or ""))
         except ValueError:
             continue
-        if not cutoff <= item_date <= target:
+        if not cutoff <= item_date < target:
             continue
         raw_meta = item.get("meta_json")
         try:
@@ -188,6 +188,28 @@ def _recent_showdown_pairs(game_date: str, days: int = 7) -> list[tuple[str, str
         if away and home:
             pairs.append((away, home))
     return pairs
+
+
+def _existing_showdown_item(game_date: str) -> Optional[dict]:
+    matches: list[dict] = []
+    for item in list_queue(limit=100, sort_by="created_at", order="desc"):
+        if str(item.get("game_date") or "") != game_date:
+            continue
+        if item.get("status") not in {"draft", "approved", "posted"}:
+            continue
+        raw_meta = item.get("meta_json")
+        try:
+            meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+        except json.JSONDecodeError:
+            continue
+        if isinstance(meta, dict) and meta.get("source_module") == "pitcher_showdown":
+            matches.append(item)
+    status_rank = {"posted": 3, "approved": 2, "draft": 1}
+    return max(
+        matches,
+        key=lambda item: (status_rank.get(str(item.get("status")), 0), int(item["id"])),
+        default=None,
+    )
 
 
 def _hr_tracker_tweet_from_stdout(stdout: str) -> str:
@@ -913,6 +935,17 @@ async def generate_games_of_day(req: GamesOfDayRequest):
 def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
     """Generate today's selected probable-starter comparison and enqueue it."""
     game_date = req.game_date or str(mlb_today())
+    existing = _existing_showdown_item(game_date)
+    if existing:
+        return {
+            "id": existing["id"],
+            "tweet_text": existing.get("tweet_text") or "",
+            "game_date": game_date,
+            "image_url": existing.get("image_url") or "",
+            "image_path": existing.get("image_path") or "",
+            "status": existing.get("status"),
+            "reused": True,
+        }
     excluded_pairs = _recent_showdown_pairs(game_date)
     cmd = [
         MLB_PYTHON,
@@ -981,6 +1014,8 @@ def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
         "game_date": game_date,
         "image_url": _image_url(out_path),
         "image_path": str(out_path),
+        "status": "draft",
+        "reused": False,
     }
 
 

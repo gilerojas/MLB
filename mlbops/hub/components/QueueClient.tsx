@@ -242,7 +242,7 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
         signal: AbortSignal.timeout(180_000),
       });
       const raw = await res.text();
-      let data: { detail?: unknown; tweet_text?: string } = {};
+      let data: { detail?: unknown; tweet_text?: string; reused?: boolean; status?: string } = {};
       if (raw) {
         try {
           data = JSON.parse(raw) as typeof data;
@@ -260,7 +260,10 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
               : "Request failed.";
         setMsg({ ok: false, text: msg });
       } else {
-        setMsg({ ok: true, text: `Added to queue — ${data.tweet_text?.slice(0, 60)}…` });
+        const prefix = data.reused
+          ? `Showdown already ${data.status || "exists"}`
+          : "Added to queue";
+        setMsg({ ok: true, text: `${prefix} — ${data.tweet_text?.slice(0, 60)}…` });
         onGenerated();
       }
     } catch (e) {

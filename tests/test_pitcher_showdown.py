@@ -317,3 +317,38 @@ def test_matchup_quality_weights_both_recent_and_season_form(monkeypatch) -> Non
     cold = fetcher._quality_for_selection(2, 2026, "2026-07-29")
 
     assert hot < cold
+
+
+def test_launch_station_reuses_existing_same_day_showdown(monkeypatch) -> None:
+    mlbops_root = ROOT / "mlbops"
+    if str(mlbops_root) not in sys.path:
+        sys.path.insert(0, str(mlbops_root))
+    cards = importlib.import_module("api.routers.cards")
+    monkeypatch.setattr(
+        cards,
+        "list_queue",
+        lambda **_kwargs: [
+            {
+                "id": 590,
+                "status": "posted",
+                "game_date": "2026-07-29",
+                "tweet_text": "Existing showdown",
+                "image_url": "/static/showdown.png",
+                "image_path": "/outputs/showdown.png",
+                "meta_json": '{"source_module":"pitcher_showdown"}',
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        cards,
+        "_run_script",
+        lambda _command: (_ for _ in ()).throw(AssertionError("must not regenerate")),
+    )
+
+    result = cards._generate_pitcher_showdown_sync(
+        cards.PitcherShowdownRequest(game_date="2026-07-29")
+    )
+
+    assert result["id"] == 590
+    assert result["status"] == "posted"
+    assert result["reused"] is True
