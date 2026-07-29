@@ -214,11 +214,21 @@ def fetch_pitcher_profile(
     return profile
 
 
-def _era_for_selection(pid: int, season: int) -> float:
+def _quality_for_selection(pid: int, season: int, before_date: str) -> float:
     stat = _season_stat(pid, season)
-    era = _number(stat.get("era"), 99.0)
+    season_era = _number(stat.get("era"), 99.0)
     starts = _integer(stat.get("gamesStarted"))
-    return era + (0.75 if starts < 5 else 0.0)
+    logs = [
+        row
+        for row in _game_log(pid, season, before_date)
+        if _integer(row.get("games_started")) >= 1
+    ]
+    recent = _aggregate(logs[-3:])
+    recent_era = recent.get("era")
+    if recent_era is None:
+        recent_era = 99.0
+    sample_penalty = 0.75 if starts < 5 or _integer(recent.get("outs")) < 27 else 0.0
+    return season_era * 0.45 + float(recent_era) * 0.55 + sample_penalty
 
 
 def choose_showdown_game(
@@ -263,9 +273,20 @@ def choose_showdown_game(
     season = int(date_str[:4])
     scored: list[tuple[float, dict]] = []
     for matchup in complete:
-        away_era = _era_for_selection(int(matchup["away"]["id"]), season)
-        home_era = _era_for_selection(int(matchup["home"]["id"]), season)
-        pair_score = max(away_era, home_era) * 0.65 + (away_era + home_era) * 0.175
+        away_quality = _quality_for_selection(
+            int(matchup["away"]["id"]),
+            season,
+            date_str,
+        )
+        home_quality = _quality_for_selection(
+            int(matchup["home"]["id"]),
+            season,
+            date_str,
+        )
+        pair_score = (
+            max(away_quality, home_quality) * 0.70
+            + (away_quality + home_quality) * 0.15
+        )
         scored.append((pair_score, matchup))
     return min(scored, key=lambda item: item[0])[1]
 

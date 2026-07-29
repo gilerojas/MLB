@@ -281,8 +281,8 @@ def test_showdown_selector_skips_recently_used_pair(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         fetcher,
-        "_era_for_selection",
-        lambda pid, _season: {1: 2.0, 2: 2.2, 3: 3.0, 4: 3.1}[pid],
+        "_quality_for_selection",
+        lambda pid, _season, _date: {1: 2.0, 2: 2.2, 3: 3.0, 4: 3.1}[pid],
     )
 
     selected = fetcher.choose_showdown_game(
@@ -291,3 +291,29 @@ def test_showdown_selector_skips_recently_used_pair(monkeypatch) -> None:
     )
 
     assert selected is fresh_pair
+
+
+def test_matchup_quality_weights_both_recent_and_season_form(monkeypatch) -> None:
+    fetcher = importlib.import_module("src.pitcher_showdown.fetch")
+    monkeypatch.setattr(
+        fetcher,
+        "_season_stat",
+        lambda _pid, _season: {"era": "3.00", "gamesStarted": 12},
+    )
+    monkeypatch.setattr(
+        fetcher,
+        "_game_log",
+        lambda pid, _season, _date: [
+            {
+                "games_started": 1,
+                "outs": 18,
+                "earned_runs": 0 if pid == 1 else 4,
+            }
+        ]
+        * 3,
+    )
+
+    hot = fetcher._quality_for_selection(1, 2026, "2026-07-29")
+    cold = fetcher._quality_for_selection(2, 2026, "2026-07-29")
+
+    assert hot < cold
