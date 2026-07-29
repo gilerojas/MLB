@@ -213,7 +213,12 @@ def test_launch_station_generator_creates_tagged_queue_draft(
 
     def fake_run_script(command: list[str]) -> tuple[str, str]:
         assert "--output-suffix" in command
+        assert command[-2:] == ["--exclude-pair", "Chris Sale|Christian Scott"]
         return (
+            "--- Showdown JSON ---\n"
+            '{"game_pk": 123, "away_pitcher": "New Away", '
+            '"home_pitcher": "New Home"}\n'
+            "--- End Showdown JSON ---\n"
             "--- Tweet ---\n"
             "Today's best pitching matchup, built around recent form.\n\n"
             "(59 chars)\n\n"
@@ -228,6 +233,21 @@ def test_launch_station_generator_creates_tagged_queue_draft(
     monkeypatch.setattr(cards, "OUTPUTS_ROOT", tmp_path)
     monkeypatch.setattr(cards, "_run_script", fake_run_script)
     monkeypatch.setattr(cards, "insert_queue_item", fake_insert_queue_item)
+    monkeypatch.setattr(
+        cards,
+        "list_queue",
+        lambda **_kwargs: [
+            {
+                "status": "posted",
+                "game_date": "2026-07-28",
+                "meta_json": (
+                    '{"source_module":"pitcher_showdown",'
+                    '"away_pitcher":"Chris Sale",'
+                    '"home_pitcher":"Christian Scott"}'
+                ),
+            }
+        ],
+    )
 
     result = cards._generate_pitcher_showdown_sync(
         cards.PitcherShowdownRequest(game_date="2026-07-29")
@@ -238,4 +258,36 @@ def test_launch_station_generator_creates_tagged_queue_draft(
     assert queued["title"] == "Pitcher Showdown 2026-07-29"
     assert queued["meta"]["source_module"] == "pitcher_showdown"
     assert queued["meta"]["content_pillar"] == "matchup_edge"
+    assert queued["meta"]["away_pitcher"] == "New Away"
+    assert queued["meta"]["home_pitcher"] == "New Home"
+    assert queued["game_pk"] == 123
     assert queued["image_path"] == str(output)
+
+
+def test_showdown_selector_skips_recently_used_pair(monkeypatch) -> None:
+    fetcher = importlib.import_module("src.pitcher_showdown.fetch")
+    sale_scott = {
+        "away": {"id": 1, "name": "Chris Sale"},
+        "home": {"id": 2, "name": "Christian Scott"},
+    }
+    fresh_pair = {
+        "away": {"id": 3, "name": "Tarik Skubal"},
+        "home": {"id": 4, "name": "Garrett Crochet"},
+    }
+    monkeypatch.setattr(
+        fetcher,
+        "schedule_matchups",
+        lambda _date: [sale_scott, fresh_pair],
+    )
+    monkeypatch.setattr(
+        fetcher,
+        "_era_for_selection",
+        lambda pid, _season: {1: 2.0, 2: 2.2, 3: 3.0, 4: 3.1}[pid],
+    )
+
+    selected = fetcher.choose_showdown_game(
+        "2026-07-29",
+        excluded_pairs={frozenset(("chris sale", "christian scott"))},
+    )
+
+    assert selected is fresh_pair

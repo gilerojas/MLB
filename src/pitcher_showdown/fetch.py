@@ -85,6 +85,8 @@ def schedule_matchups(date_str: str) -> list[dict]:
                 "date": date_str,
                 "game_time": _time_et(game.get("gameDate")),
                 "venue": (game.get("venue") or {}).get("name") or "",
+                "rescheduled_from_date": game.get("rescheduledFromDate"),
+                "description": game.get("description") or "",
                 "away": away,
                 "home": home,
             }
@@ -224,6 +226,7 @@ def choose_showdown_game(
     *,
     away_pitcher_id: int | None = None,
     home_pitcher_id: int | None = None,
+    excluded_pairs: set[frozenset[str]] | None = None,
 ) -> dict:
     """Choose a complete matchup; explicit IDs override the quality ranking."""
     matchups = schedule_matchups(date_str)
@@ -241,6 +244,20 @@ def choose_showdown_game(
         for matchup in matchups
         if matchup["away"].get("id") and matchup["home"].get("id")
     ]
+    excluded_pairs = excluded_pairs or set()
+    eligible = [
+        matchup
+        for matchup in complete
+        if frozenset(
+            (
+                str(matchup["away"]["name"]).strip().casefold(),
+                str(matchup["home"]["name"]).strip().casefold(),
+            )
+        )
+        not in excluded_pairs
+    ]
+    if eligible:
+        complete = eligible
     if not complete:
         raise ValueError(f"No complete probable-pitcher matchup for {date_str}.")
     season = int(date_str[:4])
@@ -258,11 +275,13 @@ def build_showdown(
     *,
     away_pitcher_id: int | None = None,
     home_pitcher_id: int | None = None,
+    excluded_pairs: set[frozenset[str]] | None = None,
 ) -> dict:
     matchup = choose_showdown_game(
         date_str,
         away_pitcher_id=away_pitcher_id,
         home_pitcher_id=home_pitcher_id,
+        excluded_pairs=excluded_pairs,
     )
     season = int(date_str[:4])
     return {

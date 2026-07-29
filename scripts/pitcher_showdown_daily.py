@@ -23,15 +23,27 @@ def main() -> None:
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--away-pitcher-id", type=int)
     parser.add_argument("--home-pitcher-id", type=int)
+    parser.add_argument(
+        "--exclude-pair",
+        action="append",
+        default=[],
+        metavar="PITCHER_A|PITCHER_B",
+    )
     parser.add_argument("--format", choices=("tweet", "image", "all", "json"), default="all")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
     parser.add_argument("--output-suffix", default="")
     args = parser.parse_args()
 
+    excluded_pairs = {
+        frozenset(part.strip().casefold() for part in pair.split("|", 1))
+        for pair in args.exclude_pair
+        if "|" in pair and all(part.strip() for part in pair.split("|", 1))
+    }
     showdown = build_showdown(
         args.date,
         away_pitcher_id=args.away_pitcher_id,
         home_pitcher_id=args.home_pitcher_id,
+        excluded_pairs=excluded_pairs,
     )
     try:
         cap = int(os.getenv("MLBOPS_TWEET_MAX_CHARS", "280"))
@@ -45,6 +57,23 @@ def main() -> None:
         return
     if args.format in ("tweet", "all"):
         if args.format == "all":
+            print("--- Showdown JSON ---")
+            print(
+                json.dumps(
+                    {
+                        "game_pk": showdown.get("game_pk"),
+                        "away_pitcher_id": showdown["away"].get("id"),
+                        "away_pitcher": showdown["away"].get("name"),
+                        "home_pitcher_id": showdown["home"].get("id"),
+                        "home_pitcher": showdown["home"].get("name"),
+                        "matchup": f"{showdown['away'].get('team')} @ {showdown['home'].get('team')}",
+                        "rescheduled_from_date": showdown.get("rescheduled_from_date"),
+                        "description": showdown.get("description"),
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            print("--- End Showdown JSON ---")
             print("--- Tweet ---")
         print(tweet)
         print(f"\n({len(tweet)} chars)")

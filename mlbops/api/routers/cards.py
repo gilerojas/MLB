@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from api.intel_standouts import compute_daily_standouts, mlb_today
-from api.db.database import insert_queue_item
+from api.db.database import insert_queue_item, list_queue
 from api.paths import (
     get_outputs_dir,
     get_repo_root,
@@ -150,6 +150,44 @@ def _tweet_body_after_marker(stdout: str, marker: str = "--- Tweet ---") -> str:
                 body.append(ln)
             return "\n".join(body).strip()
     return ""
+
+
+def _json_between_markers(stdout: str, start: str, end: str) -> dict:
+    if start not in stdout or end not in stdout:
+        return {}
+    try:
+        raw = stdout.split(start, 1)[1].split(end, 1)[0].strip()
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, IndexError):
+        return {}
+
+
+def _recent_showdown_pairs(game_date: str, days: int = 7) -> list[tuple[str, str]]:
+    target = date.fromisoformat(game_date)
+    cutoff = target - timedelta(days=days)
+    pairs: list[tuple[str, str]] = []
+    for item in list_queue(limit=100, sort_by="created_at", order="desc"):
+        if item.get("status") == "rejected":
+            continue
+        try:
+            item_date = date.fromisoformat(str(item.get("game_date") or ""))
+        except ValueError:
+            continue
+        if not cutoff <= item_date <= target:
+            continue
+        raw_meta = item.get("meta_json")
+        try:
+            meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(meta, dict) or meta.get("source_module") != "pitcher_showdown":
+            continue
+        away = str(meta.get("away_pitcher") or "").strip()
+        home = str(meta.get("home_pitcher") or "").strip()
+        if away and home:
+            pairs.append((away, home))
+    return pairs
 
 
 def _hr_tracker_tweet_from_stdout(stdout: str) -> str:
@@ -875,6 +913,7 @@ async def generate_games_of_day(req: GamesOfDayRequest):
 def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
     """Generate today's selected probable-starter comparison and enqueue it."""
     game_date = req.game_date or str(mlb_today())
+    excluded_pairs = _recent_showdown_pairs(game_date)
     cmd = [
         MLB_PYTHON,
         "scripts/pitcher_showdown_daily.py",
@@ -887,6 +926,8 @@ def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
         "--output-suffix",
         secrets.token_hex(4),
     ]
+    for away, home in excluded_pairs:
+        cmd.extend(["--exclude-pair", f"{away}|{home}"])
     stdout, _ = _run_script(cmd)
     out_path = _extract_saved_path(stdout)
     if not out_path or not out_path.exists():
@@ -902,6 +943,11 @@ def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
         or f"Showdown of the day — {game_date} #Mallitalytics",
         cap,
     )
+    showdown_meta = _json_between_markers(
+        stdout,
+        "--- Showdown JSON ---",
+        "--- End Showdown JSON ---",
+    )
     meta = {
         "source": "pitcher_showdown",
         "source_module": "pitcher_showdown",
@@ -913,6 +959,7 @@ def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
         "creation_mode": "ai_assisted",
         "image_renderer": "pitcher_showdown",
         "image_path": str(out_path),
+        **showdown_meta,
     }
     item_id = insert_queue_item(
         # Production currently constrains queue content types; source_module
@@ -922,6 +969,7 @@ def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
         tweet_text=tweet,
         image_path=str(out_path),
         image_url=_image_url(out_path),
+        game_pk=showdown_meta.get("game_pk"),
         game_date=game_date,
         season=int(game_date[:4]),
         stage="regular_season",
