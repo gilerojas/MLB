@@ -9,6 +9,7 @@ POST /cards/best-batters → creates a text-only daily best batters draft
 POST /cards/best-pitchers → creates a text-only daily best pitchers draft
 POST /cards/probables-board → runs probables_board_daily.py
 POST /cards/games-of-day → runs games_of_day_board.py
+POST /cards/pitcher-showdown → runs pitcher_showdown_daily.py
 """
 import csv
 import json
@@ -332,6 +333,11 @@ class GamesOfDayRequest(BaseModel):
 
 
 class ProbablesBoardRequest(BaseModel):
+    game_date: Optional[str] = None    # YYYY-MM-DD, defaults to today
+    tweet_text: Optional[str] = None
+
+
+class PitcherShowdownRequest(BaseModel):
     game_date: Optional[str] = None    # YYYY-MM-DD, defaults to today
     tweet_text: Optional[str] = None
 
@@ -864,6 +870,76 @@ def _generate_games_of_day_sync(req: GamesOfDayRequest) -> dict:
 async def generate_games_of_day(req: GamesOfDayRequest):
     """Generate Games of Day slate (PNG) + tweet draft."""
     return await run_in_threadpool(_generate_games_of_day_sync, req)
+
+
+def _generate_pitcher_showdown_sync(req: PitcherShowdownRequest) -> dict:
+    """Generate today's selected probable-starter comparison and enqueue it."""
+    game_date = req.game_date or str(mlb_today())
+    cmd = [
+        MLB_PYTHON,
+        "scripts/pitcher_showdown_daily.py",
+        "--date",
+        game_date,
+        "--format",
+        "all",
+        "--output-dir",
+        str(OUTPUTS_ROOT),
+        "--output-suffix",
+        secrets.token_hex(4),
+    ]
+    stdout, _ = _run_script(cmd)
+    out_path = _extract_saved_path(stdout)
+    if not out_path or not out_path.exists():
+        raise HTTPException(
+            status_code=500,
+            detail="Pitcher Showdown PNG not found after generation.",
+        )
+
+    cap = get_tweet_max_chars()
+    tweet = truncate_tweet_text_to_cap(
+        req.tweet_text
+        or _tweet_body_after_marker(stdout)
+        or f"Showdown of the day — {game_date} #Mallitalytics",
+        cap,
+    )
+    meta = {
+        "source": "pitcher_showdown",
+        "source_module": "pitcher_showdown",
+        "content_pillar": "matchup_edge",
+        "hook_type": "one_chart_one_takeaway",
+        "intended_kpi": "bookmarks",
+        "priority_score": 78,
+        "campaign": "daily_mlb",
+        "creation_mode": "ai_assisted",
+        "image_renderer": "pitcher_showdown",
+        "image_path": str(out_path),
+    }
+    item_id = insert_queue_item(
+        # Production currently constrains queue content types; source_module
+        # preserves the more specific product identity.
+        content_type="games_of_day",
+        title=f"Pitcher Showdown {game_date}",
+        tweet_text=tweet,
+        image_path=str(out_path),
+        image_url=_image_url(out_path),
+        game_date=game_date,
+        season=int(game_date[:4]),
+        stage="regular_season",
+        meta=meta,
+    )
+    return {
+        "id": item_id,
+        "tweet_text": tweet,
+        "game_date": game_date,
+        "image_url": _image_url(out_path),
+        "image_path": str(out_path),
+    }
+
+
+@router.post("/pitcher-showdown")
+async def generate_pitcher_showdown(req: PitcherShowdownRequest):
+    """Generate a probable-starter showdown PNG and Launch Station draft."""
+    return await run_in_threadpool(_generate_pitcher_showdown_sync, req)
 
 
 def _generate_probables_board_sync(req: ProbablesBoardRequest) -> dict:

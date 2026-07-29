@@ -192,3 +192,50 @@ def test_renderer_keeps_fixed_social_dimensions(tmp_path: Path, monkeypatch) -> 
     with Image.open(output) as image:
         assert image.size == (1200, 675)
         assert image.mode == "RGB"
+
+
+def test_launch_station_generator_creates_tagged_queue_draft(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    mlbops_root = ROOT / "mlbops"
+    if str(mlbops_root) not in sys.path:
+        sys.path.insert(0, str(mlbops_root))
+    cards = importlib.import_module("api.routers.cards")
+    output = (
+        tmp_path
+        / "pitcher_showdown"
+        / "pitcher_showdown_20260729_deadbeef.png"
+    )
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"png")
+    queued: dict = {}
+
+    def fake_run_script(command: list[str]) -> tuple[str, str]:
+        assert "--output-suffix" in command
+        return (
+            "--- Tweet ---\n"
+            "Today's best pitching matchup, built around recent form.\n\n"
+            "(59 chars)\n\n"
+            f"Image: {output}\n",
+            "",
+        )
+
+    def fake_insert_queue_item(**kwargs):
+        queued.update(kwargs)
+        return 77
+
+    monkeypatch.setattr(cards, "OUTPUTS_ROOT", tmp_path)
+    monkeypatch.setattr(cards, "_run_script", fake_run_script)
+    monkeypatch.setattr(cards, "insert_queue_item", fake_insert_queue_item)
+
+    result = cards._generate_pitcher_showdown_sync(
+        cards.PitcherShowdownRequest(game_date="2026-07-29")
+    )
+
+    assert result["id"] == 77
+    assert queued["content_type"] == "games_of_day"
+    assert queued["title"] == "Pitcher Showdown 2026-07-29"
+    assert queued["meta"]["source_module"] == "pitcher_showdown"
+    assert queued["meta"]["content_pillar"] == "matchup_edge"
+    assert queued["image_path"] == str(output)

@@ -231,7 +231,7 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  async function generate(type: "hr-tracker" | "pitching-index" | "best-batters" | "best-pitchers" | "games-of-day" | "probables-board") {
+  async function generate(type: "hr-tracker" | "pitching-index" | "best-batters" | "best-pitchers" | "games-of-day" | "probables-board" | "pitcher-showdown") {
     setBusy(type);
     setMsg(null);
     try {
@@ -306,6 +306,19 @@ function GenerateToolbar({ onGenerated }: { onGenerated: () => void }) {
             <span className="text-accent">◆</span>
           )}
           Probables board
+        </button>
+        <button
+          type="button"
+          onClick={() => void generate("pitcher-showdown")}
+          disabled={busy !== null}
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-surface-header border border-outline-variant/50 hover:border-accent transition-colors text-sm font-mono uppercase text-foreground disabled:opacity-40"
+        >
+          {busy === "pitcher-showdown" ? (
+            <span className="h-3 w-3 rounded-full border-2 border-accent/30 border-t-accent animate-spin" />
+          ) : (
+            <span className="font-bold text-warning">VS</span>
+          )}
+          Pitcher Showdown
         </button>
         <button
           type="button"

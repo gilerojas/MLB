@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import date
 from pathlib import Path
@@ -24,6 +25,7 @@ def main() -> None:
     parser.add_argument("--home-pitcher-id", type=int)
     parser.add_argument("--format", choices=("tweet", "image", "all", "json"), default="all")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs"))
+    parser.add_argument("--output-suffix", default="")
     args = parser.parse_args()
 
     showdown = build_showdown(
@@ -47,10 +49,12 @@ def main() -> None:
         print(tweet)
         print(f"\n({len(tweet)} chars)")
     if args.format in ("image", "all"):
+        safe_suffix = re.sub(r"[^a-zA-Z0-9_-]+", "_", args.output_suffix).strip("_")
+        suffix = f"_{safe_suffix}" if safe_suffix else ""
         out_path = (
             args.output_dir
             / "pitcher_showdown"
-            / f"pitcher_showdown_{args.date.replace('-', '')}.png"
+            / f"pitcher_showdown_{args.date.replace('-', '')}{suffix}.png"
         )
         render_showdown(showdown, out_path)
         print(f"\nImage: {out_path}")
