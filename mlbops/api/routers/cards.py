@@ -42,6 +42,7 @@ from api.services.script_runner import (
     ScriptTimeoutError,
     default_script_runner,
 )
+from src.pitching_performances.malli_score import MALLISCORE_V4_VERSION
 
 STATS_BASE = "https://statsapi.mlb.com/api/v1"
 
@@ -704,6 +705,7 @@ def _generate_pitching_index_sync(req: PitchingIndexRequest) -> dict:
         "source_module": "pitching_performances_daily",
         "card_type": "pitching_index",
         "metric": "MalliScore",
+        "malli_score_version": MALLISCORE_V4_VERSION,
         "game_date": game_date,
         "csv_path": str(csv_path),
     }

@@ -12,6 +12,7 @@ import pandas as pd
 import requests
 
 from api.paths import get_warehouse_dir
+from src.pitching_performances.malli_score import MALLISCORE_VERSION
 
 
 _PITCH_DATA_CACHE: dict[tuple[int, str], tuple[tuple[float, int], tuple[dict, dict, dict]]] = {}
@@ -652,6 +653,7 @@ def _score_candidate(
         "probable_status": probable_status,
         "pitcher_hand": pitcher_stat.get("hand") or opponent_stat.get("requested_split") or "R",
         "projected_malli_score": round(projected["malli_score"], 1),
+        "projected_malli_score_version": MALLISCORE_VERSION,
         "projected": {
             "ip": round(projected["ip"], 1),
             "pitches": round(projected["pitches"]),

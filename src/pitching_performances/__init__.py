@@ -1,8 +1,14 @@
 """Daily pitching performances table card."""
 
-from .malli_score import malliscore_v2
+from .malli_score import MALLISCORE_V4_VERSION, malliscore_v2, malliscore_v4
 
-__all__ = ["build_pitching_performance_rows", "malliscore_v2", "render_pitching_performance_table"]
+__all__ = [
+    "MALLISCORE_V4_VERSION",
+    "build_pitching_performance_rows",
+    "malliscore_v2",
+    "malliscore_v4",
+    "render_pitching_performance_table",
+]
 
 
 def __getattr__(name: str):

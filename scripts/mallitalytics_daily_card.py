@@ -101,7 +101,11 @@ if str(_ROOT_MLB) not in sys.path:
     sys.path.insert(0, str(_ROOT_MLB))
 from src.mlb_headshot import neutralize_mlb_headshot_background
 from src.arm_angle import add_effective_arm_angle, raw_path_for_parquet
-from src.pitching_performances.malli_score import OutingRawMetrics, default_league_norms, malliscore_v2
+from src.pitching_performances.malli_score import (
+    MALLISCORE_V4_VERSION,
+    OutingRawMetrics,
+    malliscore_v4,
+)
 
 
 def _register_card_fonts() -> tuple[str, str]:
@@ -2047,6 +2051,16 @@ def _compute_malli_score(df: pd.DataFrame, box: dict) -> float:
     ip = outs / 3.0 if outs else 0.0
     out_zone = int(df['out_zone'].sum()) if 'out_zone' in df.columns else 0
     chase_pct = (float(df['chase'].sum()) / out_zone * 100.0) if out_zone else math.nan
+    if 'at_bat_number' in df.columns:
+        pa = df.sort_values([c for c in ('inning', 'at_bat_number', 'pitch_number') if c in df.columns]).groupby(
+            'at_bat_number',
+            dropna=False,
+        ).tail(1)
+        batters_faced = int(pa['at_bat_number'].nunique())
+        hit_by_pitch = int(pa.get('events', pd.Series(index=pa.index, dtype='object')).eq('hit_by_pitch').sum())
+    else:
+        batters_faced = int(box.get('pa') or 0)
+        hit_by_pitch = int(box.get('hbp') or 0)
     raw = OutingRawMetrics(
         swstr_pct=float(box.get('whiffs') or 0) / pitches * 100.0,
         called_strike_pct=float(df['description'].eq('called_strike').sum()) / pitches * 100.0,
@@ -2057,8 +2071,12 @@ def _compute_malli_score(df: pd.DataFrame, box: dict) -> float:
         home_runs=int(box.get('hr') or 0),
         pitches=pitches,
         outs=outs,
+        batters_faced=batters_faced,
+        hits=int(box.get('h') or 0),
+        walks=int(box.get('bb') or 0),
+        hit_by_pitch=hit_by_pitch,
     )
-    return float(malliscore_v2(raw, default_league_norms())['malli_score'])
+    return float(malliscore_v4(raw)['malli_score'])
 
 
 _SLATE_MALLI_SCORE_CACHE: dict[tuple[str, str], dict[tuple[int, int | None], float]] = {}
@@ -2401,6 +2419,7 @@ def _build_pitcher_card_snapshot(
         "game_pk": game_pk,
         "source_parquet": path_name,
         "source_metadata": dict(source_metadata) if source_metadata else {},
+        "malli_score_version": MALLISCORE_V4_VERSION,
         "output_image": Path(output_path).name,
         "box": _box_json(box),
         "header_summary": {

@@ -1,10 +1,17 @@
-"""MalliScore V3: descriptive single-outing pitching performance index."""
+"""MalliScore V3: descriptive single-outing pitching performance index.
+
+The shipped formula is frozen and specified in `docs/MALLISCORE_V3_SPEC.md`.
+`tests/test_malliscore_golden.py` pins its output; do not change constants in
+this module without regenerating that golden file deliberately.
+"""
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from typing import Any
+
+MALLISCORE_VERSION = "3.0.0"
 
 TARGET_OUTS = 18
 MIN_WORKLOAD_SCALAR = 0.50
@@ -60,6 +67,67 @@ class OutingRawMetrics:
     home_runs: int
     pitches: int
     outs: int
+    # V4 only. Optional so every existing V3 call site is untouched.
+    batters_faced: int | None = None
+    hits: int | None = None
+    walks: int | None = None
+    hit_by_pitch: int | None = None
+
+
+# --------------------------------------------------------------------------- V4
+# MalliScore V4 -- shipped for actual-outing Pitching Index scores.
+#
+# V3 remains frozen for reproducibility and for projection consumers that do not yet
+# estimate HBP. V4 is the production formula for actual outings, where official H, BB,
+# HBP and BF are available. V3 remains byte-identical across all 7,479 study outings and
+# is pinned by tests/test_malliscore_golden.py.
+#
+# Derived from the validation study in research/study/malliscore_validation/ and
+# specified in docs/MALLISCORE_V4_DECISION.md.
+#
+# Two changes from V3, both evidence-driven:
+#
+#   1. League norms are measured on 2024 starter outings rather than assumed. V3's
+#      priors were wrong by up to 2x on spread -- game_whip assumed sd 0.50 against an
+#      observed 1.01 -- which silently inflated its realized weight to 0.56 against a
+#      nominal 0.40.
+#   2. Run prevention counts reaches allowed per batter faced instead of WHIP. WHIP carries
+#      innings pitched in the denominator, so a short blow-up produces an unbounded
+#      value (observed max 21.0, z = -39). That saturated the 0-100 clamp and, through
+#      the harmonic mean, forced the final score to exactly 0 on ~1.2% of outings --
+#      collapsing a 40-point Game Score range onto a single number.
+#
+# Weights, harmonic fusion, the workload curve and the clamps are unchanged: the study
+# found the weights weakly identified (Spearman never below 0.963 across the entire
+# feasible region) and found the outs/run-prevention link to be selection rather than a
+# denominator artifact.
+MALLISCORE_V4_VERSION = "4.0.0"
+
+_V4_MEANS: dict[str, float] = {
+    "swstr_pct": 11.78,
+    "called_strike_pct": 16.17,
+    "chase_pct": 28.48,
+    "xwoba_allowed": 0.321,
+    "reach_rate_allowed": 0.3130,
+    "log1p_er": 1.053,
+    "log1p_hr": 0.429,
+}
+
+_V4_STDS: dict[str, float] = {
+    "swstr_pct": 4.61,
+    "called_strike_pct": 3.96,
+    "chase_pct": 7.85,
+    "xwoba_allowed": 0.089,
+    "reach_rate_allowed": 0.1123,
+    "log1p_er": 0.623,
+    "log1p_hr": 0.452,
+}
+
+_V4_RUN_PREVENTION_WEIGHTS = {
+    "reach_rate_allowed": 0.40,
+    "log1p_er": 0.35,
+    "log1p_hr": 0.25,
+}
 
 
 @dataclass(frozen=True)
@@ -241,6 +309,85 @@ def malliscore_v2(raw: OutingRawMetrics, norms: LeagueNorms) -> dict[str, float]
     }
 
 
+def v4_league_norms() -> LeagueNorms:
+    """League norms measured on 2024 starter outings, not assumed."""
+    return LeagueNorms(means=dict(_V4_MEANS), stds=dict(_V4_STDS))
+
+
+def reach_rate_allowed(hits: int, walks: int, hit_by_pitch: int, batters_faced: int) -> float:
+    """Share of batters reaching via hit, walk or hit-by-pitch.
+
+    Because a pitcher yanked after recording two outs still faced a countable number of
+    hitters, a disaster start lands at a finite z instead of running off the scale.
+    """
+    if not batters_faced or batters_faced <= 0:
+        return math.nan
+    return (max(hits, 0) + max(walks, 0) + max(hit_by_pitch, 0)) / float(batters_faced)
+
+
+def malliscore_v4(raw: OutingRawMetrics, norms: LeagueNorms | None = None) -> dict[str, float]:
+    """MalliScore V4 for actual outings with complete official boxscore inputs.
+
+    See docs/MALLISCORE_V4_DECISION.md.
+
+    V4 requires official H, BB, HBP and BF. It raises instead of silently returning a
+    V3 score on a different scale.
+    """
+    norms = norms or v4_league_norms()
+    if raw.batters_faced is None or raw.batters_faced <= 0:
+        raise ValueError(
+            "malliscore_v4 requires OutingRawMetrics.batters_faced; "
+            "use malliscore_v2 for outings where it is unavailable"
+        )
+    if raw.hits is None or raw.walks is None or raw.hit_by_pitch is None:
+        raise ValueError(
+            "malliscore_v4 requires official H, BB and HBP; "
+            "use malliscore_v2 for outings where they are unavailable"
+        )
+
+    dom_values = {
+        "swstr_pct": raw.swstr_pct,
+        "called_strike_pct": raw.called_strike_pct,
+        "chase_pct": raw.chase_pct if math.isfinite(raw.chase_pct) else norms.means["chase_pct"],
+        "xwoba_allowed": raw.xwoba_allowed,
+    }
+    dom = _z_to_index(
+        _weighted_z(dom_values, norms, _DOMINANCE_WEIGHTS, invert={"xwoba_allowed"})
+    )
+
+    reach_rate = reach_rate_allowed(
+        raw.hits,
+        raw.walks,
+        raw.hit_by_pitch,
+        raw.batters_faced,
+    )
+    rp_values = {
+        "reach_rate_allowed": reach_rate,
+        "log1p_er": math.log1p(max(raw.earned_runs, 0)),
+        "log1p_hr": math.log1p(max(raw.home_runs, 0)),
+    }
+    run_prev = _z_to_index(
+        _weighted_z(
+            rp_values,
+            norms,
+            _V4_RUN_PREVENTION_WEIGHTS,
+            invert={"reach_rate_allowed", "log1p_er", "log1p_hr"},
+        )
+    )
+
+    core = harmonic_mean(dom, run_prev)
+    workload = workload_scalar(raw.pitches, raw.outs)
+    return {
+        "dominance_score": dom,
+        "run_prevention_score": run_prev,
+        "core_score": core,
+        "workload": workload,
+        "reach_rate_allowed": reach_rate,
+        "malli_score_version": MALLISCORE_V4_VERSION,
+        "malli_score": max(0.0, min(100.0, core * workload)),
+    }
+
+
 def score_outing_dict(
     metric: dict[str, Any],
     box: Any,
@@ -269,8 +416,13 @@ def score_outing_dict(
         home_runs=int(box.home_runs),
         pitches=official_pitches,
         outs=outs,
+        batters_faced=bf,
+        hits=int(box.hits),
+        walks=int(box.walks),
+        hit_by_pitch=max(int(getattr(box, "hit_by_pitch", 0)), 0),
     )
-    scored = malliscore_v2(raw, norms)
+    scored_v3 = malliscore_v2(raw, norms)
+    scored = malliscore_v4(raw)
     k_pct = box.strikeouts / bf * 100.0 if bf else math.nan
     bb_pct = box.walks / bf * 100.0 if bf else math.nan
     hr_pct = box.home_runs / bf * 100.0 if bf else math.nan
@@ -285,6 +437,10 @@ def score_outing_dict(
         "hr_pct": hr_pct,
         "game_era": game_era,
         "game_whip": game_whip,
+        "hit_by_pitch": raw.hit_by_pitch,
+        "batters_faced": bf,
+        "reach_rate_allowed": scored["reach_rate_allowed"],
+        "malli_score_version": scored["malli_score_version"],
         "dominance_score": scored["dominance_score"],
         "run_prevention_score": scored["run_prevention_score"],
         "core_score": scored["core_score"],
@@ -292,7 +448,8 @@ def score_outing_dict(
         "result_score": scored["run_prevention_score"],
         "workload": scored["workload"],
         "malli_score": scored["malli_score"],
-        "malli_score_v2": scored["malli_score_v2"],
+        "malli_score_v3": scored_v3["malli_score"],
+        "malli_score_v2": scored_v3["malli_score_v2"],
     }
 
 

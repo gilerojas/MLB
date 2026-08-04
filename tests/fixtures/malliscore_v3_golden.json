@@ -1,0 +1,1308 @@
+{
+  "malliscore_version": "3.0.0",
+  "description": "Frozen MalliScore V3 outputs for 50 real starter outings (2024-2026). Regenerate only via research/study/malliscore_validation/make_golden.py and only when a V3 change is deliberate.",
+  "norms": "default_league_norms()",
+  "n_cases": 50,
+  "cases": [
+    {
+      "season": 2024,
+      "game_pk": 744795,
+      "pitcher": 687792,
+      "pitcher_name": "DJ Herz",
+      "game_date": "2024-09-25",
+      "input": {
+        "swstr_pct": 9.876543209876543,
+        "called_strike_pct": 14.814814814814813,
+        "chase_pct": 21.052631578947366,
+        "xwoba_allowed": 0.25705680952380955,
+        "game_whip": 1.2,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 81,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 46.6924211179,
+        "run_prevention_score": 58.4460419035,
+        "core_score": 51.9122521446,
+        "workload": 0.8466,
+        "malli_score": 43.9489126656,
+        "malli_score_v2": 43.9489126656
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744799,
+      "pitcher": 554430,
+      "pitcher_name": "Zack Wheeler",
+      "game_date": "2024-09-28",
+      "input": {
+        "swstr_pct": 19.587628865979383,
+        "called_strike_pct": 13.402061855670103,
+        "chase_pct": 37.5,
+        "xwoba_allowed": 0.22756606851119895,
+        "game_whip": 0.7894736842105263,
+        "earned_runs": 2,
+        "home_runs": 1,
+        "pitches": 97,
+        "outs": 19
+      },
+      "expected": {
+        "dominance_score": 64.1079694045,
+        "run_prevention_score": 54.0483114923,
+        "core_score": 58.6499079561,
+        "workload": 1.0109347368,
+        "malli_score": 59.2912292654,
+        "malli_score_v2": 59.2912292654
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744799,
+      "pitcher": 669022,
+      "pitcher_name": "MacKenzie Gore",
+      "game_date": "2024-09-28",
+      "input": {
+        "swstr_pct": 26.373626373626376,
+        "called_strike_pct": 9.89010989010989,
+        "chase_pct": 36.0,
+        "xwoba_allowed": 0.19657766666666665,
+        "game_whip": 0.6666666666666666,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 91,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 69.9983339629,
+        "run_prevention_score": 70.9110797334,
+        "core_score": 70.4517506764,
+        "workload": 0.9994444444,
+        "malli_score": 70.412610815,
+        "malli_score_v2": 70.412610815
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744805,
+      "pitcher": 670766,
+      "pitcher_name": "Darren McCaughan",
+      "game_date": "2024-09-12",
+      "input": {
+        "swstr_pct": 4.761904761904762,
+        "called_strike_pct": 15.476190476190476,
+        "chase_pct": 28.205128205128204,
+        "xwoba_allowed": 0.38825164375876575,
+        "game_whip": 1.6,
+        "earned_runs": 3,
+        "home_runs": 0,
+        "pitches": 84,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 37.96691299,
+        "run_prevention_score": 47.5810040736,
+        "core_score": 42.2337306073,
+        "workload": 0.8449,
+        "malli_score": 35.6832789901,
+        "malli_score_v2": 35.6832789901
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744805,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-09-12",
+      "input": {
+        "swstr_pct": 18.421052631578945,
+        "called_strike_pct": 9.210526315789473,
+        "chase_pct": 42.857142857142854,
+        "xwoba_allowed": 0.24809203897435897,
+        "game_whip": 0.4736842105263158,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 76,
+        "outs": 19
+      },
+      "expected": {
+        "dominance_score": 60.6986931919,
+        "run_prevention_score": 73.226869207,
+        "core_score": 66.3768019754,
+        "workload": 1.02212,
+        "malli_score": 67.8450568351,
+        "malli_score_v2": 67.8450568351
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744809,
+      "pitcher": 607074,
+      "pitcher_name": "Carlos Rod\u00f3n",
+      "game_date": "2024-08-28",
+      "input": {
+        "swstr_pct": 16.0,
+        "called_strike_pct": 12.0,
+        "chase_pct": 44.827586206896555,
+        "xwoba_allowed": 0.3064431989132706,
+        "game_whip": 1.7647058823529411,
+        "earned_runs": 5,
+        "home_runs": 1,
+        "pitches": 100,
+        "outs": 17
+      },
+      "expected": {
+        "dominance_score": 58.0708198785,
+        "run_prevention_score": 36.2804872847,
+        "core_score": 44.6594266801,
+        "workload": 0.9416176471,
+        "malli_score": 42.0521042695,
+        "malli_score_v2": 42.0521042695
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744809,
+      "pitcher": 669022,
+      "pitcher_name": "MacKenzie Gore",
+      "game_date": "2024-08-28",
+      "input": {
+        "swstr_pct": 13.725490196078432,
+        "called_strike_pct": 17.647058823529413,
+        "chase_pct": 23.404255319148938,
+        "xwoba_allowed": 0.25568000549450554,
+        "game_whip": 1.1666666666666667,
+        "earned_runs": 2,
+        "home_runs": 1,
+        "pitches": 102,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 54.0930660754,
+        "run_prevention_score": 49.5219957029,
+        "core_score": 51.7067024768,
+        "workload": 0.9933333333,
+        "malli_score": 51.3619911269,
+        "malli_score_v2": 51.3619911269
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744817,
+      "pitcher": 669022,
+      "pitcher_name": "MacKenzie Gore",
+      "game_date": "2024-08-06",
+      "input": {
+        "swstr_pct": 15.306122448979592,
+        "called_strike_pct": 12.244897959183673,
+        "chase_pct": 27.659574468085108,
+        "xwoba_allowed": 0.4832138196726384,
+        "game_whip": 2.0,
+        "earned_runs": 4,
+        "home_runs": 2,
+        "pitches": 98,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 42.7497538529,
+        "run_prevention_score": 31.673395594,
+        "core_score": 36.3873304312,
+        "workload": 0.83725,
+        "malli_score": 30.4652924035,
+        "malli_score_v2": 30.4652924035
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744817,
+      "pitcher": 806185,
+      "pitcher_name": "Hayden Birdsong",
+      "game_date": "2024-08-06",
+      "input": {
+        "swstr_pct": 3.0303030303030303,
+        "called_strike_pct": 21.21212121212121,
+        "chase_pct": 29.268292682926827,
+        "xwoba_allowed": 0.5317763570331359,
+        "game_whip": 4.0,
+        "earned_runs": 7,
+        "home_runs": 2,
+        "pitches": 66,
+        "outs": 6
+      },
+      "expected": {
+        "dominance_score": 33.9917748384,
+        "run_prevention_score": 3.5608638381,
+        "core_score": 6.4464221999,
+        "workload": 0.591,
+        "malli_score": 3.8098355202,
+        "malli_score_v2": 3.8098355202
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744818,
+      "pitcher": 667755,
+      "pitcher_name": "Jos\u00e9 Soriano",
+      "game_date": "2024-08-09",
+      "input": {
+        "swstr_pct": 11.363636363636363,
+        "called_strike_pct": 19.318181818181817,
+        "chase_pct": 34.04255319148936,
+        "xwoba_allowed": 0.18022308695652176,
+        "game_whip": 0.8333333333333334,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 88,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 60.2157275184,
+        "run_prevention_score": 62.8460419035,
+        "core_score": 61.5027746253,
+        "workload": 1.0011111111,
+        "malli_score": 61.5711110415,
+        "malli_score_v2": 61.5711110415
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744818,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-08-09",
+      "input": {
+        "swstr_pct": 9.183673469387756,
+        "called_strike_pct": 18.367346938775512,
+        "chase_pct": 36.95652173913043,
+        "xwoba_allowed": 0.338641156462585,
+        "game_whip": 1.2631578947368423,
+        "earned_runs": 0,
+        "home_runs": 1,
+        "pitches": 98,
+        "outs": 19
+      },
+      "expected": {
+        "dominance_score": 50.7170343001,
+        "run_prevention_score": 57.9769584919,
+        "core_score": 54.104542798,
+        "workload": 1.0104021053,
+        "malli_score": 54.6673439474,
+        "malli_score_v2": 54.6673439474
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744819,
+      "pitcher": 687792,
+      "pitcher_name": "DJ Herz",
+      "game_date": "2024-08-08",
+      "input": {
+        "swstr_pct": 6.756756756756757,
+        "called_strike_pct": 10.81081081081081,
+        "chase_pct": 14.634146341463413,
+        "xwoba_allowed": 0.40494941666666673,
+        "game_whip": 3.0,
+        "earned_runs": 2,
+        "home_runs": 0,
+        "pitches": 74,
+        "outs": 8
+      },
+      "expected": {
+        "dominance_score": 30.8402604313,
+        "run_prevention_score": 33.2982222075,
+        "core_score": 32.0221434162,
+        "workload": 0.6238333333,
+        "malli_score": 19.9764804678,
+        "malli_score_v2": 19.9764804678
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744819,
+      "pitcher": 690986,
+      "pitcher_name": "Kyle Harrison",
+      "game_date": "2024-08-08",
+      "input": {
+        "swstr_pct": 8.19672131147541,
+        "called_strike_pct": 22.950819672131146,
+        "chase_pct": 34.375,
+        "xwoba_allowed": 0.2098888888888889,
+        "game_whip": 1.0714285714285714,
+        "earned_runs": 2,
+        "home_runs": 0,
+        "pitches": 61,
+        "outs": 14
+      },
+      "expected": {
+        "dominance_score": 58.1115095628,
+        "run_prevention_score": 56.4410793504,
+        "core_score": 57.2641151723,
+        "workload": 0.8051428571,
+        "malli_score": 46.1057933016,
+        "malli_score_v2": 46.1057933016
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744824,
+      "pitcher": 663362,
+      "pitcher_name": "Matt Waldron",
+      "game_date": "2024-07-24",
+      "input": {
+        "swstr_pct": 8.88888888888889,
+        "called_strike_pct": 21.11111111111111,
+        "chase_pct": 20.0,
+        "xwoba_allowed": 0.24378009090909092,
+        "game_whip": 1.0,
+        "earned_runs": 3,
+        "home_runs": 1,
+        "pitches": 90,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 50.531141572,
+        "run_prevention_score": 49.0047775689,
+        "core_score": 49.7562563226,
+        "workload": 1.0,
+        "malli_score": 49.7562563226,
+        "malli_score_v2": 49.7562563226
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744824,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-07-24",
+      "input": {
+        "swstr_pct": 6.493506493506493,
+        "called_strike_pct": 16.883116883116884,
+        "chase_pct": 28.205128205128204,
+        "xwoba_allowed": 0.47744400485296246,
+        "game_whip": 3.3333333333333335,
+        "earned_runs": 6,
+        "home_runs": 1,
+        "pitches": 77,
+        "outs": 9
+      },
+      "expected": {
+        "dominance_score": 36.789267817,
+        "run_prevention_score": 16.1081394245,
+        "core_score": 22.4058866483,
+        "workload": 0.64025,
+        "malli_score": 14.3453689266,
+        "malli_score_v2": 14.3453689266
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744826,
+      "pitcher": 668964,
+      "pitcher_name": "Tobias Myers",
+      "game_date": "2024-08-04",
+      "input": {
+        "swstr_pct": 9.375,
+        "called_strike_pct": 10.9375,
+        "chase_pct": 31.428571428571427,
+        "xwoba_allowed": 0.30039574850657114,
+        "game_whip": 1.0,
+        "earned_runs": 1,
+        "home_runs": 1,
+        "pitches": 64,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 45.0796635745,
+        "run_prevention_score": 55.0698153988,
+        "core_score": 49.5764686294,
+        "workload": 0.8562333333,
+        "malli_score": 42.4490249895,
+        "malli_score_v2": 42.4490249895
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744826,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-08-04",
+      "input": {
+        "swstr_pct": 9.195402298850574,
+        "called_strike_pct": 17.24137931034483,
+        "chase_pct": 19.148936170212767,
+        "xwoba_allowed": 0.3950435553359684,
+        "game_whip": 1.0,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 87,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 40.5640464764,
+        "run_prevention_score": 66.9110797334,
+        "core_score": 50.5081360462,
+        "workload": 1.0016666667,
+        "malli_score": 50.5923162729,
+        "malli_score_v2": 50.5923162729
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744827,
+      "pitcher": 571578,
+      "pitcher_name": "Patrick Corbin",
+      "game_date": "2024-07-25",
+      "input": {
+        "swstr_pct": 6.422018348623854,
+        "called_strike_pct": 19.26605504587156,
+        "chase_pct": 32.142857142857146,
+        "xwoba_allowed": 0.2631627037037037,
+        "game_whip": 1.0,
+        "earned_runs": 3,
+        "home_runs": 0,
+        "pitches": 109,
+        "outs": 21
+      },
+      "expected": {
+        "dominance_score": 50.0171316191,
+        "run_prevention_score": 54.7810040736,
+        "core_score": 52.2907907257,
+        "workload": 1.0340266667,
+        "malli_score": 54.0700720314,
+        "malli_score_v2": 54.0700720314
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744828,
+      "pitcher": 681190,
+      "pitcher_name": "Randy V\u00e1squez",
+      "game_date": "2024-07-23",
+      "input": {
+        "swstr_pct": 2.941176470588235,
+        "called_strike_pct": 19.11764705882353,
+        "chase_pct": 24.0,
+        "xwoba_allowed": 0.23671347171347173,
+        "game_whip": 0.8333333333333334,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 68,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 44.176114837,
+        "run_prevention_score": 68.9110797334,
+        "core_score": 53.8385231574,
+        "workload": 1.0122222222,
+        "malli_score": 54.4965495515,
+        "malli_score_v2": 54.4965495515
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744828,
+      "pitcher": 687792,
+      "pitcher_name": "DJ Herz",
+      "game_date": "2024-07-23",
+      "input": {
+        "swstr_pct": 11.39240506329114,
+        "called_strike_pct": 15.18987341772152,
+        "chase_pct": 35.714285714285715,
+        "xwoba_allowed": 0.2823046059456041,
+        "game_whip": 1.4,
+        "earned_runs": 2,
+        "home_runs": 2,
+        "pitches": 79,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 52.9936894987,
+        "run_prevention_score": 43.343119802,
+        "core_score": 47.6850302468,
+        "workload": 0.8477333333,
+        "malli_score": 40.4241896412,
+        "malli_score_v2": 40.4241896412
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744829,
+      "pitcher": 571578,
+      "pitcher_name": "Patrick Corbin",
+      "game_date": "2024-07-19",
+      "input": {
+        "swstr_pct": 15.384615384615385,
+        "called_strike_pct": 11.538461538461538,
+        "chase_pct": 30.64516129032258,
+        "xwoba_allowed": 0.26272727272727275,
+        "game_whip": 0.5,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 104,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 53.7631330363,
+        "run_prevention_score": 66.8460419035,
+        "core_score": 59.5950124956,
+        "workload": 0.9922222222,
+        "malli_score": 59.1314957317,
+        "malli_score_v2": 59.1314957317
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744829,
+      "pitcher": 593423,
+      "pitcher_name": "Frankie Montas",
+      "game_date": "2024-07-19",
+      "input": {
+        "swstr_pct": 14.285714285714285,
+        "called_strike_pct": 7.142857142857142,
+        "chase_pct": 27.27272727272727,
+        "xwoba_allowed": 0.31794182018296174,
+        "game_whip": 1.9285714285714284,
+        "earned_runs": 7,
+        "home_runs": 2,
+        "pitches": 84,
+        "outs": 14
+      },
+      "expected": {
+        "dominance_score": 45.3773213348,
+        "run_prevention_score": 28.4180066952,
+        "core_score": 34.9489068191,
+        "workload": 0.792,
+        "malli_score": 27.6795342007,
+        "malli_score_v2": 27.6795342007
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744835,
+      "pitcher": 458681,
+      "pitcher_name": "Lance Lynn",
+      "game_date": "2024-07-06",
+      "input": {
+        "swstr_pct": 7.317073170731707,
+        "called_strike_pct": 14.634146341463413,
+        "chase_pct": 16.666666666666664,
+        "xwoba_allowed": 0.5849624382721056,
+        "game_whip": 4.875,
+        "earned_runs": 10,
+        "home_runs": 3,
+        "pitches": 82,
+        "outs": 8
+      },
+      "expected": {
+        "dominance_score": 26.6622027792,
+        "run_prevention_score": 0.0,
+        "core_score": 0.0,
+        "workload": 0.6238333333,
+        "malli_score": 0.0,
+        "malli_score_v2": 0.0
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744835,
+      "pitcher": 669022,
+      "pitcher_name": "MacKenzie Gore",
+      "game_date": "2024-07-06",
+      "input": {
+        "swstr_pct": 21.11111111111111,
+        "called_strike_pct": 16.666666666666664,
+        "chase_pct": 21.27659574468085,
+        "xwoba_allowed": 0.38574547619047617,
+        "game_whip": 3.3,
+        "earned_runs": 5,
+        "home_runs": 0,
+        "pitches": 90,
+        "outs": 10
+      },
+      "expected": {
+        "dominance_score": 54.7719042078,
+        "run_prevention_score": 23.6331843776,
+        "core_score": 33.0191454205,
+        "workload": 0.6566666667,
+        "malli_score": 21.6825721595,
+        "malli_score_v2": 21.6825721595
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744838,
+      "pitcher": 640455,
+      "pitcher_name": "Sean Manaea",
+      "game_date": "2024-07-02",
+      "input": {
+        "swstr_pct": 9.278350515463918,
+        "called_strike_pct": 17.525773195876287,
+        "chase_pct": 28.26086956521739,
+        "xwoba_allowed": 0.27162011764705885,
+        "game_whip": 1.0,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 97,
+        "outs": 21
+      },
+      "expected": {
+        "dominance_score": 50.0731072991,
+        "run_prevention_score": 60.8460419035,
+        "core_score": 54.9364182264,
+        "workload": 1.0399466667,
+        "malli_score": 57.1309450132,
+        "malli_score_v2": 57.1309450132
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744839,
+      "pitcher": 666200,
+      "pitcher_name": "Jes\u00fas Luzardo",
+      "game_date": "2024-06-16",
+      "input": {
+        "swstr_pct": 5.194805194805195,
+        "called_strike_pct": 18.181818181818183,
+        "chase_pct": 24.444444444444443,
+        "xwoba_allowed": 0.32954894606625257,
+        "game_whip": 1.6,
+        "earned_runs": 2,
+        "home_runs": 2,
+        "pitches": 77,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 41.8245793003,
+        "run_prevention_score": 40.943119802,
+        "core_score": 41.3791558672,
+        "workload": 0.8488666667,
+        "malli_score": 35.1253861104,
+        "malli_score_v2": 35.1253861104
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744839,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-06-16",
+      "input": {
+        "swstr_pct": 9.411764705882353,
+        "called_strike_pct": 15.294117647058824,
+        "chase_pct": 38.70967741935484,
+        "xwoba_allowed": 0.2562086956521739,
+        "game_whip": 1.0,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 85,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 53.190169953,
+        "run_prevention_score": 60.8460419035,
+        "core_score": 56.761115739,
+        "workload": 1.0027777778,
+        "malli_score": 56.918785505,
+        "malli_score_v2": 56.918785505
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744843,
+      "pitcher": 663623,
+      "pitcher_name": "Jake Irvin",
+      "game_date": "2024-06-18",
+      "input": {
+        "swstr_pct": 5.154639175257731,
+        "called_strike_pct": 16.49484536082474,
+        "chase_pct": 25.0,
+        "xwoba_allowed": 0.35581123627249944,
+        "game_whip": 2.4,
+        "earned_runs": 4,
+        "home_runs": 1,
+        "pitches": 97,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 39.4914513925,
+        "run_prevention_score": 30.2522714949,
+        "core_score": 34.2598891998,
+        "workload": 0.8375333333,
+        "malli_score": 28.6937992012,
+        "malli_score_v2": 28.6937992012
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744849,
+      "pitcher": 687792,
+      "pitcher_name": "DJ Herz",
+      "game_date": "2024-06-09",
+      "input": {
+        "swstr_pct": 14.772727272727273,
+        "called_strike_pct": 15.909090909090908,
+        "chase_pct": 20.0,
+        "xwoba_allowed": 0.31108704130434783,
+        "game_whip": 1.6153846153846154,
+        "earned_runs": 2,
+        "home_runs": 0,
+        "pitches": 87,
+        "outs": 13
+      },
+      "expected": {
+        "dominance_score": 50.0939313025,
+        "run_prevention_score": 49.9136068229,
+        "core_score": 50.0036064904,
+        "workload": 0.73875,
+        "malli_score": 36.9401642948,
+        "malli_score_v2": 36.9401642948
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744849,
+      "pitcher": 694462,
+      "pitcher_name": "Hurston Waldrep",
+      "game_date": "2024-06-09",
+      "input": {
+        "swstr_pct": 11.29032258064516,
+        "called_strike_pct": 19.35483870967742,
+        "chase_pct": 17.24137931034483,
+        "xwoba_allowed": 0.36077548792270536,
+        "game_whip": 2.181818181818182,
+        "earned_runs": 7,
+        "home_runs": 1,
+        "pitches": 62,
+        "outs": 11
+      },
+      "expected": {
+        "dominance_score": 45.3969081805,
+        "run_prevention_score": 28.7579215572,
+        "core_score": 35.2106728317,
+        "workload": 0.6789848485,
+        "malli_score": 23.9075133577,
+        "malli_score_v2": 23.9075133577
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744850,
+      "pitcher": 656849,
+      "pitcher_name": "David Peterson",
+      "game_date": "2024-06-04",
+      "input": {
+        "swstr_pct": 11.11111111111111,
+        "called_strike_pct": 12.345679012345679,
+        "chase_pct": 35.714285714285715,
+        "xwoba_allowed": 0.35945929591836734,
+        "game_whip": 1.05,
+        "earned_runs": 2,
+        "home_runs": 0,
+        "pitches": 81,
+        "outs": 20
+      },
+      "expected": {
+        "dominance_score": 46.9274619059,
+        "run_prevention_score": 56.6982222075,
+        "core_score": 51.3522045339,
+        "workload": 1.033728,
+        "malli_score": 53.0842116884,
+        "malli_score_v2": 53.0842116884
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744850,
+      "pitcher": 687792,
+      "pitcher_name": "DJ Herz",
+      "game_date": "2024-06-04",
+      "input": {
+        "swstr_pct": 10.666666666666668,
+        "called_strike_pct": 20.0,
+        "chase_pct": 21.875,
+        "xwoba_allowed": 0.33376161582700714,
+        "game_whip": 2.25,
+        "earned_runs": 4,
+        "home_runs": 1,
+        "pitches": 75,
+        "outs": 12
+      },
+      "expected": {
+        "dominance_score": 48.1830492581,
+        "run_prevention_score": 32.0522714949,
+        "core_score": 38.4961675676,
+        "workload": 0.69125,
+        "malli_score": 26.6104758311,
+        "malli_score_v2": 26.6104758311
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744851,
+      "pitcher": 592866,
+      "pitcher_name": "Trevor Williams",
+      "game_date": "2024-05-25",
+      "input": {
+        "swstr_pct": 15.294117647058824,
+        "called_strike_pct": 12.941176470588237,
+        "chase_pct": 35.8974358974359,
+        "xwoba_allowed": 0.2342631578947368,
+        "game_whip": 1.0,
+        "earned_runs": 1,
+        "home_runs": 1,
+        "pitches": 85,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 58.0172176411,
+        "run_prevention_score": 55.0698153988,
+        "core_score": 56.5051072535,
+        "workload": 0.8443333333,
+        "malli_score": 47.7091455577,
+        "malli_score_v2": 47.7091455577
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744851,
+      "pitcher": 669302,
+      "pitcher_name": "Logan Gilbert",
+      "game_date": "2024-05-25",
+      "input": {
+        "swstr_pct": 14.102564102564102,
+        "called_strike_pct": 11.538461538461538,
+        "chase_pct": 35.13513513513514,
+        "xwoba_allowed": 0.16095238095238096,
+        "game_whip": 0.5,
+        "earned_runs": 1,
+        "home_runs": 0,
+        "pitches": 78,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 58.7752635878,
+        "run_prevention_score": 66.8460419035,
+        "core_score": 62.5513915384,
+        "workload": 1.0066666667,
+        "malli_score": 62.9684008153,
+        "malli_score_v2": 62.9684008153
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744857,
+      "pitcher": 641154,
+      "pitcher_name": "Pablo L\u00f3pez",
+      "game_date": "2024-05-20",
+      "input": {
+        "swstr_pct": 12.162162162162163,
+        "called_strike_pct": 13.513513513513514,
+        "chase_pct": 38.23529411764706,
+        "xwoba_allowed": 0.3709254078282828,
+        "game_whip": 1.8,
+        "earned_runs": 7,
+        "home_runs": 2,
+        "pitches": 74,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 49.3936743697,
+        "run_prevention_score": 29.9608638381,
+        "core_score": 37.2978580854,
+        "workload": 0.8505666667,
+        "malli_score": 31.7243148255,
+        "malli_score_v2": 31.7243148255
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744857,
+      "pitcher": 680730,
+      "pitcher_name": "Mitchell Parker",
+      "game_date": "2024-05-20",
+      "input": {
+        "swstr_pct": 13.829787234042554,
+        "called_strike_pct": 18.085106382978726,
+        "chase_pct": 41.17647058823529,
+        "xwoba_allowed": 0.27670357333333334,
+        "game_whip": 1.3333333333333333,
+        "earned_runs": 3,
+        "home_runs": 1,
+        "pitches": 94,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 60.2180368961,
+        "run_prevention_score": 45.0047775689,
+        "core_score": 51.5116302472,
+        "workload": 0.9977777778,
+        "malli_score": 51.3971599578,
+        "malli_score_v2": 51.3971599578
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744868,
+      "pitcher": 571578,
+      "pitcher_name": "Patrick Corbin",
+      "game_date": "2024-05-03",
+      "input": {
+        "swstr_pct": 5.434782608695652,
+        "called_strike_pct": 20.652173913043477,
+        "chase_pct": 23.25581395348837,
+        "xwoba_allowed": 0.2943410063157895,
+        "game_whip": 1.3333333333333333,
+        "earned_runs": 3,
+        "home_runs": 0,
+        "pitches": 92,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 45.1519564311,
+        "run_prevention_score": 50.7810040736,
+        "core_score": 47.8013327514,
+        "workload": 0.9988888889,
+        "malli_score": 47.7482201595,
+        "malli_score_v2": 47.7482201595
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744879,
+      "pitcher": 670124,
+      "pitcher_name": "Adam Oller",
+      "game_date": "2024-09-27",
+      "input": {
+        "swstr_pct": 6.315789473684211,
+        "called_strike_pct": 18.947368421052634,
+        "chase_pct": 21.73913043478261,
+        "xwoba_allowed": 0.29235011963963964,
+        "game_whip": 2.0,
+        "earned_runs": 4,
+        "home_runs": 1,
+        "pitches": 95,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 44.3890515286,
+        "run_prevention_score": 35.0522714949,
+        "core_score": 39.1719832038,
+        "workload": 0.8386666667,
+        "malli_score": 32.8522365802,
+        "malli_score_v2": 32.8522365802
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744888,
+      "pitcher": 621114,
+      "pitcher_name": "Ryan Burr",
+      "game_date": "2024-09-09",
+      "input": {
+        "swstr_pct": 20.0,
+        "called_strike_pct": 23.333333333333332,
+        "chase_pct": 43.75,
+        "xwoba_allowed": 0.19031314285714288,
+        "game_whip": 0.0,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 30,
+        "outs": 6
+      },
+      "expected": {
+        "dominance_score": 76.1103214286,
+        "run_prevention_score": 78.9110797334,
+        "core_score": 77.4854000514,
+        "workload": 0.6,
+        "malli_score": 46.4912400309,
+        "malli_score_v2": 46.4912400309
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744888,
+      "pitcher": 656731,
+      "pitcher_name": "Tylor Megill",
+      "game_date": "2024-09-09",
+      "input": {
+        "swstr_pct": 17.045454545454543,
+        "called_strike_pct": 14.772727272727273,
+        "chase_pct": 21.73913043478261,
+        "xwoba_allowed": 0.19839709157509158,
+        "game_whip": 0.5,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 88,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 57.7329920636,
+        "run_prevention_score": 72.9110797334,
+        "core_score": 64.4403489527,
+        "workload": 1.0011111111,
+        "malli_score": 64.5119493404,
+        "malli_score_v2": 64.5119493404
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744891,
+      "pitcher": 605135,
+      "pitcher_name": "Chris Bassitt",
+      "game_date": "2024-09-03",
+      "input": {
+        "swstr_pct": 11.956521739130435,
+        "called_strike_pct": 17.391304347826086,
+        "chase_pct": 35.8974358974359,
+        "xwoba_allowed": 0.4046309643874644,
+        "game_whip": 2.25,
+        "earned_runs": 3,
+        "home_runs": 2,
+        "pitches": 92,
+        "outs": 16
+      },
+      "expected": {
+        "dominance_score": 49.6140272233,
+        "run_prevention_score": 30.625901668,
+        "core_score": 37.8732718259,
+        "workload": 0.89325,
+        "malli_score": 33.8303000584,
+        "malli_score_v2": 33.8303000584
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744891,
+      "pitcher": 663969,
+      "pitcher_name": "Tyler Phillips",
+      "game_date": "2024-09-03",
+      "input": {
+        "swstr_pct": 8.333333333333332,
+        "called_strike_pct": 25.0,
+        "chase_pct": 47.05882352941176,
+        "xwoba_allowed": 0.5166407181571816,
+        "game_whip": 12.0,
+        "earned_runs": 6,
+        "home_runs": 2,
+        "pitches": 36,
+        "outs": 2
+      },
+      "expected": {
+        "dominance_score": 50.1795251599,
+        "run_prevention_score": 0.0,
+        "core_score": 0.0,
+        "workload": 0.5253333333,
+        "malli_score": 0.0,
+        "malli_score_v2": 0.0
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744909,
+      "pitcher": 592332,
+      "pitcher_name": "Kevin Gausman",
+      "game_date": "2024-07-21",
+      "input": {
+        "swstr_pct": 7.216494845360824,
+        "called_strike_pct": 15.463917525773196,
+        "chase_pct": 22.448979591836736,
+        "xwoba_allowed": 0.31741066746833413,
+        "game_whip": 1.2,
+        "earned_runs": 4,
+        "home_runs": 1,
+        "pitches": 97,
+        "outs": 20
+      },
+      "expected": {
+        "dominance_score": 41.8812371547,
+        "run_prevention_score": 44.6522714949,
+        "core_score": 43.2223863601,
+        "workload": 1.025536,
+        "malli_score": 44.3261132182,
+        "malli_score_v2": 44.3261132182
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744918,
+      "pitcher": 601713,
+      "pitcher_name": "Nick Pivetta",
+      "game_date": "2024-06-17",
+      "input": {
+        "swstr_pct": 6.422018348623854,
+        "called_strike_pct": 12.844036697247708,
+        "chase_pct": 23.25581395348837,
+        "xwoba_allowed": 0.3602763681827004,
+        "game_whip": 1.4285714285714286,
+        "earned_runs": 3,
+        "home_runs": 2,
+        "pitches": 109,
+        "outs": 21
+      },
+      "expected": {
+        "dominance_score": 37.3157736391,
+        "run_prevention_score": 40.4830445251,
+        "core_score": 38.8349376345,
+        "workload": 1.0340266667,
+        "malli_score": 40.1563611124,
+        "malli_score_v2": 40.1563611124
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744920,
+      "pitcher": 592332,
+      "pitcher_name": "Kevin Gausman",
+      "game_date": "2024-06-19",
+      "input": {
+        "swstr_pct": 10.309278350515463,
+        "called_strike_pct": 16.49484536082474,
+        "chase_pct": 26.666666666666668,
+        "xwoba_allowed": 0.4054130854700855,
+        "game_whip": 1.588235294117647,
+        "earned_runs": 4,
+        "home_runs": 2,
+        "pitches": 97,
+        "outs": 17
+      },
+      "expected": {
+        "dominance_score": 43.5903337835,
+        "run_prevention_score": 36.6145720646,
+        "core_score": 39.7990970941,
+        "workload": 0.9432941176,
+        "malli_score": 37.5422541765,
+        "malli_score_v2": 37.5422541765
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744929,
+      "pitcher": 605135,
+      "pitcher_name": "Chris Bassitt",
+      "game_date": "2024-06-02",
+      "input": {
+        "swstr_pct": 11.0,
+        "called_strike_pct": 20.0,
+        "chase_pct": 27.450980392156865,
+        "xwoba_allowed": 0.35850766666666667,
+        "game_whip": 1.8,
+        "earned_runs": 3,
+        "home_runs": 0,
+        "pitches": 100,
+        "outs": 15
+      },
+      "expected": {
+        "dominance_score": 49.4890707721,
+        "run_prevention_score": 45.1810040736,
+        "core_score": 47.2370157475,
+        "workload": 0.83725,
+        "malli_score": 39.5491914346,
+        "malli_score_v2": 39.5491914346
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744935,
+      "pitcher": 621244,
+      "pitcher_name": "Jos\u00e9 Berr\u00edos",
+      "game_date": "2024-05-20",
+      "input": {
+        "swstr_pct": 12.0,
+        "called_strike_pct": 18.0,
+        "chase_pct": 41.07142857142857,
+        "xwoba_allowed": 0.40960791194658447,
+        "game_whip": 1.6666666666666667,
+        "earned_runs": 3,
+        "home_runs": 1,
+        "pitches": 100,
+        "outs": 18
+      },
+      "expected": {
+        "dominance_score": 51.8264148418,
+        "run_prevention_score": 41.0047775689,
+        "core_score": 45.7848392893,
+        "workload": 0.9944444444,
+        "malli_score": 45.5304790711,
+        "malli_score_v2": 45.5304790711
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744937,
+      "pitcher": 666201,
+      "pitcher_name": "Alek Manoah",
+      "game_date": "2024-05-19",
+      "input": {
+        "swstr_pct": 10.679611650485436,
+        "called_strike_pct": 19.41747572815534,
+        "chase_pct": 31.914893617021278,
+        "xwoba_allowed": 0.2332638323232323,
+        "game_whip": 0.2857142857142857,
+        "earned_runs": 0,
+        "home_runs": 0,
+        "pitches": 103,
+        "outs": 21
+      },
+      "expected": {
+        "dominance_score": 56.2365128691,
+        "run_prevention_score": 75.4825083048,
+        "core_score": 64.4534557249,
+        "workload": 1.0369866667,
+        "malli_score": 66.8373742073,
+        "malli_score_v2": 66.8373742073
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 744965,
+      "pitcher": 702674,
+      "pitcher_name": "Caden Dana",
+      "game_date": "2024-09-08",
+      "input": {
+        "swstr_pct": 9.30232558139535,
+        "called_strike_pct": 9.30232558139535,
+        "chase_pct": 26.31578947368421,
+        "xwoba_allowed": 0.6856924558169104,
+        "game_whip": 8.0,
+        "earned_runs": 5,
+        "home_runs": 3,
+        "pitches": 43,
+        "outs": 3
+      },
+      "expected": {
+        "dominance_score": 23.7934476513,
+        "run_prevention_score": 0.0,
+        "core_score": 0.0,
+        "workload": 0.54175,
+        "malli_score": 0.0,
+        "malli_score_v2": 0.0
+      }
+    },
+    {
+      "season": 2024,
+      "game_pk": 745034,
+      "pitcher": 668874,
+      "pitcher_name": "Blair Henley",
+      "game_date": "2024-04-08",
+      "input": {
+        "swstr_pct": 2.5,
+        "called_strike_pct": 25.0,
+        "chase_pct": 8.695652173913043,
+        "xwoba_allowed": 0.5295094444444445,
+        "game_whip": 21.0,
+        "earned_runs": 5,
+        "home_runs": 0,
+        "pitches": 39,
+        "outs": 1
+      },
+      "expected": {
+        "dominance_score": 28.6276143569,
+        "run_prevention_score": 0.0,
+        "core_score": 0.0,
+        "workload": 0.5089166667,
+        "malli_score": 0.0,
+        "malli_score_v2": 0.0
+      }
+    }
+  ]
+}

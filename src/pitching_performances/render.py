@@ -64,6 +64,7 @@ class PitcherBoxLine:
     walks: int
     hits: int
     home_runs: int
+    hit_by_pitch: int
     batters_faced: int
     games_started: int
 
@@ -279,6 +280,7 @@ def _box_lines_for_date(raw_dir: Path, ymd: str) -> dict[tuple[int, int], Pitche
                     walks=_safe_int(pit.get("baseOnBalls")),
                     hits=_safe_int(pit.get("hits")),
                     home_runs=_safe_int(pit.get("homeRuns")),
+                    hit_by_pitch=_safe_int(pit.get("hitBatsmen")),
                     batters_faced=_safe_int(pit.get("battersFaced")),
                     games_started=_safe_int(pit.get("gamesStarted")),
                 )
@@ -400,6 +402,10 @@ def _outing_raw(metric: dict[str, Any], box: PitcherBoxLine, official_pitches: i
         home_runs=int(box.home_runs),
         pitches=official_pitches,
         outs=outs,
+        batters_faced=box.batters_faced,
+        hits=box.hits,
+        walks=box.walks,
+        hit_by_pitch=box.hit_by_pitch,
     )
 
 
@@ -466,6 +472,10 @@ def build_pitching_performance_rows(
                 "hr_pct": components["hr_pct"],
                 "game_era": components["game_era"],
                 "game_whip": components["game_whip"],
+                "hit_by_pitch": components["hit_by_pitch"],
+                "batters_faced": components["batters_faced"],
+                "reach_rate_allowed": components["reach_rate_allowed"],
+                "malli_score_version": components["malli_score_version"],
                 "dominance_score": round(components["dominance_score"], 1),
                 "run_prevention_score": round(components["run_prevention_score"], 1),
                 "core_score": round(components["core_score"], 1),
@@ -482,6 +492,7 @@ def build_pitching_performance_rows(
                 "home_runs": box.home_runs,
                 "malli_score_sort": malli_score,
                 "malli_score": round(malli_score, 1),
+                "malli_score_v3": round(components["malli_score_v3"], 1),
                 "malli_score_v2": round(components["malli_score_v2"], 1),
                 "summary": (
                     f"{box.ip} IP, {box.er} ER, {box.strikeouts} K, "
