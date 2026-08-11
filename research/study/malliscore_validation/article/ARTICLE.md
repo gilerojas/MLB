@@ -4,8 +4,8 @@ slug: malliscore-pitcher-profile
 category: MalliScore
 date: 2026-08-11
 summary: The box score tells us what happened. MalliScore asks how the outing was built.
-image: /media/pitcher-card.webp
-imageAlt: Mallitalytics pitcher card showing the inputs used to evaluate a starting-pitcher outing
+image: assets/malliscore_article_cover.png
+imageAlt: Building MalliScore article cover showing a baseball crossing analytical pitch traces
 draft: true
 topic: pitching-analysis
 dataWindow: 2024 through July 26, 2026
@@ -149,6 +149,8 @@ To test whether they were driving the rankings, I evaluated **20,000 alternative
 
 In practical terms, many reasonable weighting systems produced almost the same ordering. Pretending the data had discovered one perfect set of weights would have created false precision.
 
+![Distribution of rank correlations across 20,000 alternative MalliScore weight systems](assets/03_weight_sensitivity.png)
+
 The larger problems were elsewhere.
 
 ### The original baselines were assumed
@@ -173,6 +175,8 @@ MalliScore V4 addressed those defects without pretending the entire metric neede
 
 The result was direct: **V4 produced zero collapsed outings in 2024, 2025, and 2026.** The 22 starts that V3 had tied at zero in 2024 now ranged from 4.3 to 19.8.
 
+![Exact zero scores under MalliScore V3 and V4 by season](assets/01_v4_zero_collapse.png)
+
 ## MalliScore is a second opinion, not a Game Score replacement
 
 Any new pitching index should be tested against the strongest familiar alternative.
@@ -186,6 +190,8 @@ Among the clearest disagreement cases:
 - **MalliScore-favored starts** averaged a 13.1% swinging-strike rate, 17.8 outs, and 3.1 earned runs.
 - **Game Score-favored starts** averaged a 10.1% swinging-strike rate, 14.4 outs, and 1.0 earned run.
 
+![Average characteristics of starts favored by MalliScore and Game Score v2](assets/02_game_score_disagreement.png)
+
 MalliScore tends to prefer the longer, more dominant start that allowed some damage. Game Score tends to prefer the shorter, lower-whiff start that kept runs off the board.
 
 Neither preference is universally correct. The disagreement answers the real editorial question: **Was this start impressive because of the result, or because of the way the pitcher controlled the game?**
@@ -198,7 +204,9 @@ V4 improved reliability over V3 only modestly: +.030 in 2024, +.023 in 2025, and
 
 MalliScore does **not** predict the next start.
 
-After controlling for a pitcher's recent form, it added no meaningful next-start information for swinging-strike rate, xwOBA allowed, strikeout-minus-walk rate, or WHIP. Game Score added none either.
+After controlling for a pitcher's recent form, it added no meaningful next-start information for swinging-strike rate, xwOBA allowed, strikeout-minus-walk rate, or WHIP. Game Score added no meaningful signal either.
+
+![Incremental next-start signal from MalliScore beyond recent form and Game Score v2](assets/04_next_start_signal.png)
 
 That is not a failed result. It defines the metric correctly.
 
