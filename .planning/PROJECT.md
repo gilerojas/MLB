@@ -53,6 +53,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 - **Storage**: Visual assets must live in durable storage instead of accumulating indefinitely inside the website repository.
 - **Source integration**: MLB Ops can become a publishing source later, but external automation must not publish unreviewed work.
 - **Scope**: Preserve the existing visual quality while adding real content behavior incrementally.
+- **Workspace organization**: Website code remains isolated in `mallitalytics-public/`; GSD planning documents remain in the hidden root `.planning/` directory — neither is part of the MLB production runtime.
 
 ## Key Decisions
 
@@ -63,6 +64,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 | Launch with a curated existing collection | Selection communicates taste and avoids an unstructured historical dump | — Pending |
 | Start manual, then add MLB Ops automation | Editorial judgment must remain in control while the publishing model proves itself | — Pending |
 | Defer monetization | The near-term goal is a useful public showcase and archive | — Pending |
+| Keep Mallitalytics code isolated from MLB Ops | The website has its own repository; root planning can still reference the wider MLB Ops source material without mixing runtime code | — Pending |
 
 ## Evolution
 
@@ -82,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-10 after project-purpose definition*
+*Last updated: 2026-08-10 after workspace-organization decision*
