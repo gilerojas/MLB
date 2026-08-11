@@ -2,13 +2,13 @@
 
 ## What This Is
 
-Mallitalytics is a brand-led baseball publication and showcase of Gilberto Rojas's analytical craft. It turns the strongest articles, pitching cards, visual studies, trackers, dashboards, projects, and selected social work into a browsable body of work for baseball fans, while demonstrating clear analytical credibility to analysts, media, teams, and potential collaborators.
+Mallitalytics is a brand-led baseball publication that helps curious fans look closer at the game. It turns original articles, pitching cards, visual studies, trackers, dashboards, projects, and selected social work into a browsable body of baseball evidence: a visitor should be able to notice something new, understand why it matters, and know what to watch next.
 
-It is not a generic feed or a personal résumé. It is a living display window for the work: a visitor should be able to discover something useful about baseball and, at the same time, understand the perspective, quality, and craft behind Mallitalytics.
+The showcase is the proof, not the primary reason to visit. A coherent body of work demonstrates Gilberto Rojas's analytical craft to industry readers, media, teams, and collaborators because it is genuinely useful and interesting to baseball fans. Mallitalytics is neither a generic feed nor a personal résumé.
 
 ## Core Value
 
-Every visitor can quickly see what Mallitalytics makes, why its baseball analysis is worth attention, and how to explore its best and most recent work.
+Every public piece helps a curious fan find the signal behind the score and makes it clear enough to matter.
 
 ## Requirements
 
@@ -23,6 +23,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 - [ ] Make the public site a coherent editorial showcase rather than a static concept page
 - [ ] Curate and present a launch collection of the strongest existing Mallitalytics projects and content
 - [ ] Create durable homes for articles, visual cards, projects, selected tweets, and recurring trackers
+- [ ] Apply the `NOTICE → EXPLAIN → WATCH` operating system to analysis and featured work, while keeping utility content fast and direct
 - [ ] Let the author publish and organize new content without editing website code
 - [ ] Give visitors clear paths from featured work to browsable archives by content type, date, player, team, and topic where relevant
 - [ ] Make Mallitalytics authorship, methodology, and point of view visible without making the site a personal résumé
@@ -40,6 +41,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 
 - A public Mallitalytics prototype already exists in `mallitalytics-public/`; it establishes the visual direction but currently behaves as a static page.
 - MLB Ops already generates original baseball outputs, including pitching cards, league studies, trackers, daily boards, dashboards, and editorial material. These are the source collection for the showcase.
+- `MALLITALYTICS_X_BRAND_SOUL.md` is the decision framework for all baseball-facing work. Its brand essence is **Look closer**; the public invitation is **See what the game is saying**; the internal promise is to find the signal in baseball and make it clear enough to matter.
 - Reference sites include TJ Stats and Poised Bet: their useful qualities are clear content structure and frequent data-led publishing, not their full business models.
 - The initial audience is both baseball fans and baseball-industry readers. Content must stay readable without sacrificing methodological credibility.
 - The initial launch should curate the strongest existing work rather than blindly import every historical artifact. The archive can deepen over time.
@@ -49,6 +51,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 
 - **Language**: English-only — this is the current public-facing requirement.
 - **Brand**: Mallitalytics leads; Gilberto's authorship is clear but secondary to the brand.
+- **Editorial value**: Analysis must provide discovery, clarity, or anticipation through a real Notice moment; utility content must help fans find or act on useful baseball information quickly.
 - **Editorial control**: New content needs a private, low-friction publishing path — manual publishing must work before automation is introduced.
 - **Storage**: Visual assets must live in durable storage instead of accumulating indefinitely inside the website repository.
 - **Source integration**: MLB Ops can become a publishing source later, but external automation must not publish unreviewed work.
@@ -65,6 +68,7 @@ Every visitor can quickly see what Mallitalytics makes, why its baseball analysi
 | Start manual, then add MLB Ops automation | Editorial judgment must remain in control while the publishing model proves itself | — Pending |
 | Defer monetization | The near-term goal is a useful public showcase and archive | — Pending |
 | Keep Mallitalytics code isolated from MLB Ops | The website has its own repository; root planning can still reference the wider MLB Ops source material without mixing runtime code | — Pending |
+| Adopt the Brand Soul as the product north | The website must serve curious fans through discovery, clarity, anticipation, or utility; professional showcase value follows from useful work | — Pending |
 
 ## Evolution
 
@@ -84,4 +88,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-10 after workspace-organization decision*
+*Last updated: 2026-08-10 after adopting the Brand Soul as product north*
