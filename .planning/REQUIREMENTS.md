@@ -66,29 +66,29 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PUB-01 | TBD | Pending |
-| PUB-02 | TBD | Pending |
-| PUB-03 | TBD | Pending |
-| PUB-04 | TBD | Pending |
-| PUB-05 | TBD | Pending |
-| EDIT-01 | TBD | Pending |
-| EDIT-02 | TBD | Pending |
-| EDIT-03 | TBD | Pending |
-| EDIT-04 | TBD | Pending |
-| CUR-01 | TBD | Pending |
-| CUR-02 | TBD | Pending |
-| CUR-03 | TBD | Pending |
-| VIS-01 | TBD | Pending |
-| VIS-02 | TBD | Pending |
-| STU-01 | TBD | Pending |
-| STU-02 | TBD | Pending |
-| STU-03 | TBD | Pending |
+| PUB-01 | Phase 1 | Pending |
+| PUB-02 | Phase 1 | Pending |
+| PUB-03 | Phase 1 | Pending |
+| PUB-04 | Phase 4 | Pending |
+| PUB-05 | Phase 3 | Pending |
+| EDIT-01 | Phase 1 | Pending |
+| EDIT-02 | Phase 2 | Pending |
+| EDIT-03 | Phase 2 | Pending |
+| EDIT-04 | Phase 4 | Pending |
+| CUR-01 | Phase 1 | Pending |
+| CUR-02 | Phase 1 | Pending |
+| CUR-03 | Phase 1 | Pending |
+| VIS-01 | Phase 2 | Pending |
+| VIS-02 | Phase 4 | Pending |
+| STU-01 | Phase 3 | Pending |
+| STU-02 | Phase 3 | Pending |
+| STU-03 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 — roadmap pending
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-10*  
-*Last updated: 2026-08-10 after Brand Soul-aligned V1 approval*
+*Last updated: 2026-08-10 after MVP roadmap mapping*
