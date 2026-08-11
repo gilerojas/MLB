@@ -1,5 +1,16 @@
 # MLB Ops Codex Notes
 
+## Mallitalytics Brand Decision Gate
+
+Before making or recommending any Mallitalytics-facing content, product, copy, visual, UX, metric, or editorial decision, read:
+
+1. `MALLITALYTICS_X_BRAND_SOUL.md` for purpose, audience value, scope, and editorial standards.
+2. `MALLITALYTICS_BRAND.md` for logo, palette, typography, charts, and visual execution.
+3. `MALLITALYTICS_ARTICLE_SOUL.md` for any long-form article research, thesis, drafting,
+   review, or publication decision.
+
+These documents govern the baseball-first `@Mallitalytics` brand. Explicit user direction overrides them. Technical-only implementation work that does not affect a Mallitalytics-facing decision may proceed without this gate.
+
 ## VPS / Dev Workflow
 
 - The VPS app at `http://100.111.41.78` runs through Docker Compose from `/srv/mlbops/app`.
