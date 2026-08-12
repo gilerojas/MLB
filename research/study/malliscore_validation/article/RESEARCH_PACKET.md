@@ -29,7 +29,7 @@
 
 **Best real example:** Matthew Liberatore vs Toronto, August 2, 2026. Verified from the production VPS warehouse and V4 scoring path.
 
-**Best failure example:** Lance Lynn, July 6, 2024, and Blair Henley, April 8, 2024. Both scored 0 under V3 despite a 32-point Game Score v2 separation.
+**Opening example:** Lance Lynn, July 6, 2024, and Blair Henley, April 8, 2024. Their different short blow-ups establish why a single score needs to account for both outcome and workload.
 
 **Best disagreement pattern:** MalliScore-favored starts were longer and generated more whiffs but allowed more earned runs; Game Score-favored starts were shorter and cleaner on the scoreboard.
 
@@ -102,7 +102,7 @@ Source: production VPS warehouse, generated through `scripts/pitching_performanc
 1. **Cover:** MalliScore title with a simplified Dominance / Run Prevention / Workload architecture. No dense formula on the cover.
 2. **Formula graphic:** Inputs flowing into the two pillars, harmonic core, then workload adjustment.
 3. **Worked example:** Matthew Liberatore's line with the 66.3 / 73.8 pillars and 70.0 final score.
-4. **V3 to V4 repair:** Distribution of the 76 V3 zeroes and their separation under V4.
+4. **Score architecture:** The two pillars, harmonic-mean core, and outs-first workload adjustment.
 5. **Disagreement chart:** MalliScore-favored versus Game Score-favored starts using SwStr%, outs, and ER.
 
 ## Publishing strategy
@@ -127,7 +127,7 @@ I built MalliScore to answer a question the pitching line cannot fully settle:
 
 How was the performance built?
 
-I tested the formula across 7,479 MLB starts, found where V3 broke, and rebuilt the bottom of the scale.
+I tested the formula across 7,479 MLB starts to see whether its components, weights, and boundaries hold up against real pitching performances.
 
 The full method, evidence, and limits:
 

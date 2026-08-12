@@ -22,7 +22,20 @@ stacked logo as a reference and contains no generated statistics.
 
 ## Evidence image order
 
-### 1. Weight sensitivity
+### 1. Score architecture
+
+Upload after the paragraph ending:
+
+> The 100-point ceiling is theoretical, not a target we expect normal starts to reach.
+
+Asset:
+
+`research/study/malliscore_validation/article/assets/01_score_architecture.png`
+
+Evidence shown: the exact current structure of MalliScore: the two weighted pillars,
+their harmonic-mean core, and the outs-first workload adjustment.
+
+### 2. Weight sensitivity
 
 Upload after the paragraph ending:
 
@@ -34,19 +47,6 @@ Asset:
 
 Evidence shown: 20,000 feasible weight vectors; minimum Spearman agreement .963; 97%
 of vectors above .980.
-
-### 2. V4 zero-collapse repair
-
-Upload after the paragraph ending:
-
-> The 22 starts that V3 had tied at zero in 2024 now ranged from 4.3 to 19.8.
-
-Asset:
-
-`research/study/malliscore_validation/article/assets/01_v4_zero_collapse.png`
-
-Evidence shown: V3 exact zeroes were 22, 25, and 29 by season; V4 produced zero in
-all three seasons.
 
 ### 3. Game Score disagreement
 

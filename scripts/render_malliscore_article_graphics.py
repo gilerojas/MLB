@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import matplotlib.font_manager as font_manager
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -127,59 +128,76 @@ def save(fig: plt.Figure, output: Path) -> Path:
     return output
 
 
-def render_zero_collapse(output_dir: Path) -> Path:
-    comparison = pd.read_csv(STUDY_OUTPUTS / "v4_candidate_comparison.csv")
-    v3 = comparison[comparison["candidate"] == "A. V3 as shipped"].sort_values("season")
-    v4 = comparison[comparison["candidate"] == "C. B + baserunners per BF"].sort_values("season")
-    seasons = v3["season"].astype(str).tolist()
-    v3_counts = v3["exact_zeros"].astype(int).to_numpy()
-    v4_counts = v4["exact_zeros"].astype(int).to_numpy()
-
+def render_score_architecture(output_dir: Path) -> Path:
     fig, ax = new_figure(
-        "V4 REMOVES THE ZERO-SCORE COLLAPSE",
-        "Exact MalliScore zeroes among MLB starter outings",
+        "HOW MALLISCORE IS BUILT",
+        "One starting-pitcher outing, two performance pillars, and one workload adjustment",
     )
-    ax.set_position([0.075, 0.205, 0.57, 0.56])
-    x = np.arange(len(seasons))
-    width = 0.28
-    bars_v3 = ax.bar(x - width / 2, v3_counts, width, color=COLORS["orange"], label="V3")
-    ax.bar(x + width / 2, v4_counts, width, color=COLORS["forest"], label="V4")
-    ax.scatter(x + width / 2, np.full(len(x), 0.45), s=42, color=COLORS["forest"], zorder=4)
+    ax.remove()
+    canvas = fig.add_axes([0.075, 0.205, 0.85, 0.55])
+    canvas.set_xlim(0, 1)
+    canvas.set_ylim(0, 1)
+    canvas.axis("off")
 
-    for bar, value in zip(bars_v3, v3_counts):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            value + 1,
-            str(value),
-            ha="center",
-            va="bottom",
-            fontsize=12,
-            fontweight=700,
-            color=COLORS["ink"],
+    def pillar(x: float, y: float, width: float, height: float, color: str, title: str, rows: list[tuple[str, str]]) -> None:
+        canvas.add_patch(
+            patches.FancyBboxPatch(
+                (x, y),
+                width,
+                height,
+                boxstyle="round,pad=0.008,rounding_size=0.012",
+                facecolor=COLORS["white"],
+                edgecolor=COLORS["line"],
+                linewidth=1.0,
+            )
         )
-    for xpos, value in zip(x + width / 2, v4_counts):
-        ax.text(xpos, 2.1, str(value), ha="center", va="bottom", fontsize=10, fontweight=700, color=COLORS["forest"])
+        canvas.add_patch(patches.Rectangle((x, y + height - 0.035), width, 0.035, color=color, linewidth=0))
+        canvas.text(x + 0.025, y + height - 0.09, title, fontsize=13, fontweight=700, color=COLORS["ink"])
+        row_y = y + height - 0.17
+        for label, weight in rows:
+            canvas.text(x + 0.025, row_y, label, fontsize=9.2, color=COLORS["ink"])
+            canvas.text(x + width - 0.025, row_y, weight, ha="right", fontsize=9.2, fontweight=700, color=color)
+            row_y -= 0.075
 
-    ax.set_xticks(x, seasons, fontsize=11, fontweight=600)
-    ax.set_ylim(0, max(v3_counts) + 8)
-    ax.set_ylabel("OUTINGS AT EXACTLY 0", fontsize=9, fontweight=600, labelpad=12)
-    ax.grid(axis="y", color=COLORS["line"], linewidth=0.7, alpha=0.75)
-    ax.set_axisbelow(True)
-    ax.spines[["top", "right", "left"]].set_visible(False)
-    ax.tick_params(axis="y", length=0)
-    ax.legend(frameon=False, loc="upper left", ncols=2, fontsize=9)
+    pillar(
+        0.00,
+        0.39,
+        0.30,
+        0.54,
+        COLORS["forest"],
+        "DOMINANCE",
+        [("Swinging strikes", "30%"), ("Called strikes", "25%"), ("Chase rate", "20%"), ("xwOBA allowed", "25%")],
+    )
+    pillar(
+        0.00,
+        0.04,
+        0.30,
+        0.26,
+        COLORS["orange"],
+        "RUN PREVENTION",
+        [("Reach Rate Allowed", "40%"), ("Earned runs", "35%"), ("Home runs", "25%")],
+    )
 
-    fig.text(0.725, 0.665, "76", fontsize=43, fontweight=700, color=COLORS["orange"], ha="center")
-    fig.text(0.725, 0.585, "collapsed starts", fontsize=11, fontweight=600, color=COLORS["ink"], ha="center")
-    fig.text(0.725, 0.532, "across 2024-2026", fontsize=10, color=COLORS["muted"], ha="center")
-    fig.text(0.805, 0.665, "→", fontsize=33, fontweight=700, color=COLORS["line"], ha="center")
-    fig.text(0.873, 0.665, "0", fontsize=43, fontweight=700, color=COLORS["forest"], ha="center")
-    fig.text(0.80, 0.405, "2024 V3 zeroes", fontsize=9, fontweight=700, color=COLORS["muted"], ha="center")
-    fig.text(0.80, 0.348, "Game Score v2: -19 to +21", fontsize=11, fontweight=650, color=COLORS["ink"], ha="center")
-    fig.text(0.80, 0.285, "V4 MalliScore: 4.3 to 19.8", fontsize=11, fontweight=650, color=COLORS["forest"], ha="center")
+    canvas.annotate("", xy=(0.49, 0.52), xytext=(0.32, 0.52), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
+    canvas.annotate("", xy=(0.49, 0.42), xytext=(0.32, 0.17), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
+    canvas.add_patch(patches.Circle((0.56, 0.47), 0.13, facecolor=COLORS["paper"], edgecolor=COLORS["ink"], linewidth=1.4))
+    canvas.text(0.56, 0.51, "BALANCED", ha="center", fontsize=10, fontweight=700, color=COLORS["ink"])
+    canvas.text(0.56, 0.46, "CORE", ha="center", fontsize=16, fontweight=700, color=COLORS["ink"])
+    canvas.text(0.56, 0.39, "harmonic mean", ha="center", fontsize=8.4, color=COLORS["muted"])
 
-    add_footer(fig, "Study: 7,479 starts · 2024 through July 26, 2026")
-    return save(fig, output_dir / "01_v4_zero_collapse.png")
+    canvas.annotate("", xy=(0.74, 0.47), xytext=(0.70, 0.47), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
+    canvas.text(0.82, 0.75, "WORKLOAD", ha="center", fontsize=12, fontweight=700, color=COLORS["ink"])
+    canvas.text(0.82, 0.68, "completed outs first", ha="center", fontsize=8.8, color=COLORS["muted"])
+    work_x = np.array([0.74, 0.82, 0.90, 0.96])
+    work_y = np.array([0.34, 0.53, 0.61, 0.66])
+    canvas.plot(work_x, work_y, color=COLORS["forest"], linewidth=2.4)
+    for x, y, label in zip(work_x, work_y, ["4 IP\n0.69x", "6 IP\n1.00x", "7 IP\n1.04x", "9 IP\n1.10x"]):
+        canvas.scatter(x, y, s=35, color=COLORS["forest"], zorder=3)
+        canvas.text(x, y - 0.09, label, ha="center", va="top", fontsize=7.8, fontweight=600, color=COLORS["ink"])
+
+    canvas.text(0.56, 0.14, "CORE × WORKLOAD", ha="center", fontsize=12, fontweight=700, color=COLORS["forest"])
+    add_footer(fig, "Current production formula · Starter outings only")
+    return save(fig, output_dir / "01_score_architecture.png")
 
 
 def render_disagreement(output_dir: Path) -> Path:
@@ -300,7 +318,7 @@ def main() -> int:
 
     configure_style()
     outputs = [
-        render_zero_collapse(args.out),
+        render_score_architecture(args.out),
         render_disagreement(args.out),
         render_weight_sensitivity(args.out),
         render_predictive_boundary(args.out),

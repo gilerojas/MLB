@@ -16,13 +16,9 @@ caveat: Descriptive single-outing index; not a projection or talent estimate
 
 Two pitching performances can both be bad without being the same kind of bad.
 
-On July 6, 2024, Lance Lynn allowed 10 earned runs in 2.2 innings. Three months earlier, Blair Henley recorded one out while allowing five earned runs in his major-league debut. An early version of MalliScore assigned both outings the same score: **0**.
+On July 6, 2024, Lance Lynn allowed 10 earned runs in 2.2 innings. Three months earlier, Blair Henley recorded one out while allowing five earned runs in his major-league debut.
 
-That was not an insight. It was a defect.
-
-The starts were both damaging, but they were not identical. One lasted eight outs and the other lasted one. Their Game Score v2 marks were 32 points apart. Yet MalliScore had compressed them into the same endpoint because one unstable input had overwhelmed the rest of the formula.
-
-That failure became the starting point for a larger question: **What should a single-game pitching score actually measure?**
+The box score tells us both starts went badly. But they did not fail in the same way, and they did not ask the same thing of the pitcher. One lasted eight outs. The other lasted one. A useful single-game score should preserve that difference while still asking a larger question: **What did this pitcher control, what damage did he allow, and how much of the game did he carry?**
 
 ## The box score is useful. It is also incomplete.
 
@@ -77,7 +73,7 @@ RRA = (H + BB + HBP) / BF
 
 It answers a direct question: **What share of the batters faced reached through a hit, walk, or hit-by-pitch?**
 
-This replaced game WHIP in MalliScore V4. The change matters because WHIP divides by innings pitched. In a very short blow-up, that denominator can produce an extreme value that overwhelms the rest of the outing. Batter faced is the cleaner opportunity denominator for this job.
+MalliScore uses RRA rather than WHIP because WHIP divides by innings pitched. In a very short outing, that denominator can become unstable. Batter faced is the cleaner opportunity denominator for this specific job: measuring how often a pitcher allowed a hitter to reach during the opportunities he faced. This is not an argument that RRA should replace WHIP everywhere.
 
 ### 3. Workload
 
@@ -114,6 +110,8 @@ The harmonic mean makes balance matter. A pitcher cannot completely hide poor ru
 
 The 100-point ceiling is theoretical, not a target we expect normal starts to reach.
 
+![How MalliScore combines dominance, run prevention, and workload](assets/01_score_architecture.png)
+
 ## A real MalliScore example
 
 On August 2, 2026, Matthew Liberatore faced Toronto and produced this line:
@@ -141,41 +139,17 @@ Those inputs produced a **66.3 Dominance score** and a **73.8 Run Prevention sco
 
 The interpretation is more useful than the number by itself. Liberatore did not earn the score only because he allowed no runs. He paired the clean line with above-baseline called strikes, chases, and contact suppression while completing six innings.
 
-## The weights were not the real problem
+## Why these weights are not treated as perfect truth
 
-The first MalliScore weights were informed choices, not statistically unique truths. That distinction matters.
+MalliScore's weights are informed choices, not statistically unique truths. That distinction matters.
 
-To test whether they were driving the rankings, I evaluated **20,000 alternative weight combinations** across the feasible range. Rank agreement with the original score never fell below a Spearman correlation of .963. Ninety-seven percent of the combinations agreed above .98.
+To test whether they were driving the rankings, I evaluated **20,000 alternative weight combinations** across the feasible range. Rank agreement with the baseline MalliScore formula never fell below a Spearman correlation of .963. Ninety-seven percent of the combinations agreed above .98.
 
 In practical terms, many reasonable weighting systems produced almost the same ordering. Pretending the data had discovered one perfect set of weights would have created false precision.
 
 ![Distribution of rank correlations across 20,000 alternative MalliScore weight systems](assets/03_weight_sensitivity.png)
 
-The larger problems were elsewhere.
-
-### The original baselines were assumed
-
-The standard deviation assigned to game WHIP was 0.50. The observed 2024 spread was 1.01, more than twice as large. That mismatch made WHIP behave as though it carried a 56% weight inside run prevention instead of its stated 40%.
-
-### WHIP broke the bottom of the scale
-
-Because game WHIP becomes unbounded in extremely short outings, it could push Run Prevention to exactly zero. The harmonic mean then forced the complete MalliScore to zero regardless of the other inputs.
-
-Across 7,479 starts from 2024 through July 26, 2026, **76 outings collapsed to exactly zero**. In 2024, the 22 collapsed outings covered a 40-point range of Game Score v2. MalliScore was losing information precisely where an index should be separating performances.
-
-### The noisiest input had the loudest voice
-
-Game WHIP had the lowest split-half reliability of any input in the formula at .291, yet the faulty normalization gave it the greatest realized influence.
-
-MalliScore V4 addressed those defects without pretending the entire metric needed to be reinvented:
-
-- empirical 2024 starter baselines replaced guessed priors;
-- Reach Rate Allowed replaced game WHIP;
-- the original weights, harmonic mean, workload curve, and clamps remained unchanged.
-
-The result was direct: **V4 produced zero collapsed outings in 2024, 2025, and 2026.** The 22 starts that V3 had tied at zero in 2024 now ranged from 4.3 to 19.8.
-
-![Exact zero scores under MalliScore V3 and V4 by season](assets/01_v4_zero_collapse.png)
+That does not mean every design choice is settled. The current model uses empirical league baselines, and it deliberately makes workload a modest adjustment rather than a third equal pillar. xwOBA allowed also remains a live design question: it measures the contact and outcomes allowed, so there is a reasonable case for placing it inside Run Prevention rather than Dominance.
 
 ## MalliScore is a second opinion, not a Game Score replacement
 
@@ -196,9 +170,7 @@ MalliScore tends to prefer the longer, more dominant start that allowed some dam
 
 Neither preference is universally correct. The disagreement answers the real editorial question: **Was this start impressive because of the result, or because of the way the pitcher controlled the game?**
 
-The frozen V3 framework also showed a **+.115 split-half reliability advantage over Game Score v2**, with a paired 95% confidence interval of +.069 to +.172. Reliability here means that a pitcher's score was more consistent from one half of his starts to the other. It does not mean MalliScore was more accurate in every baseball sense.
-
-V4 improved reliability over V3 only modestly: +.030 in 2024, +.023 in 2025, and +.012 in 2026. The final gain was not statistically resolved. The honest case for V4 is the repair of the zero-score collapse, not a dramatic reliability leap.
+Across a split-half test, MalliScore showed a **+.115 reliability advantage over Game Score v2**, with a paired 95% confidence interval of +.069 to +.172. Reliability here means that a pitcher's score was more consistent from one half of his starts to the other. It does not mean MalliScore is more accurate in every baseball sense.
 
 ## What MalliScore cannot tell us
 
@@ -239,4 +211,4 @@ Baseball is more interesting when we keep both questions.
 
 ---
 
-**Method note:** The validation used 7,479 MLB starting-pitcher outings: 1,908 from 2024 for development, 2,520 from 2025 for validation, and 3,051 from 2026 through July 26 for confirmation. Data came from the Mallitalytics MLB and Statcast warehouse. MalliScore V4 is the production formula for actual outings as of August 2026.
+**Method note:** The validation used 7,479 MLB starting-pitcher outings: 1,908 from 2024 for development, 2,520 from 2025 for validation, and 3,051 from 2026 through July 26 for confirmation. Data came from the Mallitalytics MLB and Statcast warehouse. This article describes the current production formula for actual outings as of August 2026.
