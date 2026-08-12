@@ -90,6 +90,8 @@ This is deliberate. MalliScore evaluates a **complete starting-pitcher performan
 
 Each input is compared with an empirical league baseline from 2024 starting-pitcher outings. The distance from that baseline is expressed in standard deviations, with lower-is-better statistics reversed.
 
+The listed weights are applied **after** that standardization. MalliScore does not multiply a raw 12.9% swinging-strike rate by 30%; it first asks how far 12.9% sits above or below the league baseline, then gives that standardized result 30% of the Dominance pillar.
+
 The weighted inputs become two 0-to-100 pillar scores centered around 50:
 
 ```text
@@ -126,7 +128,7 @@ He faced 20 batters, so his Reach Rate Allowed was:
 (1 H + 1 BB + 0 HBP) / 20 BF = .100
 ```
 
-His process indicators added more detail:
+His process indicators added more detail. These are the raw outing statistics, not the weighted inputs themselves. MalliScore compares each one with its league baseline first, then applies the weights on that common standardized scale:
 
 - 12.9% swinging-strike rate
 - 20.0% called-strike rate
