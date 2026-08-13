@@ -4,7 +4,7 @@
 
 **Title:** Building MalliScore: A Modern Way to Evaluate Pitching Performance
 
-**Deck:** The box score tells us what happened. MalliScore asks how the outing was built.
+**Deck:** Identical Game Scores can hide different performances. MalliScore asks how the outing was built.
 
 **Body:** [ARTICLE.md](ARTICLE.md)
 
@@ -22,7 +22,18 @@ stacked logo as a reference and contains no generated statistics.
 
 ## Evidence image order
 
-### 1. Score architecture
+### 1. Same line, different path
+
+Upload directly after the Imanaga-Wacha comparison table.
+
+`research/study/malliscore_validation/article/assets/05_same_line.png`
+
+Evidence shown: Imanaga and Wacha recorded identical 7.0 IP, 4 H, 1 BB, 0 ER, 7 K
+lines and identical Game Score v2 values, but differed sharply in swing-and-miss and
+chase. This is the article's Notice moment: different, equally valid paths to clean run
+prevention, with one outing also showing stronger active lineup control.
+
+### 2. Score architecture
 
 Upload after the paragraph ending:
 
@@ -35,7 +46,7 @@ Asset:
 Evidence shown: the exact current structure of MalliScore: the two weighted pillars,
 their harmonic-mean core, and the outs-first workload adjustment.
 
-### 2. Weight sensitivity
+### 3. Weight sensitivity
 
 Upload after the paragraph ending:
 
@@ -48,7 +59,7 @@ Asset:
 Evidence shown: 20,000 feasible weight vectors; minimum Spearman agreement .963; 97%
 of vectors above .980.
 
-### 3. Game Score disagreement
+### 4. Game Score disagreement
 
 Upload after the two bullets comparing MalliScore-favored and Game Score-favored starts.
 
@@ -59,7 +70,7 @@ Asset:
 Evidence shown: the clearest 2024 disagreement cases differ systematically in swinging
 strikes, innings, and earned runs.
 
-### 4. Predictive boundary
+### 5. Predictive boundary
 
 Upload after the paragraph stating that neither metric adds meaningful next-start signal.
 

@@ -15,21 +15,33 @@
 **Thesis:**
 
 - The conventional view says the pitching line summarizes the start.
-- That misses how the pitcher created the result.
-- The evidence shows that dominance, run prevention, and workload provide a reliable second opinion, while V4 fixes a demonstrated tail failure in the original formula.
-- This matters because disagreements with Game Score reveal whether a start was driven more by process, result, or depth.
+- That misses that clean run prevention can be produced through contact management or through active lineup control.
+- The evidence shows that MalliScore separates those paths with dominance, run prevention, and workload, while remaining a reliable descriptive second opinion.
+- This matters because disagreements with Game Score reveal whether a start was driven more by the result, contact management, or the pitcher's ability to power through hitters.
 
 **Primary reader value:** Clarity
 
 **Secondary reader value:** Reference
 
-**Scope:** The construction, validation, interpretation, and limitations of MalliScore V4 for individual MLB starting-pitcher outings.
+**Scope:** The construction, validation, interpretation, and limitations of MalliScore for individual MLB starting-pitcher outings.
 
 **Boundary:** The article does not claim that MalliScore measures true talent, predicts the next start, replaces Game Score, or has uniquely optimal weights.
 
 **Best real example:** Matthew Liberatore vs Toronto, August 2, 2026. Verified from the production VPS warehouse and V4 scoring path.
 
-**Opening example:** Lance Lynn, July 6, 2024, and Blair Henley, April 8, 2024. Their different short blow-ups establish why a single score needs to account for both outcome and workload.
+**Opening example:** Shota Imanaga (2024-05-18 vs PIT) and Michael Wacha (2024-07-19 vs CWS).
+Identical traditional lines — 7.0 IP, 4 H, 1 BB, 0 ER, 7 K — and an identical Game Score v2 of
+79, but MalliScore 72.2 against 59.5. The whole gap sits in Dominance (69.4 vs 49.3), driven by
+swinging strikes (25.0% vs 8.4%) and chase (42.5% vs 16.3%). Wacha was better on xwOBA allowed
+(.236 vs .262) and called strikes (20.0% vs 14.8%), so the case is "different excellence," not
+"one pitcher was worse." Official boxscores confirm HBP = 0 in both starts, so this comparison
+also holds on the current Reach Rate Allowed production formula. The article must distinguish
+contact management from active lineup control without claiming either start proves a higher future
+floor or ceiling.
+
+**Secondary example (reverse direction):** Lance Lynn 2024-07-06 (11.4) and Blair Henley
+2024-04-08 (11.2) — very different lines, Game Score 32 points apart, MalliScore effectively
+tied at the floor. Retained as a compact paragraph inside the payoff section.
 
 **Best disagreement pattern:** MalliScore-favored starts were longer and generated more whiffs but allowed more earned runs; Game Score-favored starts were shorter and cleaner on the scoreboard.
 
@@ -44,8 +56,9 @@
 | Dataset contains 7,479 starts | DATA | Study README and outputs | State season roles and cutoff |
 | 76 V3 outings scored exactly 0 | DATA | V4 decision memo | Explain the WHIP/clamp mechanism |
 | V4 has zero exact-zero collapses in all three seasons | DATA | V4 validation table | Call this the primary V4 justification |
-| Weight sensitivity never fell below Spearman .963 | DATA | 20,000-vector study | Do not claim weights are optimal |
-| V3 reliability advantage vs GSv2 was +.115 | DATA | Paired bootstrap | Define reliability; do not call it accuracy |
+| Weight sensitivity never fell below Spearman .963 | DATA | 20,000-vector study, 2024 dev season | Do not claim weights are optimal; state the season |
+| Production reliability advantage vs GSv2 is +.137 | DATA | Paired bootstrap on production scores, n=367 | Define reliability; do not call it accuracy |
+| V3 reliability advantage vs GSv2 was +.115 | DATA | Paired bootstrap | Superseded in the article by the production number |
 | V4 reliability gains shrink by season | DATA | V4 validation table | Do not sell V4 as a large reliability leap |
 | Neither score predicts the next start beyond form | DATA | Four NULL_CONFIRMED tests | Call MalliScore descriptive |
 | RRA is cleaner than WHIP for this role | INFERENCE | Tail behavior and denominator analysis | Say cleaner for this job, not universally superior |
@@ -83,8 +96,65 @@ Source: production VPS warehouse, generated through `scripts/pitching_performanc
 - V4 reliability vs V3: +.030, +.023, +.012 by season; only 2025 resolved.
 - Spearman agreement with Game Score v2: .939, .926, .930 by season.
 - V3 MalliScore vs Game Score v2 paired reliability gap: +.115, 95% CI +.069 to +.172.
-- MalliScore-favored disagreement cases: n=109, SwStr 13.1%, 17.8 outs, 3.1 ER.
-- Game Score-favored disagreement cases: n=99, SwStr 10.1%, 14.4 outs, 1.0 ER.
+
+### Recomputed on the production formula for the article (2026-08-13)
+
+Real per-outing HBP was extracted from the raw `feed_live` boxscores and all 7,479 study
+outings were rescored through `malliscore_v4()`. The pipeline reproduces the published V3
+paired gap exactly (+.1154, CI +.0689/+.1717), which validates the replication.
+
+- Score distribution: median 44.5, p90 61.2, p99 72.7, max 87.4, min 5.0, zero exact zeroes.
+- Split-half reliability, pooled 2024-2026, min 10 starts (n=367): MalliScore .604, GSv2 .467.
+- Paired reliability gap vs GSv2: **+.137, 95% CI +.088 to +.198**, resolved.
+- Season-level Spearman agreement with GSv2: .938 / .925 / .929.
+- MalliScore-favored disagreement cases, all seasons: n=424, SwStr 12.9%, 5.9 IP, 3.2 ER.
+- Game Score-favored disagreement cases, all seasons: n=432, SwStr 10.4%, 4.7 IP, 1.1 ER.
+- Opening examples: Henley 2024-04-08 = 11.2 (dom 33.0, RP 16.6, workload .509);
+  Lynn 2024-07-06 = 11.4 (dom 28.6, RP 13.4, workload .624). Only 23 starts scored below 12.
+- Liberatore's 70.0 sits at the 98th percentile of the study window.
+
+Superseded 2024-only V3 disagreement figures, retained for provenance:
+n=109 SwStr 13.1% / 17.8 outs / 3.1 ER, and n=99 SwStr 10.1% / 14.4 outs / 1.0 ER.
+
+### Why Dominance earns half the score (added 2026-08-13)
+
+Split-half reliability by input, pooled 2024-2026, min 8 starts. This is the article's
+strongest justification for the architecture and now appears as a table in the Dominance
+section.
+
+SwStr% .775 · Chase% .640 · Called strike% .610 · Outs .653 · xwOBA allowed .493 ·
+WHIP .317 · Earned runs .348 · Home runs .211 · Dominance pillar .673 ·
+Run Prevention pillar .389 · MalliScore .605 · Game Score v2 .487.
+
+Reading: swing-and-miss is the most repeatable thing a starter does; runs and home runs are
+the least. Game Score is built almost entirely from the volatile inputs, which is the
+mechanism behind MalliScore's reliability edge.
+
+Supporting: SwStr% and called-strike% correlate at -.256 per start and -.387 per
+pitcher-season, so the two Dominance paths are genuinely distinct rather than one signal.
+
+### REJECTED: "whiffs raise a pitcher's floor" (tested 2026-08-13)
+
+Hypothesis: an edge in swing-and-miss should give a pitcher a higher floor than
+contact-management does. **Not supported. Must not appear in the article.**
+
+Unmatched, the effect looks real — 5+ ER starts occur in 12.7% of high-whiff pitcher-seasons
+against 17.4% of low-whiff. But that is a quality confound. Holding season-long earned runs
+roughly constant, it flattens or reverses: good-ER 6.4% vs 7.5%, mid-ER 16.0% vs 15.1%
+(reversed), poor-ER 21.9% vs 22.7%.
+
+The MalliScore-floor version of the claim is additionally circular: MalliScore weights SwStr%
+at 30% of Dominance, so high-whiff pitchers post a higher MalliScore floor by construction.
+Publishing it would be measuring the formula against itself, and it would contradict the
+article's own next-start null result.
+
+### Known blind spot now stated in limitations
+
+Neither Dominance path credits inducing weak contact directly. Pitcher-seasons pairing
+top-third run prevention with bottom-third dominance: 7 of 191 (>=15 starts). Small but real,
+and MalliScore under-serves them. Michael Wacha's opening start is a single-game instance of
+the same archetype, which is why the opening comparison is framed as different excellence
+rather than one pitcher being worse.
 
 ## Adversarial review checklist
 
@@ -104,6 +174,12 @@ Source: production VPS warehouse, generated through `scripts/pitching_performanc
 3. **Worked example:** Matthew Liberatore's line with the 66.3 / 73.8 pillars and 70.0 final score.
 4. **Score architecture:** The two pillars, harmonic-mean core, and outs-first workload adjustment.
 5. **Disagreement chart:** MalliScore-favored versus Game Score-favored starts using SwStr%, outs, and ER.
+
+Shipped set (`assets/`, rendered by `scripts/render_malliscore_article_graphics.py`):
+`01_score_architecture`, `02_game_score_disagreement`, `03_weight_sensitivity`,
+`04_worked_example`. The next-start forest plot (`04_next_start_signal`) is still rendered
+by the script but was pulled from the article: it visualises a null in the most technical
+form available, and the prose carries that finding better for this audience.
 
 ## Publishing strategy
 
