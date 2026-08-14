@@ -8,9 +8,9 @@ image: assets/malliscore_article_cover.png
 imageAlt: Building MalliScore article cover showing a baseball crossing analytical pitch traces
 draft: true
 topic: pitching-analysis
-dataWindow: 2024 through July 26, 2026
+dataWindow: Available raw-feed coverage from 2024 through July 26, 2026
 source: MLB and Statcast warehouse
-methodology: 7,479 MLB starting-pitcher outings
+methodology: 7,479 MLB starting-pitcher outings from available raw-feed coverage
 caveat: Descriptive single-outing index; not a projection or talent estimate
 ---
 
@@ -42,7 +42,9 @@ It asks a narrower question:
 
 > How complete was this pitching performance when we consider dominance, run prevention, and the amount of the game the pitcher carried?
 
-Before the formula, the scale. Across the 7,479 starts in our study window, the median outing scored **44.5**. A score in the low 60s puts a start in the top 10 percent; the top 1 percent begins around 73. The highest score any pitcher recorded in three seasons was 87.4. Nobody has approached 100, and nobody is supposed to.
+Before the formula, the scale. In this article, the **study sample** means 7,479 starter outings drawn from available raw feeds: 1,908 in 2024, 2,520 in 2025, and 3,051 in 2026 through July 26. The 2024 and 2025 coverage is incomplete and non-random, so these are sample benchmarks, not claims about every MLB start in those seasons.
+
+Across that sample, the median outing scored **44.5**. A score in the low 60s puts a start in the top 10 percent; the top 1 percent begins around 73. The highest observed score was **87.4**, recorded by Jacob Misiorowski on June 12, 2026. Nobody in the sample approached 100, and nobody is supposed to.
 
 The score has two performance pillars and one workload adjustment.
 
@@ -59,11 +61,11 @@ There are two valid ways to prevent runs. A pitcher can limit the quality and vo
 
 Run Prevention recognizes either route when it keeps runners and runs off the board. Dominance is deliberately narrower. It measures the second route: whether the pitcher actively powered through plate appearances. That is why it gets its own half of the score instead of being hidden inside the final line.
 
-Swinging strikes and called strikes are not interchangeable. Across pitcher-seasons they trade off, correlating at −.39. Some pitchers win by generating empty swings. Others steal strikes through location, movement, or sequencing — Wacha's start above is what that second path looks like. MalliScore keeps both visible.
+Swinging strikes and called strikes are not interchangeable. Across pitcher-seasons they trade off, correlating at −.39. Some pitchers win by generating empty swings. Others steal strikes through location, movement, or sequencing; Wacha's start above is what that second path looks like. MalliScore keeps both visible.
 
-There is a reason this half of the score exists at all. Split a pitcher's season in two and swinging-strike rate is the most stable thing he does:
+There is a reason this half of the score exists at all. We split each qualifying pitcher-season into alternating starts, then compared the averages from the two groups. Higher values mean the measure showed up more consistently across that pitcher's season.
 
-| Input | Repeats at |
+| Measure | Consistency across alternating starts |
 |---|---|
 | Swinging-strike rate | .775 |
 | Chase rate | .640 |
@@ -71,6 +73,8 @@ There is a reason this half of the score exists at all. Split a pitcher's season
 | xwOBA allowed | .493 |
 | Earned runs | .348 |
 | Home runs | .211 |
+
+For example, a .775 swinging-strike value means pitchers who generated more whiffs in one set of starts generally did so in the other. Runs and home runs were much less consistent in the same test. The comparison includes 434 pitcher-seasons with at least eight starts.
 
 Half of MalliScore is built from the part of an outing least likely to be luck. That is the half a box score barely records.
 
@@ -103,7 +107,7 @@ Completed outs are the main workload signal, applied as a multiplier on the rest
 - Seven innings earns **1.04**, nine innings **1.10**.
 - Pitch efficiency can move the adjustment only slightly.
 
-Note the asymmetry. Falling two innings short of six costs roughly a third of the score. Going three innings beyond six returns about a tenth. MalliScore evaluates a **complete starting-pitcher performance**, so recording more outs matters — but a pitcher cannot buy his way to a great score on length alone.
+Note the asymmetry. Falling two innings short of six costs roughly a third of the score. Going three innings beyond six returns about a tenth. MalliScore evaluates a **complete starting-pitcher performance**, so recording more outs matters, but a pitcher cannot buy his way to a great score on length alone.
 
 ## How the formula works
 
@@ -156,7 +160,7 @@ His process indicators added more detail. These are the raw outing statistics, n
 
 Those inputs produced a **66.3 Dominance score** and a **73.8 Run Prevention score**. Their harmonic mean was 69.8. Six innings and 85 pitches supplied a nearly neutral 1.003 workload adjustment.
 
-**Final MalliScore: 70.0** — a score that would have ranked in the top 2 percent of every start in our study window.
+**Final MalliScore: 70.0**, a score that would have ranked in the top 2 percent of starts in this study sample.
 
 ![Matthew Liberatore's outing carried from raw line to final MalliScore](assets/04_worked_example.png)
 
@@ -183,11 +187,11 @@ Now the two starts we opened with, run through the same formula:
 
 Run prevention is nearly identical, which is what identical lines should produce. Workload is identical. The entire 12.7-point gap comes from Dominance: Imanaga's swinging-strike rate was three times Wacha's, and his chase rate was more than double.
 
-Note what the table does not say. Wacha was not worse. He allowed *softer* contact than Imanaga — .236 against .262 — and stole more called strikes, 20.0% against 14.8%. He pitched a genuinely excellent game by managing contact and commanding the zone. Imanaga pitched a different excellent game by making Pittsburgh miss.
+Note what the table does not say. Wacha was not worse. He allowed *softer* contact than Imanaga, .236 against .262, and stole more called strikes, 20.0% against 14.8%. He pitched a genuinely excellent game by managing contact and commanding the zone. Imanaga pitched a different excellent game by making Pittsburgh miss.
 
-MalliScore puts Imanaga's start in the top 2 percent of the study window and Wacha's in the top 13 percent. Both are very good outings. Imanaga receives additional credit because he paired the result with the clearest evidence of active lineup control. That is a descriptive judgment about this game, not a forecast of either pitcher's next start or career ceiling.
+MalliScore puts Imanaga's start in the top 2 percent of the study sample and Wacha's in the top 13 percent. Both are very good outings. Imanaga receives additional credit because he paired the result with the clearest evidence of active lineup control. That is a descriptive judgment about this game, not a forecast of either pitcher's next start or career ceiling.
 
-The reverse case exists too. On July 6, 2024, Lance Lynn allowed 10 earned runs in 2.2 innings; three months earlier, Blair Henley recorded one out while allowing five in his debut. Game Score separates those by 32 points. MalliScore rates them 11.4 and 11.2 — a tie at the floor, because Lynn's extra outs bought workload credit that his ten runs immediately spent. Length is credit, not absolution.
+The reverse case exists too. On July 6, 2024, Lance Lynn allowed 10 earned runs in 2.2 innings; three months earlier, Blair Henley recorded one out while allowing five in his debut. Game Score separates those by 32 points. MalliScore rates them 11.4 and 11.2, a tie at the floor, because Lynn's extra outs bought workload credit that his ten runs immediately spent. Length is credit, not absolution.
 
 Same line, different score. Different line, same score. In both directions, MalliScore is reading an axis the box score does not.
 
@@ -197,11 +201,11 @@ Any new pitching index should be tested against the strongest familiar alternati
 
 Across the study, MalliScore and Game Score v2 agreed strongly. Their season-level rank correlations ran from .925 to .938. That is expected: both reward good, deep starts.
 
-On the reliability test, though, they separate. Split-half reliability asks whether a pitcher's score tells the same story across two halves of his season — whether the metric is measuring something stable or amplifying single-game noise. Across 367 pitcher-seasons with at least 10 starts, MalliScore scored **.604 against Game Score v2's .467**, a paired advantage of **+.137 with a 95% confidence interval of +.088 to +.198**.
+On the reliability test, though, they separate. We use the same alternating-start comparison to ask whether each score tells a similar story across a pitcher's season, rather than amplifying single-game noise. Across 367 pitcher-seasons with at least 10 starts, MalliScore scored **.604 against Game Score v2's .467**, a paired advantage of **+.137 with a 95% confidence interval of +.088 to +.198**.
 
 Reliability is not accuracy. It does not mean MalliScore is more correct about any individual start. It means the number holds together better from one half of a season to the other.
 
-The mechanism is the table from earlier. Game Score is built almost entirely from the volatile column — runs, hits, walks, home runs. MalliScore gives half its weight to the stable one.
+The mechanism is the table from earlier. Game Score is built almost entirely from the volatile column: runs, hits, walks, home runs. MalliScore gives half its weight to the stable one.
 
 The more interesting information appears when the two scores disagree.
 
@@ -260,7 +264,7 @@ When MalliScore is higher than the traditional line suggests, look for whiffs, c
 
 When MalliScore is lower, look for a clean result supported by fewer missed bats, fewer outs, or more traffic than the scoreboard reveals.
 
-And when two starts share a line but not a score — as Imanaga and Wacha did — check the pillars. The answer is usually sitting in swing-and-miss, and it usually changes how the outing should be remembered.
+And when two starts share a line but not a score, as Imanaga and Wacha did, check the pillars. The answer is usually sitting in swing-and-miss, and it usually changes how the outing should be remembered.
 
 Game Score asks how good the line was. MalliScore asks how the performance was built.
 
