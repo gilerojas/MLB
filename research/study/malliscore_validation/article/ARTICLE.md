@@ -216,7 +216,7 @@ MalliScore does not turn a start into a final answer. Its value is giving the re
 
 For a curious baseball fan, it makes the box score less flat. A 7.0-inning, zero-run line can come from a pitcher overpowering hitters, from a pitcher managing contact, or from a blend of both. MalliScore helps show which kind of game you watched.
 
-For a fantasy player, it is not a start-sit tool or a projection. It is a postgame filter. A pitcher who allowed runs but still posted a strong MalliScore may be worth a second look at his whiffs, chase, command, pitch mix, and workload. A clean line with a lower score does not make the result fake. It tells you the result may be carrying more of the story than the underlying control did.
+For a fantasy manager in a roto or head-to-head categories league, MalliScore puts the three parts of a useful start in one place: workload, missed bats, and run prevention. Those are the forces behind innings and quality starts, strikeouts, and the ERA-WHIP side of the ledger. It does not replace a projection or tell you whom to start tomorrow. It helps you judge how much meaning to assign to yesterday's line. A high score after a merely decent box score can identify a performance that delivered workload and bat-missing despite some damage. A clean line with a lower score is still valuable, but it may have been driven more by the result than by active control of the plate appearance.
 
 For anyone following baseball every day, the score gives a consistent way to compare performances that otherwise look similar on the surface. It adds context to a great line, and it adds texture to a disappointing one.
 

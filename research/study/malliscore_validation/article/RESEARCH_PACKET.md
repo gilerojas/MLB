@@ -56,8 +56,9 @@ the X draft because adding more cases weakened the single Imanaga-Wacha narrativ
 **Human context beat:** Bill James created Game Score to summarize an individual start; Tom Tango later updated its run and home-run treatment. MalliScore is presented as a second opinion, not a dismissal of that work.
 
 **Reader payoff:** MalliScore gives curious fans a clearer explanation of how a start was
-built. For fantasy players, it is a postgame filter that identifies performances worth a
-second look, not a projection or start-sit instruction.
+built. In roto and category leagues, it gives fantasy managers one postgame view of the
+workload, bat-missing, and run-prevention balance behind innings or quality starts,
+strikeouts, ERA, and WHIP. It is not a projection or start-sit instruction.
 
 ## Claim ledger
 
