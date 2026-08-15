@@ -48,7 +48,7 @@ MEANINGFUL_R2_GAIN = 0.005
 MEANINGFUL_AUC_GAIN = 0.010
 
 BASELINE = [
-    "malli_score_roll5",
+    "malli_score_v4_roll5",
     "swstr_pct_roll5",
     "called_strike_pct_roll5",
     "chase_pct_roll5",
@@ -66,7 +66,7 @@ TARGETS = {
 MODELS = {
     "1. baseline": BASELINE,
     "2. + Game Score v2": BASELINE + ["game_score_v2"],
-    "3. + GSv2 + MalliScore": BASELINE + ["game_score_v2", "malli_score"],
+    "3. + GSv2 + MalliScore": BASELINE + ["game_score_v2", "malli_score_v4"],
 }
 
 
@@ -151,16 +151,16 @@ def run_regression_targets(train_all: pd.DataFrame, test_all: pd.DataFrame,
 def run_elite_classifier(train_all: pd.DataFrame, test_all: pd.DataFrame,
                          reg: Register) -> pd.DataFrame:
     rule("2. PROBABILITY OF AN ELITE NEXT START")
-    threshold = train_all["malli_score"].quantile(0.90)
+    threshold = train_all["malli_score_v4"].quantile(0.90)
     print(f"  'Elite' = next-start MalliScore above the {TRAIN_SEASON} p90 of {threshold:.2f}")
     print("  The label uses MalliScore, but the features never do beyond the shared")
     print("  baseline, so the comparison between models remains fair.\n")
 
     widest = MODELS["3. + GSv2 + MalliScore"]
-    train = prepare(train_all, widest, "next_malli_score")
-    test = prepare(test_all, widest, "next_malli_score")
-    y_train = (train["next_malli_score"] >= threshold).astype(int)
-    y_test = (test["next_malli_score"] >= threshold).astype(int)
+    train = prepare(train_all, widest, "next_malli_score_v4")
+    test = prepare(test_all, widest, "next_malli_score_v4")
+    y_train = (train["next_malli_score_v4"] >= threshold).astype(int)
+    y_test = (test["next_malli_score_v4"] >= threshold).astype(int)
     print(f"  train n={len(train):,} ({y_train.mean() * 100:.1f}% elite) | "
           f"test n={len(test):,} ({y_test.mean() * 100:.1f}% elite)")
 
@@ -200,7 +200,7 @@ def run_within_pitcher(train_all: pd.DataFrame, test_all: pd.DataFrame,
     frames = []
     for df in (train_all, test_all):
         d = df.copy()
-        d["malli_vs_own"] = d["malli_score"] - d["malli_score_roll5"]
+        d["malli_vs_own"] = d["malli_score_v4"] - d["malli_score_v4_roll5"]
         d["gs_vs_own"] = d["game_score_v2"] - d["game_score_v2_roll5"]
         d["next_swstr_vs_own"] = d["next_swstr_pct"] - d["swstr_pct_roll5"]
         frames.append(d)

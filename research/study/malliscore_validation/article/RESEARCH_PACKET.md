@@ -60,7 +60,7 @@ built. In roto and category leagues, it gives fantasy managers one postgame view
 workload, bat-missing, and run-prevention balance behind innings or quality starts,
 strikeouts, ERA, and WHIP. It is not a projection or start-sit instruction.
 
-**Interpretation bands:** V4 production scores, 7,479-start study sample. Median 44.5;
+**Interpretation bands:** V4 production scores, 13,028-start complete-season sample. Median 44.4;
 50+ is the top 35%, 60+ is the top 12%, and 70+ is the top 2%. Public wording: 50 to
 59 is a strong start, 60 to 69 is elite, and 70+ is rare territory. Do not call 50
 average or treat 100 as a realistic target.
@@ -69,11 +69,11 @@ average or treat 100 as a realistic target.
 
 | Claim | Type | Evidence | Public wording constraint |
 |---|---|---|---|
-| Dataset contains 7,479 starts | DATA | Study README and outputs | State season roles and cutoff |
+| Dataset contains 13,028 starts | DATA | Complete 2024/2025 RS + 2026 through Aug 13 | State season roles and cutoff |
 | 76 V3 outings scored exactly 0 | DATA | V4 decision memo | Explain the WHIP/clamp mechanism |
 | V4 has zero exact-zero collapses in all three seasons | DATA | V4 validation table | Call this the primary V4 justification |
-| Weight sensitivity never fell below Spearman .963 | DATA | 20,000-vector study, 2024 dev season | Do not claim weights are optimal; state the season |
-| Production reliability advantage vs GSv2 is +.137 | DATA | Paired bootstrap on production scores, n=367 | Define reliability; do not call it accuracy |
+| Weight sensitivity never fell below Spearman .965 | DATA | 20,000-vector V4 study, 2024 dev season | Do not claim weights are optimal; state the season |
+| Production reliability advantage vs GSv2 is +.118 | DATA | Paired bootstrap on V4 scores, n=520 | Define reliability; do not call it accuracy |
 | V3 reliability advantage vs GSv2 was +.115 | DATA | Paired bootstrap | Superseded in the article by the production number |
 | V4 reliability gains shrink by season | DATA | V4 validation table | Do not sell V4 as a large reliability leap |
 | Neither score predicts the next start beyond form | DATA | Four NULL_CONFIRMED tests | Call MalliScore descriptive |
@@ -104,29 +104,29 @@ Source: production VPS warehouse, generated through `scripts/pitching_performanc
 
 ## Study facts retained in the draft
 
-- Development: 2024, 1,908 outings.
-- Validation: 2025, 2,520 outings.
-- Confirmation: 2026 through July 26, 3,051 outings.
+- Development: 2024 complete regular season, 4,749 outings.
+- Validation: 2025 complete regular season, 4,764 outings.
+- Confirmation: 2026 through August 13, 3,515 outings.
 - V3 exact zeroes: 22, 25, and 29 by season.
 - V4 exact zeroes: 0, 0, and 0.
-- V4 reliability vs V3: +.030, +.023, +.012 by season; only 2025 resolved.
-- Spearman agreement with Game Score v2: .939, .926, .930 by season.
+- V4 reliability vs V3: +.020, +.024, +.013 by season; each paired gap resolved, but all are small.
+- Spearman agreement with Game Score v2: .933, .929, .928 by season.
 - V3 MalliScore vs Game Score v2 paired reliability gap: +.115, 95% CI +.069 to +.172.
 
 ### Recomputed on the production formula for the article (2026-08-13)
 
-Real per-outing HBP was extracted from the raw `feed_live` boxscores and all 7,479 study
-outings were rescored through `malliscore_v4()`. The pipeline reproduces the published V3
-paired gap exactly (+.1154, CI +.0689/+.1717), which validates the replication.
+Real per-outing HBP was extracted from the raw `feed_live` boxscores and all 13,028 study
+outings were scored through `malliscore_v4()`. The complete-season rebuild is the new
+article sample. The production V4 norms remain frozen.
 
-- Score distribution: median 44.5, p90 61.2, p99 72.7, max 87.4, min 5.0, zero exact zeroes.
-- Split-half reliability, pooled 2024-2026, min 10 starts (n=367): MalliScore .604, GSv2 .467.
-- Paired reliability gap vs GSv2: **+.137, 95% CI +.088 to +.198**, resolved.
-- Season-level Spearman agreement with GSv2: .938 / .925 / .929.
-- MalliScore-favored disagreement cases, all seasons: n=424, SwStr 12.9%, 5.9 IP, 3.2 ER.
-- Game Score-favored disagreement cases, all seasons: n=432, SwStr 10.4%, 4.7 IP, 1.1 ER.
+- Score distribution: median 44.4, p90 61.2, p99 72.5, max 87.4, min 5.0, zero exact zeroes.
+- Split-half reliability, pooled 2024-2026, min 10 starts (n=520): MalliScore V4 .691, GSv2 .573.
+- Paired reliability gap vs GSv2: **+.118, 95% CI +.082 to +.159**, resolved.
+- Season-level Spearman agreement with GSv2: .933 / .929 / .928.
+- MalliScore-favored disagreement cases, all seasons: n=746, SwStr 12.8%, 5.9 IP, 3.2 ER.
+- Game Score-favored disagreement cases, all seasons: n=806, SwStr 10.5%, 4.7 IP, 1.1 ER.
 - Opening examples: Henley 2024-04-08 = 11.2 (dom 33.0, RP 16.6, workload .509);
-  Lynn 2024-07-06 = 11.4 (dom 28.6, RP 13.4, workload .624). Only 23 starts scored below 12.
+  Lynn 2024-07-06 = 11.4 (dom 28.6, RP 13.4, workload .624). Only 40 starts scored below 12.
 - Liberatore's 70.0 sits at the 98th percentile of the study window.
 
 Superseded 2024-only V3 disagreement figures, retained for provenance:
@@ -138,9 +138,9 @@ Split-half reliability by input, pooled 2024-2026, min 8 starts. This is the art
 strongest justification for the architecture and now appears as a table in the Dominance
 section.
 
-SwStr% .775 · Chase% .640 · Called strike% .610 · Outs .653 · xwOBA allowed .493 ·
-WHIP .317 · Earned runs .348 · Home runs .211 · Dominance pillar .673 ·
-Run Prevention pillar .389 · MalliScore .605 · Game Score v2 .487.
+SwStr% .810 · Chase% .683 · Called strike% .684 · Outs .706 · xwOBA allowed .589 ·
+RRA .454 · Earned runs .371 · Home runs .266 · Dominance pillar .748 ·
+Run Prevention pillar .420 · MalliScore V4 .663 · Game Score v2 .545.
 
 Reading: swing-and-miss is the most repeatable thing a starter does; runs and home runs are
 the least. Game Score is built almost entirely from the volatile inputs, which is the
@@ -179,7 +179,7 @@ rather than one pitcher being worse.
 - Keep the V3 Game Score reliability result distinct from the smaller V4-over-V3 gains.
 - Do not claim RRA is a universal replacement for WHIP.
 - State that xwOBA in Dominance is a known conceptual weakness.
-- State that earned-run coverage is incomplete and non-random.
+- State that 2024 and 2025 include every played regular-season game; 2026 is through August 13.
 - State that two Game Score comparisons were underpowered.
 - Preserve the descriptive-versus-predictive boundary.
 
@@ -223,7 +223,7 @@ I built MalliScore to answer a question the pitching line cannot fully settle:
 
 How was the performance built?
 
-I tested the formula across 7,479 MLB starts to see whether its components, weights, and boundaries hold up against real pitching performances.
+I tested the formula across 13,028 MLB starts to see whether its components, weights, and boundaries hold up against real pitching performances.
 
 The full method, evidence, and limits:
 
@@ -237,4 +237,4 @@ Originally published by Mallitalytics on X. The analysis and methodology are unc
 
 What should a single-game pitching score measure?
 
-I tested MalliScore across 7,479 MLB starts to learn whether the weights worked, where the formula failed, and what it adds beside Game Score. The most important finding was not the one I expected.
+I tested MalliScore across 13,028 MLB starts to learn whether the weights worked, where the formula failed, and what it adds beside Game Score. The most important finding was not the one I expected.

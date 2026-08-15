@@ -33,7 +33,7 @@ def data() -> pd.DataFrame:
 
 def test_seasons_and_counts(data: pd.DataFrame) -> None:
     counts = data.groupby("season").size().to_dict()
-    assert counts == {2024: 1908, 2025: 2520, 2026: 3051}
+    assert counts == {2024: 4749, 2025: 4764, 2026: 3515}
 
 
 def test_every_row_has_true_earned_runs(data: pd.DataFrame) -> None:

@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -16,10 +16,12 @@ import numpy as np
 import pandas as pd
 from PIL import Image, ImageChops
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from src.pitching_performances.malli_score import OutingRawMetrics, malliscore_v4
 
-
-ROOT = Path(__file__).resolve().parents[1]
 STUDY_OUTPUTS = ROOT / "research" / "study" / "malliscore_validation" / "outputs"
 DEFAULT_OUT = ROOT / "outputs" / "articles" / "malliscore_v4"
 LOGO_PATH = ROOT / "new_malli_logo" / "logo_horizontal.png"
@@ -214,14 +216,20 @@ def render_score_architecture(output_dir: Path) -> Path:
 
 
 def render_disagreement(output_dir: Path) -> Path:
+    article_stats = json.loads((STUDY_OUTPUTS / "article_complete_season_stats.json").read_text())
+    disagreement = article_stats["disagreement"]
     labels = ["SWSTR%", "INNINGS", "EARNED RUNS"]
-    malli_values = np.array([12.9, 5.9, 3.2])
-    game_values = np.array([10.4, 4.7, 1.1])
+    malli_values = np.array(
+        [disagreement["malli_swstr"], disagreement["malli_ip"], disagreement["malli_er"]]
+    )
+    game_values = np.array(
+        [disagreement["gs_swstr"], disagreement["gs_ip"], disagreement["gs_er"]]
+    )
     formats = ["{:.1f}%", "{:.1f}", "{:.1f}"]
 
     fig, ax = new_figure(
         "WHEN MALLISCORE AND GAME SCORE DISAGREE",
-        "Average profile of the disagreement cases, 2024 through July 2026",
+        "Average profile of the disagreement cases, complete 2024-2025 and 2026 through Aug 13",
     )
     ax.remove()
     positions = [(0.075, 0.235, 0.25, 0.49), (0.375, 0.235, 0.25, 0.49), (0.675, 0.235, 0.25, 0.49)]
@@ -243,15 +251,29 @@ def render_disagreement(output_dir: Path) -> Path:
             panel.text(0.01 * max_value, 1, "MalliScore higher", va="center", fontsize=8, fontweight=700, color=COLORS["white"])
             panel.text(0.01 * max_value, 0, "Game Score higher", va="center", fontsize=8, fontweight=700, color=COLORS["white"])
 
-    fig.text(0.075, 0.162, "MalliScore higher: n=424", fontsize=8.5, color=COLORS["forest"], fontweight=600)
-    fig.text(0.285, 0.162, "Game Score higher: n=432", fontsize=8.5, color=COLORS["ink"], fontweight=600)
+    fig.text(
+        0.075,
+        0.162,
+        f"MalliScore higher: n={disagreement['malli_n']:,}",
+        fontsize=8.5,
+        color=COLORS["forest"],
+        fontweight=600,
+    )
+    fig.text(
+        0.285,
+        0.162,
+        f"Game Score higher: n={disagreement['gs_n']:,}",
+        fontsize=8.5,
+        color=COLORS["ink"],
+        fontweight=600,
+    )
     add_footer(fig, "Game Score v2 benchmark · Disagreement defined by percentile gap")
     return save(fig, output_dir / "02_game_score_disagreement.png")
 
 
 def render_weight_sensitivity(output_dir: Path) -> Path:
     surface = pd.read_csv(STUDY_OUTPUTS / "weight_sensitivity_surface.csv")
-    rho = surface["spearman_vs_v3"].to_numpy()
+    rho = surface["spearman_vs_production"].to_numpy()
     minimum = float(np.min(rho))
     above = float(np.mean(rho > 0.98) * 100)
 
@@ -268,7 +290,7 @@ def render_weight_sensitivity(output_dir: Path) -> Path:
     ax.axvline(0.98, color=COLORS["ink"], linewidth=1.2, linestyle=(0, (4, 4)))
     ax.text(0.9804, max(counts) * 0.94, ".980", fontsize=9, fontweight=700, color=COLORS["ink"], va="top")
     ax.set_xlim(0.96, 1.001)
-    ax.set_xlabel("RANK CORRELATION WITH THE ORIGINAL SCORE", fontsize=9, fontweight=600, labelpad=13)
+    ax.set_xlabel("RANK CORRELATION WITH THE CURRENT V4 SCORE", fontsize=9, fontweight=600, labelpad=13)
     ax.set_ylabel("WEIGHT COMBINATIONS", fontsize=9, fontweight=600, labelpad=13)
     ax.grid(axis="y", color=COLORS["line"], linewidth=0.7, alpha=0.75)
     ax.set_axisbelow(True)
@@ -277,7 +299,7 @@ def render_weight_sensitivity(output_dir: Path) -> Path:
 
     fig.text(0.12, 0.685, f"MINIMUM\n{minimum:.3f}", fontsize=11, fontweight=700, color=COLORS["orange"], linespacing=1.45)
     fig.text(0.925, 0.788, f"{above:.0f}% ABOVE .980", ha="right", fontsize=12.5, fontweight=700, color=COLORS["forest"])
-    add_footer(fig, "Development season: 1,908 starts · Each vector preserves pillar weight sums")
+    add_footer(fig, "Complete 2024 regular season: 4,749 starts · Each vector preserves pillar weight sums")
     return save(fig, output_dir / "03_weight_sensitivity.png")
 
 
@@ -452,71 +474,16 @@ def render_worked_example(output_dir: Path) -> Path:
     canvas.text(0.775, strip_y + 0.078, "5", fontsize=7, color=COLORS["muted"])
     canvas.text(1.0, strip_y + 0.078, "87", ha="right", fontsize=7, color=COLORS["muted"])
 
-    add_footer(fig, "Verified production scoring path · Percentile vs 7,479 starts, 2024-2026")
+    add_footer(fig, "Verified production scoring path · Percentile vs 13,028 starts, 2024-2026")
     return save(fig, output_dir / "04_worked_example.png")
 
 
 def load_v4_study_scores() -> np.ndarray:
-    """Rebuild V4 scores with official HBP rather than using the V3 study column."""
+    """Use production V4 scores from the complete-season outing dataset."""
     outings = pd.read_parquet(STUDY_OUTPUTS / "outings_2024_2026.parquet")
-    wanted: dict[int, set[int]] = {}
-    for game_pk, pitcher in zip(outings["game_pk"], outings["pitcher"]):
-        wanted.setdefault(int(game_pk), set()).add(int(pitcher))
-
-    hbp: dict[tuple[int, int], int] = {}
-    raw_root = ROOT / "data" / "warehouse" / "mlb"
-    for path in raw_root.glob("20*/regular_season/raw/*feed_live.json.gz"):
-        try:
-            game_pk = int(path.name.split("_")[1])
-        except (IndexError, ValueError):
-            continue
-        pitchers = wanted.get(game_pk)
-        if not pitchers:
-            continue
-        try:
-            with gzip.open(path, "rt", encoding="utf-8") as handle:
-                feed = json.load(handle)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        teams = ((feed.get("liveData") or {}).get("boxscore") or {}).get("teams") or {}
-        for team in teams.values():
-            for player in (team.get("players") or {}).values():
-                try:
-                    pitcher = int((player.get("person") or {}).get("id"))
-                except (TypeError, ValueError):
-                    continue
-                if pitcher not in pitchers:
-                    continue
-                pitching = (player.get("stats") or {}).get("pitching") or {}
-                hbp[(game_pk, pitcher)] = int(pitching.get("hitBatsmen") or 0)
-
-    scores: list[float] = []
-    missing: list[tuple[int, int]] = []
-    for row in outings.itertuples(index=False):
-        key = (int(row.game_pk), int(row.pitcher))
-        if key not in hbp:
-            missing.append(key)
-            continue
-        raw = OutingRawMetrics(
-            swstr_pct=float(row.swstr_pct),
-            called_strike_pct=float(row.called_strike_pct),
-            chase_pct=float(row.chase_pct),
-            xwoba_allowed=float(row.xwoba_allowed),
-            game_whip=float(row.game_whip),
-            earned_runs=int(row.earned_runs),
-            home_runs=int(row.home_runs),
-            pitches=int(row.pitches),
-            outs=int(row.outs),
-            batters_faced=int(row.batters_faced),
-            hits=int(row.hits),
-            walks=int(row.walks),
-            hit_by_pitch=hbp[key],
-        )
-        scores.append(float(malliscore_v4(raw)["malli_score"]))
-
-    if missing:
-        raise RuntimeError(f"Missing official HBP for {len(missing)} study outings")
-    return np.asarray(scores)
+    if "malli_score_v4" not in outings.columns:
+        raise RuntimeError("outings_2024_2026.parquet is missing malli_score_v4; rebuild the dataset")
+    return pd.to_numeric(outings["malli_score_v4"], errors="coerce").dropna().to_numpy()
 
 
 def render_score_distribution(output_dir: Path) -> Path:
@@ -525,7 +492,7 @@ def render_score_distribution(output_dir: Path) -> Path:
 
     fig, ax = new_figure(
         "HOW TO READ MALLISCORE",
-        "Distribution of 7,479 MLB starter outings · V4 production formula · 2024 through Jul 26, 2026",
+        "Distribution of 13,028 MLB starter outings · V4 production formula · 2024-2025 complete, 2026 through Aug 13",
     )
     ax.set_position([0.075, 0.305, 0.85, 0.43])
     bins = np.arange(5, 91, 5)
@@ -565,7 +532,7 @@ def render_score_distribution(output_dir: Path) -> Path:
     fig.text(
         0.075,
         0.225,
-        "50 is not average. The median start scores 44.5.",
+        "50 is not average. The median start scores 44.4.",
         fontsize=9.8,
         fontweight=600,
         color=COLORS["ink"],

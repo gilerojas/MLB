@@ -29,10 +29,10 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
 from src.pitching_performances.malli_score import (  # noqa: E402
-    _DEFAULT_MEANS,
-    _DEFAULT_STDS,
     _DOMINANCE_WEIGHTS,
-    _RUN_PREVENTION_WEIGHTS,
+    _V4_MEANS,
+    _V4_RUN_PREVENTION_WEIGHTS,
+    _V4_STDS,
 )
 
 OUT_DIR = Path(__file__).parent / "outputs"
@@ -41,8 +41,8 @@ DEV_SEASON = 2024
 VAL_SEASON = 2025
 
 DOM_KEYS = list(_DOMINANCE_WEIGHTS)
-RP_KEYS = list(_RUN_PREVENTION_WEIGHTS)
-INVERTED = {"xwoba_allowed", "game_whip", "log1p_er", "log1p_hr"}
+RP_KEYS = list(_V4_RUN_PREVENTION_WEIGHTS)
+INVERTED = {"xwoba_allowed", "reach_rate_allowed", "log1p_er", "log1p_hr"}
 
 N_SAMPLES = 20_000
 N_DETAILED = 500          # subsample for the expensive rank/churn measures
@@ -56,10 +56,10 @@ def rule(title: str) -> None:
 
 
 def z_matrix(df: pd.DataFrame, keys: list[str]) -> np.ndarray:
-    """Signed z-scores under the shipped fixed priors, oriented higher = better."""
+    """Signed z-scores under the shipped V4 priors, oriented higher = better."""
     cols = []
     for key in keys:
-        z = (df[key].values - _DEFAULT_MEANS[key]) / _DEFAULT_STDS[key]
+        z = (df[key].values - _V4_MEANS[key]) / _V4_STDS[key]
         cols.append(-z if key in INVERTED else z)
     return np.column_stack(cols)
 
@@ -77,7 +77,7 @@ def score_grid(zd: np.ndarray, zr: np.ndarray, wd: np.ndarray, wr: np.ndarray,
                workload: np.ndarray) -> np.ndarray:
     """Vectorized MalliScore for many weight vectors at once.
 
-    Returns an (outings x candidates) matrix. Reproduces V3 exactly: weighted mean
+    Returns an (outings x candidates) matrix. Reproduces V4 exactly: weighted mean
     z, clamp to the 0-100 index, harmonic fusion, workload multiplier, final clamp.
     """
     dom = np.clip(50 + 15 * (zd @ wd.T), 0, 100)
@@ -122,13 +122,13 @@ def main() -> None:
 
     zd, zr = z_matrix(dev, DOM_KEYS), z_matrix(dev, RP_KEYS)
     wl = dev["workload"].values
-    shipped = dev["malli_score"].values
+    shipped = dev["malli_score_v4"].values
 
     wd = sample_weights(N_SAMPLES, len(DOM_KEYS), DOM_CAP, rng)
     wr = sample_weights(N_SAMPLES, len(RP_KEYS), RP_CAP, rng)
-    # Put V3's own vector first so it can be recovered as a self-check.
+    # Put V4's own vector first so it can be recovered as a self-check.
     wd[0] = [_DOMINANCE_WEIGHTS[k] for k in DOM_KEYS]
-    wr[0] = [_RUN_PREVENTION_WEIGHTS[k] for k in RP_KEYS]
+    wr[0] = [_V4_RUN_PREVENTION_WEIGHTS[k] for k in RP_KEYS]
 
     rule("1. RANK AGREEMENT ACROSS THE FEASIBLE REGION")
     rhos, means, sds, zeros, p95s = [], [], [], [], []
@@ -143,7 +143,7 @@ def main() -> None:
     rho = np.concatenate(rhos)
     surface = pd.DataFrame(
         {
-            "spearman_vs_v3": rho,
+            "spearman_vs_production": rho,
             "mean": np.concatenate(means),
             "sd": np.concatenate(sds),
             "pct_zero": np.concatenate(zeros),
@@ -153,13 +153,13 @@ def main() -> None:
         }
     )
 
-    assert abs(rho[0] - 1.0) < 1e-9, "V3's own weight vector must recover rho = 1.0"
-    print(f"  Self-check: V3's own vector recovers Spearman {rho[0]:.6f}")
-    print(f"\n  Spearman vs shipped V3 across {N_SAMPLES:,} candidates:")
+    assert abs(rho[0] - 1.0) < 1e-9, "V4's own weight vector must recover rho = 1.0"
+    print(f"  Self-check: V4's own vector recovers Spearman {rho[0]:.6f}")
+    print(f"\n  Spearman vs shipped V4 across {N_SAMPLES:,} candidates:")
     for q in (0, 1, 5, 25, 50):
         print(f"    p{q:<3} {np.percentile(rho, q):.4f}")
     print(f"    min  {rho.min():.4f}")
-    print(f"\n  {(rho > 0.99).mean() * 100:.1f}% of the feasible region agrees with V3 above 0.99")
+    print(f"\n  {(rho > 0.99).mean() * 100:.1f}% of the feasible region agrees with V4 above 0.99")
     print(f"  {(rho > 0.98).mean() * 100:.1f}% agrees above 0.98")
     print(f"  Score mean ranges {surface['mean'].min():.2f} to {surface['mean'].max():.2f}")
     print(f"  Score sd   ranges {surface['sd'].min():.2f} to {surface['sd'].max():.2f}")
@@ -169,17 +169,17 @@ def main() -> None:
     rows = []
     for key in DOM_KEYS + RP_KEYS:
         col = surface[f"w_{key}"]
-        lo = surface.loc[col <= col.quantile(0.10), "spearman_vs_v3"].mean()
-        hi = surface.loc[col >= col.quantile(0.90), "spearman_vs_v3"].mean()
+        lo = surface.loc[col <= col.quantile(0.10), "spearman_vs_production"].mean()
+        hi = surface.loc[col >= col.quantile(0.90), "spearman_vs_production"].mean()
         rows.append(
             {
                 "metric": key,
                 "pillar": "dominance" if key in DOM_KEYS else "run_prevention",
-                "v3_weight": {**_DOMINANCE_WEIGHTS, **_RUN_PREVENTION_WEIGHTS}[key],
+                "v4_weight": {**_DOMINANCE_WEIGHTS, **_V4_RUN_PREVENTION_WEIGHTS}[key],
                 "rho_when_low": lo,
                 "rho_when_high": hi,
                 "sensitivity": abs(hi - lo),
-                "corr_w_vs_rho": col.corr(surface["spearman_vs_v3"]),
+                "corr_w_vs_rho": col.corr(surface["spearman_vs_production"]),
             }
         )
     sens = pd.DataFrame(rows).sort_values("sensitivity", ascending=False)
@@ -192,9 +192,9 @@ def main() -> None:
     pick[0] = 0
     grid = score_grid(zd, zr, wd[pick], wr[pick], wl)
     taus = np.array([stats.kendalltau(grid[:, i], shipped)[0] for i in range(N_DETAILED)])
-    print(f"  Kendall tau vs V3 over {N_DETAILED} candidates:")
+    print(f"  Kendall tau vs V4 over {N_DETAILED} candidates:")
     print(f"    min {taus.min():.4f} | p5 {np.percentile(taus, 5):.4f} | median {np.median(taus):.4f}")
-    print(f"    V3 self-check: {taus[0]:.6f}")
+    print(f"    V4 self-check: {taus[0]:.6f}")
 
     slates = dev.groupby("game_date").indices
     churn = np.zeros(N_DETAILED)
@@ -218,13 +218,13 @@ def main() -> None:
     rule("4. CROSS-SEASON STABILITY")
     zd_v, zr_v = z_matrix(val, DOM_KEYS), z_matrix(val, RP_KEYS)
     grid_v = score_grid(zd_v, zr_v, wd[pick], wr[pick], val["workload"].values)
-    rho_v = spearman_against(grid_v, val["malli_score"].values)
+    rho_v = spearman_against(grid_v, val["malli_score_v4"].values)
     rho_d = spearman_against(grid, shipped)
-    print(f"  Spearman vs V3, {DEV_SEASON} vs {VAL_SEASON}, same {N_DETAILED} candidates:")
+    print(f"  Spearman vs V4, {DEV_SEASON} vs {VAL_SEASON}, same {N_DETAILED} candidates:")
     print(f"    dev    median {np.median(rho_d):.4f} | min {rho_d.min():.4f}")
     print(f"    val    median {np.median(rho_v):.4f} | min {rho_v.min():.4f}")
     print(f"    corr(dev rho, val rho) = {np.corrcoef(rho_d, rho_v)[0, 1]:.4f}")
-    print("  A candidate that agrees with V3 in one season agrees in the other, so the")
+    print("  A candidate that agrees with V4 in one season agrees in the other, so the")
     print("  surface is a property of the metric rather than of a particular season.")
 
     rule("5. VERDICT")

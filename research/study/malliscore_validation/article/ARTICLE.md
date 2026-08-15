@@ -8,9 +8,9 @@ image: assets/malliscore_article_cover.png
 imageAlt: Building MalliScore article cover showing a baseball crossing analytical pitch traces
 draft: true
 topic: pitching-analysis
-dataWindow: Available raw-feed coverage from 2024 through July 26, 2026
+dataWindow: Complete 2024 and 2025 regular seasons, plus 2026 through August 13
 source: MLB and Statcast warehouse
-methodology: 7,479 MLB starting-pitcher outings from available raw-feed coverage
+methodology: 13,028 MLB starting-pitcher outings from complete regular-season coverage
 caveat: Descriptive single-outing index; not a projection or talent estimate
 ---
 
@@ -50,9 +50,9 @@ It evaluates the completeness of the performance through two pillars and a workl
 2. Run Prevention: how effectively he kept runners and runs off the board.
 3. Workload: how much of the game he completed.
 
-The study sample contains 7,479 starter outings from available raw feeds: 1,908 in 2024, 2,520 in 2025, and 3,051 in 2026 through July 26. Coverage in 2024 and 2025 is incomplete and non-random, so these are sample benchmarks rather than claims about every MLB start in those seasons.
+The study sample contains **13,028** starter outings with complete raw and pitch records: 4,749 from the 2024 regular season, 4,764 from 2025, and 3,515 from 2026 through August 13. The 2024 and 2025 warehouse coverage includes every played regular-season game. One 2024 scheduled game was cancelled before play and therefore has no outing to include.
 
-Across that sample, the median MalliScore was **44.5**. The top 10 percent began in the low 60s and the top 1 percent around 73. The highest observed score was **87.4**, recorded by Jacob Misiorowski on June 12, 2026. The 100-point ceiling is theoretical, not an expectation for a normal start.
+Across that sample, the median MalliScore was **44.4**. The top 10 percent began in the low 60s and the top 1 percent around 73. The highest observed score was **87.4**, recorded by Jacob Misiorowski on June 12, 2026. The 100-point ceiling is theoretical, not an expectation for a normal start.
 
 ### Dominance
 
@@ -73,14 +73,14 @@ Why emphasize these process indicators at all? We split each qualifying pitcher-
 
 | Measure | Consistency across alternating starts |
 |---|---:|
-| Swinging-strike rate | .775 |
-| Chase rate | .640 |
-| Called-strike rate | .610 |
-| xwOBA allowed | .493 |
-| Earned runs | .348 |
-| Home runs | .211 |
+| Swinging-strike rate | .810 |
+| Called-strike rate | .684 |
+| Chase rate | .683 |
+| xwOBA allowed | .589 |
+| Earned runs | .371 |
+| Home runs | .266 |
 
-The test covered 434 pitcher-seasons with at least eight starts. A .775 value for swinging-strike rate means pitchers who generated more whiffs in one set of starts generally did so in the other. Earned runs and home runs repeated much less consistently.
+The test covered 585 pitcher-seasons with at least eight starts. An .810 value for swinging-strike rate means pitchers who generated more whiffs in one set of starts generally did so in the other. Earned runs and home runs repeated much less consistently.
 
 **This supports using dominance to describe how much of an outing the pitcher controlled. It does not establish that one high-dominance start predicts the next one.**
 
@@ -164,22 +164,22 @@ Run Prevention is nearly identical, as the matching lines suggest it should be. 
 
 Wacha still pitched an excellent game. He allowed lower xwOBA than Imanaga and collected more called strikes. His path relied more on command and contact management. Imanaga paired the same result with a swinging-strike rate three times as high and a chase rate more than twice as high.
 
-MalliScore places Imanaga's start in the top 2 percent of the study sample and Wacha's in the top 13 percent. Both are strong outings. Imanaga receives additional credit because he supplied clearer evidence of active lineup control.
+MalliScore places Imanaga's start in rare territory, the top 2 percent of the study sample, and Wacha's in the top 13 percent. Both are strong outings. Imanaga receives additional credit because he supplied clearer evidence of active lineup control.
 
 That is a descriptive judgment about these games. It is not a forecast of either pitcher's next start or career ceiling.
 
 ## What the validation found
 
-MalliScore and Game Score should agree most of the time, and they do. Their season-level rank correlations in the study ranged from .925 to .938. Both reward good, deep starts.
+MalliScore and Game Score should agree most of the time, and they do. Their season-level rank correlations in the complete sample were .933 in 2024, .929 in 2025, and .928 in 2026. Both reward good, deep starts.
 
-The difference appeared in reliability. We again split pitcher-seasons into alternating starts and asked whether each score told a similar story across both groups. Across 367 pitcher-seasons with at least 10 starts, MalliScore reached **.604**, compared with **.467** for Game Score v2. The paired difference was **+.137**, with a 95% confidence interval from **+.088 to +.198**.
+The difference appeared in reliability. We again split pitcher-seasons into alternating starts and asked whether each score told a similar story across both groups. Across 520 pitcher-seasons with at least 10 starts, MalliScore reached **.691**, compared with **.573** for Game Score v2. The paired difference was **+.118**, with a 95% confidence interval from **+.082 to +.159**.
 
 Reliability is not accuracy. It does not prove that MalliScore is the correct verdict on every start. It means the measure held together more consistently across a pitcher's season in this sample.
 
 The disagreement cases show what each index values:
 
-- **MalliScore-favored starts** averaged a 12.9% swinging-strike rate, 5.9 innings, and 3.2 earned runs.
-- **Game Score-favored starts** averaged a 10.4% swinging-strike rate, 4.7 innings, and 1.1 earned runs.
+- **MalliScore-favored starts** averaged a 12.8% swinging-strike rate, 5.9 innings, and 3.2 earned runs.
+- **Game Score-favored starts** averaged a 10.5% swinging-strike rate, 4.7 innings, and 1.2 earned runs.
 
 ![Average characteristics of starts favored by MalliScore and Game Score v2](assets/02_game_score_disagreement.png)
 
@@ -187,7 +187,7 @@ MalliScore tends to prefer the longer, more dominant outing that allowed some da
 
 Neither preference is universally correct. Their disagreement creates the useful question: **Was this start impressive because of the result, or because of the way the pitcher controlled the game?**
 
-We also tested 20,000 feasible weight combinations on the 2024 development sample. Every version retained at least a .963 Spearman rank correlation with the production formula, and 97% exceeded .980. The rankings were not fragile to reasonable weight changes. The more important choices were architectural: which inputs belong, how they are normalized, and how workload interacts with the two pillars.
+We also tested 20,000 feasible weight combinations on the complete 2024 regular season. Every version retained at least a .965 Spearman rank correlation with the production formula, and 96% exceeded .980. The rankings were not fragile to reasonable weight changes. The more important choices were architectural: which inputs belong, how they are normalized, and how workload interacts with the two pillars.
 
 ## What MalliScore cannot tell us
 
@@ -201,8 +201,8 @@ The study also tested the tempting belief behind the score: that more missed bat
 
 Other limits remain:
 
-- The empirical baselines were developed on 1,908 available starts from 2024.
-- Coverage in 2024 and 2025 is incomplete and non-random.
+- The empirical baselines remain frozen from the original 2024 development sample. Completing the seasons let us test the shipped formula, not silently rewrite it.
+- 2026 is still in progress. That season is complete through August 13, not through the final day.
 - The score applies to starters. Relievers require different workload expectations.
 - Completed outs are a substantial and intentional part of the definition.
 - xwOBA allowed may fit more naturally in Run Prevention than Dominance.
@@ -214,7 +214,7 @@ These are not caveats to bury. They define where the score is useful and where i
 
 Do not read MalliScore like a school grade. A 50 is not average, because the 100-point ceiling is theoretical and most starts do not combine strong dominance, clean run prevention, and deep workload.
 
-Across the 7,479-start V4 study sample, the median score was **44.5**. The practical bands are:
+Across the 13,028-start V4 study sample, the median score was **44.4**. The practical bands are:
 
 | MalliScore | Where it sits in the study sample | Practical read |
 |---|---:|---|
@@ -223,7 +223,7 @@ Across the 7,479-start V4 study sample, the median score was **44.5**. The pract
 | 60 to 69 | Top 12% to 2% | An elite start. Strong result, strong process, and meaningful workload usually came together. |
 | 70 or higher | Top 2% | Rare territory. This is the kind of complete outing that stands out across a full season. |
 
-![Distribution of MalliScore V4 across 7,479 MLB starter outings, with strong, elite, and rare thresholds](assets/06_score_distribution.png)
+![Distribution of MalliScore V4 across 13,028 MLB starter outings, with strong, elite, and rare thresholds](assets/06_score_distribution.png)
 
 The overall score gives the level. The two pillars give the reason. A 62 built on excellent Run Prevention but average Dominance tells a different baseball story from a 62 built on overwhelming bat-missing and merely solid run prevention.
 
@@ -243,4 +243,4 @@ Game Score asks how good the line was. MalliScore asks how the performance was b
 
 ---
 
-**Method note:** The study used 7,479 MLB starting-pitcher outings from available raw feeds: 1,908 from 2024 for development, 2,520 from 2025 for validation, and 3,051 from 2026 through July 26 for confirmation. Reliability, agreement, and disagreement figures were computed on the current production formula across that window. The weight-sensitivity test used the 2024 development sample. Data came from the Mallitalytics MLB and Statcast warehouse. This article describes the production formula for actual outings as of August 2026.
+**Method note:** The study used 13,028 MLB starting-pitcher outings with complete raw and pitch records: 4,749 from 2024, 4,764 from 2025, and 3,515 from 2026 through August 13. The 2024 and 2025 warehouse coverage includes every played regular-season game. One 2024 scheduled game was cancelled before play. Reliability, agreement, and disagreement figures were computed on the current production formula across that window. The weight-sensitivity test used 2024. Data came from the Mallitalytics MLB and Statcast warehouse, with 2026 raw and pitch files synced from the production VPS warehouse. This article describes the production formula for actual outings as of August 2026.

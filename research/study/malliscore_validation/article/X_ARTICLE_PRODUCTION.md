@@ -54,7 +54,7 @@ Asset:
 
 `research/study/malliscore_validation/article/assets/02_game_score_disagreement.png`
 
-Evidence shown: the clearest 2024 disagreement cases differ systematically in swinging
+Evidence shown: the pooled 2024-2026 disagreement cases differ systematically in swinging
 strikes, innings, and earned runs.
 
 ### 4. How to read MalliScore
@@ -63,7 +63,7 @@ Upload after the interpretation-band table.
 
 `research/study/malliscore_validation/article/assets/06_score_distribution.png`
 
-Evidence shown: the distribution of all 7,479 V4 study outings. A score of 50 is already
+Evidence shown: the distribution of all 13,028 V4 study outings. A score of 50 is already
 top 35%, 60 is top 12%, and 70 is top 2%.
 
 ## Publishing checks

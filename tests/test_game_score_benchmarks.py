@@ -46,9 +46,10 @@ def test_v2_values_every_out_equally() -> None:
     assert all(b - a == 6.0 for a, b in zip(per_out, per_out[1:]))
 
 
-def test_zero_out_outings_are_not_scored() -> None:
-    assert pd.isna(game_score_v1(0, 0, 0, 0, 0, 0))
-    assert pd.isna(game_score_v2(0, 0, 0, 0, 0, 0))
+def test_zero_out_outings_receive_a_game_score() -> None:
+    # A starter can record 0.0 IP. Both formulas still have a valid score.
+    assert game_score_v1(0, 0, 0, 0, 0, 0) == 50.0
+    assert game_score_v2(0, 0, 0, 0, 0, 0) == 40.0
 
 
 def test_add_game_scores_matches_scalar_functions() -> None:

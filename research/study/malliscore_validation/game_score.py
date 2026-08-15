@@ -38,7 +38,10 @@ def game_score_v1(
     walks: float,
 ) -> float:
     """Bill James Game Score. 50 baseline, bonus for innings completed past the 4th."""
-    if outs is None or not np.isfinite(outs) or outs <= 0:
+    # A starter can be charged with a 0.0-IP outing. It is still a real outing
+    # and Game Score has a defined value for it, so only reject missing or
+    # impossible negative outs.
+    if outs is None or not np.isfinite(outs) or outs < 0:
         return np.nan
     full_innings = int(outs // 3)
     return float(
@@ -66,7 +69,7 @@ def game_score_v2(
     A home run is charged three times over -- as a hit, as a run, and as a home run --
     which is deliberate: it is the single most damaging outcome a pitcher allows.
     """
-    if outs is None or not np.isfinite(outs) or outs <= 0:
+    if outs is None or not np.isfinite(outs) or outs < 0:
         return np.nan
     return float(
         GSV2_BASE
@@ -104,7 +107,7 @@ def add_game_scores(df: pd.DataFrame) -> pd.DataFrame:
     unearned = (runs - er).clip(lower=0)
     full_innings = np.floor(outs / 3)
 
-    valid = outs.gt(0)
+    valid = outs.ge(0)
     out["game_score_v1"] = (
         50 + outs + 2 * np.maximum(0, full_innings - 4) + k - 2 * h - 4 * er - 2 * unearned - bb
     ).where(valid)

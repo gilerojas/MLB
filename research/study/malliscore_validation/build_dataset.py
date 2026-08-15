@@ -42,6 +42,7 @@ from src.pitching_performances.malli_score import (  # noqa: E402
     OutingRawMetrics,
     default_league_norms,
     malliscore_v2,
+    malliscore_v4,
     refine_league_norms,
 )
 
@@ -65,7 +66,15 @@ COMPONENTS = [
     "outs",
     "pitches",
 ]
-CARRY_FORWARD = ["malli_score", "game_score_v1", "game_score_v2", "k_minus_bb_pct", *COMPONENTS]
+CARRY_FORWARD = [
+    "malli_score",
+    "malli_score_v4",
+    "game_score_v1",
+    "game_score_v2",
+    "k_minus_bb_pct",
+    "reach_rate_allowed",
+    *COMPONENTS,
+]
 
 
 def extract_runs_allowed(seasons=SEASONS) -> pd.DataFrame:
@@ -102,7 +111,12 @@ def extract_runs_allowed(seasons=SEASONS) -> pd.DataFrame:
                     except (TypeError, ValueError):
                         continue
                     rows.append(
-                        {"game_pk": game_pk, "pitcher": pitcher, "runs": stats.get("runs")}
+                        {
+                            "game_pk": game_pk,
+                            "pitcher": pitcher,
+                            "runs": stats.get("runs"),
+                            "hit_by_pitch": stats.get("hitBatsmen") or 0,
+                        }
                     )
 
     out = pd.DataFrame(rows).drop_duplicates(subset=["game_pk", "pitcher"])
@@ -126,6 +140,39 @@ def raw_metrics(row) -> OutingRawMetrics:
         pitches=max(1, int(round(float(row.pitches)))),
         outs=outs,
     )
+
+
+def add_v4_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Score the production V4 formula using official H / BB / HBP / BF."""
+    out = df.copy()
+    if "hit_by_pitch" not in out.columns:
+        raise ValueError("hit_by_pitch is required to score MalliScore V4")
+    scores = []
+    for row in out.itertuples(index=False):
+        outs = max(1, int(round(float(row.outs))))
+        raw = OutingRawMetrics(
+            swstr_pct=float(row.swstr_pct),
+            called_strike_pct=float(row.called_strike_pct),
+            chase_pct=float(row.chase_pct),
+            xwoba_allowed=float(row.xwoba_allowed),
+            game_whip=float(row.game_whip),
+            earned_runs=max(0, int(round(float(row.earned_runs)))),
+            home_runs=max(0, int(round(float(row.home_runs)))),
+            pitches=max(1, int(round(float(row.pitches)))),
+            outs=outs,
+            batters_faced=max(1, int(round(float(row.batters_faced)))),
+            hits=int(round(float(row.hits))),
+            walks=int(round(float(row.walks))),
+            hit_by_pitch=max(0, int(round(float(row.hit_by_pitch)))),
+        )
+        scores.append(malliscore_v4(raw))
+    out["malli_score_v4"] = [s["malli_score"] for s in scores]
+    out["dominance_score_v4"] = [s["dominance_score"] for s in scores]
+    out["run_prevention_score_v4"] = [s["run_prevention_score"] for s in scores]
+    out["core_score_v4"] = [s["core_score"] for s in scores]
+    out["workload_v4"] = [s["workload"] for s in scores]
+    out["reach_rate_allowed"] = [s["reach_rate_allowed"] for s in scores]
+    return out
 
 
 def add_v3_scores(df: pd.DataFrame) -> pd.DataFrame:
@@ -194,7 +241,7 @@ def add_next_start(df: pd.DataFrame) -> pd.DataFrame:
             out[f"next_{col}"] = grouped[col].shift(-1)
     out["next_game_date"] = grouped["game_date"].shift(-1)
     out["next_start_gap_days"] = (out["next_game_date"] - out["game_date"]).dt.days
-    out["has_next_start"] = out["next_malli_score"].notna()
+    out["has_next_start"] = out["next_malli_score_v4"].notna()
     return out
 
 
@@ -225,6 +272,8 @@ def main() -> None:
 
     print("\n4. Scoring V3 under fixed and same-slate norms")
     outings = add_v3_scores(outings)
+    print("   Scoring production V4")
+    outings = add_v4_scores(outings)
 
     print("5. Adding Game Score v1/v2 benchmarks")
     outings = add_game_scores(outings)
@@ -248,6 +297,7 @@ def main() -> None:
         outings=("pitcher", "size"),
         pitchers=("pitcher", "nunique"),
         malli_mean=("malli_score", "mean"),
+        malli_v4_mean=("malli_score_v4", "mean"),
         gs_v2_mean=("game_score_v2", "mean"),
         with_next=("has_next_start", "sum"),
         runs_imputed=("gs_v2_runs_imputed", "sum"),
