@@ -210,17 +210,17 @@ Other limits remain:
 
 These are not caveats to bury. They define where the score is useful and where it stops.
 
-## What to watch
+## What MalliScore adds
 
-MalliScore is not meant to end the conversation with one number. It is meant to start a better one.
+MalliScore does not turn a start into a final answer. Its value is giving the reader a better first question.
 
-When it agrees with the box score, the outing probably combined process, result, and workload in the expected way.
+For a curious baseball fan, it makes the box score less flat. A 7.0-inning, zero-run line can come from a pitcher overpowering hitters, from a pitcher managing contact, or from a blend of both. MalliScore helps show which kind of game you watched.
 
-When MalliScore is higher than the traditional line suggests, look for missed bats, called strikes, chases, contact suppression, and depth. The pitcher may have controlled more of the game than the runs imply.
+For a fantasy player, it is not a start-sit tool or a projection. It is a postgame filter. A pitcher who allowed runs but still posted a strong MalliScore may be worth a second look at his whiffs, chase, command, pitch mix, and workload. A clean line with a lower score does not make the result fake. It tells you the result may be carrying more of the story than the underlying control did.
 
-When it is lower, look for a clean result supported by fewer missed bats, less workload, or more traffic than the scoreboard reveals.
+For anyone following baseball every day, the score gives a consistent way to compare performances that otherwise look similar on the surface. It adds context to a great line, and it adds texture to a disappointing one.
 
-And when two starters produce the same line, as Imanaga and Wacha did, ask one more question before calling the performances identical: **How much of the outcome did each pitcher take into his own hands?**
+**That is MalliScore's job: make the completed game more legible without pretending to predict the next one.**
 
 Game Score asks how good the line was. MalliScore asks how the performance was built. Baseball has room for both questions.
 

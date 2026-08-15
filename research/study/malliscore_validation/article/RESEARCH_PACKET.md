@@ -55,7 +55,9 @@ the X draft because adding more cases weakened the single Imanaga-Wacha narrativ
 
 **Human context beat:** Bill James created Game Score to summarize an individual start; Tom Tango later updated its run and home-run treatment. MalliScore is presented as a second opinion, not a dismissal of that work.
 
-**What to watch:** When MalliScore and the line disagree, inspect whiffs, called strikes, chases, contact quality, baserunner frequency, and completed outs.
+**Reader payoff:** MalliScore gives curious fans a clearer explanation of how a start was
+built. For fantasy players, it is a postgame filter that identifies performances worth a
+second look, not a projection or start-sit instruction.
 
 ## Claim ledger
 
