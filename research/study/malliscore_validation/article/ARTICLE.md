@@ -210,6 +210,23 @@ Other limits remain:
 
 These are not caveats to bury. They define where the score is useful and where it stops.
 
+## How to read MalliScore
+
+Do not read MalliScore like a school grade. A 50 is not average, because the 100-point ceiling is theoretical and most starts do not combine strong dominance, clean run prevention, and deep workload.
+
+Across the 7,479-start V4 study sample, the median score was **44.5**. The practical bands are:
+
+| MalliScore | Where it sits in the study sample | Practical read |
+|---|---:|---|
+| Below 50 | Outside the top 35% | A less complete start, often because of limited workload, damage, or one weaker pillar. |
+| 50 to 59 | Top 35% to 12% | A strong start. The pitcher was above the typical outing on the complete MalliScore view. |
+| 60 to 69 | Top 12% to 2% | An elite start. Strong result, strong process, and meaningful workload usually came together. |
+| 70 or higher | Top 2% | Rare territory. This is the kind of complete outing that stands out across a full season. |
+
+![Distribution of MalliScore V4 across 7,479 MLB starter outings, with strong, elite, and rare thresholds](assets/06_score_distribution.png)
+
+The overall score gives the level. The two pillars give the reason. A 62 built on excellent Run Prevention but average Dominance tells a different baseball story from a 62 built on overwhelming bat-missing and merely solid run prevention.
+
 ## What MalliScore adds
 
 MalliScore does not turn a start into a final answer. Its value is giving the reader a better first question.

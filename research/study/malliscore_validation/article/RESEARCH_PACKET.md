@@ -60,6 +60,11 @@ built. In roto and category leagues, it gives fantasy managers one postgame view
 workload, bat-missing, and run-prevention balance behind innings or quality starts,
 strikeouts, ERA, and WHIP. It is not a projection or start-sit instruction.
 
+**Interpretation bands:** V4 production scores, 7,479-start study sample. Median 44.5;
+50+ is the top 35%, 60+ is the top 12%, and 70+ is the top 2%. Public wording: 50 to
+59 is a strong start, 60 to 69 is elite, and 70+ is rare territory. Do not call 50
+average or treat 100 as a realistic target.
+
 ## Claim ledger
 
 | Claim | Type | Evidence | Public wording constraint |
@@ -184,11 +189,14 @@ rather than one pitcher being worse.
 2. **Score architecture:** Inputs flowing into the two pillars, harmonic core, then workload adjustment.
 3. **Same-line comparison:** Imanaga and Wacha with identical Game Score and different process indicators.
 4. **Disagreement chart:** MalliScore-favored versus Game Score-favored starts using SwStr%, outs, and ER.
+5. **Interpretation histogram:** V4 score distribution with 50, 60, and 70 thresholds,
+   showing why 50 is already above a typical start.
 
 Shipped set (`assets/`, rendered by `scripts/render_malliscore_article_graphics.py`):
 `01_score_architecture`, `02_game_score_disagreement`, `03_weight_sensitivity`,
 `04_worked_example`, and `05_same_line`. Only `01_score_architecture`, `05_same_line`, and
-`02_game_score_disagreement` belong in the X Article. The sensitivity, worked-example,
+`02_game_score_disagreement` belong in the X Article. `06_score_distribution` is added as
+the practical interpretation graphic. The sensitivity, worked-example,
 and next-start visuals remain research assets because the prose carries those secondary
 findings with less friction for this audience.
 

@@ -57,6 +57,15 @@ Asset:
 Evidence shown: the clearest 2024 disagreement cases differ systematically in swinging
 strikes, innings, and earned runs.
 
+### 4. How to read MalliScore
+
+Upload after the interpretation-band table.
+
+`research/study/malliscore_validation/article/assets/06_score_distribution.png`
+
+Evidence shown: the distribution of all 7,479 V4 study outings. A score of 50 is already
+top 35%, 60 is top 12%, and 70 is top 2%.
+
 ## Publishing checks
 
 - Confirm the publishing account has X Articles access.
@@ -87,7 +96,7 @@ article, not to summarize every finding.
 1. Tease the Imanaga-Wacha question before publication.
 2. Publish the article and launch post together.
 3. Pin the launch post for 24 to 72 hours.
-4. Share the three evidence visuals as later excerpts, each with one insight and the
+4. Share the four evidence visuals as later excerpts, each with one insight and the
    article link.
 5. Reply to early readers while the discussion is active.
 6. Reshare the article when a same-line, different-process outing makes it timely.

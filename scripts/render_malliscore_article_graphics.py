@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import json
 import tempfile
 from pathlib import Path
 
@@ -13,6 +15,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageChops
+
+from src.pitching_performances.malli_score import OutingRawMetrics, malliscore_v4
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -180,10 +184,19 @@ def render_score_architecture(output_dir: Path) -> Path:
 
     canvas.annotate("", xy=(0.49, 0.52), xytext=(0.32, 0.52), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
     canvas.annotate("", xy=(0.49, 0.42), xytext=(0.32, 0.17), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
-    canvas.add_patch(patches.Circle((0.56, 0.47), 0.13, facecolor=COLORS["paper"], edgecolor=COLORS["ink"], linewidth=1.4))
-    canvas.text(0.56, 0.51, "BALANCED", ha="center", fontsize=10, fontweight=700, color=COLORS["ink"])
-    canvas.text(0.56, 0.46, "CORE", ha="center", fontsize=16, fontweight=700, color=COLORS["ink"])
-    canvas.text(0.56, 0.39, "harmonic mean", ha="center", fontsize=8.4, color=COLORS["muted"])
+    canvas.add_patch(
+        patches.Ellipse(
+            (0.56, 0.47),
+            width=0.30,
+            height=0.46,
+            facecolor=COLORS["paper"],
+            edgecolor=COLORS["ink"],
+            linewidth=1.4,
+        )
+    )
+    canvas.text(0.56, 0.575, "BALANCED", ha="center", fontsize=9.2, fontweight=700, color=COLORS["ink"])
+    canvas.text(0.56, 0.465, "CORE", ha="center", fontsize=15, fontweight=700, color=COLORS["ink"])
+    canvas.text(0.56, 0.375, "harmonic mean", ha="center", fontsize=8.2, color=COLORS["muted"])
 
     canvas.annotate("", xy=(0.74, 0.47), xytext=(0.70, 0.47), arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6})
     canvas.text(0.82, 0.75, "WORKLOAD", ha="center", fontsize=12, fontweight=700, color=COLORS["ink"])
@@ -202,13 +215,13 @@ def render_score_architecture(output_dir: Path) -> Path:
 
 def render_disagreement(output_dir: Path) -> Path:
     labels = ["SWSTR%", "INNINGS", "EARNED RUNS"]
-    malli_values = np.array([13.1, 17.8 / 3.0, 3.1])
-    game_values = np.array([10.1, 14.4 / 3.0, 1.0])
+    malli_values = np.array([12.9, 5.9, 3.2])
+    game_values = np.array([10.4, 4.7, 1.1])
     formats = ["{:.1f}%", "{:.1f}", "{:.1f}"]
 
     fig, ax = new_figure(
         "WHEN MALLISCORE AND GAME SCORE DISAGREE",
-        "Average profile of the clearest 2024 disagreement cases",
+        "Average profile of the disagreement cases, 2024 through July 2026",
     )
     ax.remove()
     positions = [(0.075, 0.235, 0.25, 0.49), (0.375, 0.235, 0.25, 0.49), (0.675, 0.235, 0.25, 0.49)]
@@ -230,8 +243,8 @@ def render_disagreement(output_dir: Path) -> Path:
             panel.text(0.01 * max_value, 1, "MalliScore higher", va="center", fontsize=8, fontweight=700, color=COLORS["white"])
             panel.text(0.01 * max_value, 0, "Game Score higher", va="center", fontsize=8, fontweight=700, color=COLORS["white"])
 
-    fig.text(0.075, 0.162, "MalliScore higher: n=109", fontsize=8.5, color=COLORS["forest"], fontweight=600)
-    fig.text(0.275, 0.162, "Game Score higher: n=99", fontsize=8.5, color=COLORS["ink"], fontweight=600)
+    fig.text(0.075, 0.162, "MalliScore higher: n=424", fontsize=8.5, color=COLORS["forest"], fontweight=600)
+    fig.text(0.285, 0.162, "Game Score higher: n=432", fontsize=8.5, color=COLORS["ink"], fontweight=600)
     add_footer(fig, "Game Score v2 benchmark · Disagreement defined by percentile gap")
     return save(fig, output_dir / "02_game_score_disagreement.png")
 
@@ -244,7 +257,7 @@ def render_weight_sensitivity(output_dir: Path) -> Path:
 
     fig, ax = new_figure(
         "20,000 WEIGHT SYSTEMS, NEARLY THE SAME ORDER",
-        "Spearman rank correlation with MalliScore V3 across feasible weight combinations · 2024",
+        "Spearman rank correlation with the baseline weighting across feasible combinations · 2024",
     )
     ax.set_position([0.075, 0.235, 0.85, 0.52])
     bins = np.linspace(0.96, 1.0, 34)
@@ -262,8 +275,8 @@ def render_weight_sensitivity(output_dir: Path) -> Path:
     ax.spines[["top", "right", "left"]].set_visible(False)
     ax.tick_params(axis="y", length=0)
 
-    fig.text(0.12, 0.705, f"MINIMUM\n{minimum:.3f}", fontsize=11, fontweight=700, color=COLORS["orange"], linespacing=1.45)
-    fig.text(0.73, 0.705, f"{above:.0f}% ABOVE .980", fontsize=13, fontweight=700, color=COLORS["forest"])
+    fig.text(0.12, 0.685, f"MINIMUM\n{minimum:.3f}", fontsize=11, fontweight=700, color=COLORS["orange"], linespacing=1.45)
+    fig.text(0.925, 0.788, f"{above:.0f}% ABOVE .980", ha="right", fontsize=12.5, fontweight=700, color=COLORS["forest"])
     add_footer(fig, "Development season: 1,908 starts · Each vector preserves pillar weight sums")
     return save(fig, output_dir / "03_weight_sensitivity.png")
 
@@ -311,6 +324,263 @@ def render_predictive_boundary(output_dir: Path) -> Path:
     return save(fig, output_dir / "04_next_start_signal.png")
 
 
+def render_same_line(output_dir: Path) -> Path:
+    """Two outings with an identical traditional line and a 12.7-point MalliScore gap."""
+    fig, ax = new_figure(
+        "SAME LINE. DIFFERENT PERFORMANCE.",
+        "7.0 IP · 4 H · 1 BB · 0 ER · 7 K · Game Score v2 of 79 — for both pitchers",
+    )
+    ax.remove()
+    canvas = fig.add_axes([0.075, 0.175, 0.85, 0.59])
+    canvas.set_xlim(0, 1)
+    canvas.set_ylim(0, 1)
+    canvas.axis("off")
+
+    columns = (
+        (0.335, "SHOTA IMANAGA", "May 18, 2024 vs PIT", 25.0, 42.5, 14.8, ".262", 69.4, 72.2, COLORS["forest"]),
+        (0.695, "MICHAEL WACHA", "July 19, 2024 vs CWS", 8.4, 16.3, 20.0, ".236", 49.3, 59.5, COLORS["ink"]),
+    )
+
+    labels = ["Swinging strikes", "Chase rate", "Called strikes", "xwOBA allowed"]
+    label_y = [0.775, 0.675, 0.575, 0.475]
+    for label, y in zip(labels, label_y):
+        canvas.text(0.0, y, label, fontsize=9.6, color=COLORS["muted"])
+    canvas.text(0.0, 0.30, "DOMINANCE", fontsize=9.6, fontweight=700, color=COLORS["muted"])
+    canvas.text(0.0, 0.10, "MALLISCORE", fontsize=9.6, fontweight=700, color=COLORS["muted"])
+
+    for x, name, when, swstr, chase, called, xwoba, dominance, score, color in columns:
+        canvas.text(x, 0.95, name, ha="center", fontsize=11.5, fontweight=700, color=color)
+        canvas.text(x, 0.885, when, ha="center", fontsize=8.4, color=COLORS["muted"])
+        values = [f"{swstr:.1f}%", f"{chase:.1f}%", f"{called:.1f}%", xwoba]
+        emphasis = [True, True, False, False]
+        for value, y, strong in zip(values, label_y, emphasis):
+            canvas.text(
+                x, y, value, ha="center",
+                fontsize=15 if strong else 12,
+                fontweight=700 if strong else 600,
+                color=color if strong else COLORS["muted"],
+            )
+        canvas.add_patch(patches.Rectangle((x - 0.115, 0.275), 0.23, 0.048, facecolor=COLORS["line"], linewidth=0))
+        canvas.add_patch(
+            patches.Rectangle((x - 0.115, 0.275), 0.23 * dominance / 100.0, 0.048, facecolor=color, linewidth=0)
+        )
+        canvas.text(x, 0.215, f"{dominance:.1f}", ha="center", fontsize=11, fontweight=700, color=color)
+        canvas.text(x, 0.055, f"{score:.1f}", ha="center", fontsize=30, fontweight=700, color=color)
+
+    canvas.plot([0.515, 0.515], [0.02, 0.93], color=COLORS["line"], linewidth=1.0)
+    add_footer(fig, "Identical traditional line and Game Score · Production scoring path")
+    return save(fig, output_dir / "05_same_line.png")
+
+
+def render_worked_example(output_dir: Path) -> Path:
+    """One verified outing carried from raw line to final score."""
+    fig, ax = new_figure(
+        "ONE OUTING, ALL THE WAY THROUGH",
+        "Matthew Liberatore vs Toronto · August 2, 2026 · 6.0 IP, 1 H, 1 BB, 0 ER, 7 K, 85 pitches",
+    )
+    ax.remove()
+    canvas = fig.add_axes([0.075, 0.185, 0.85, 0.58])
+    canvas.set_xlim(0, 1)
+    canvas.set_ylim(0, 1)
+    canvas.axis("off")
+
+    canvas.text(0.0, 0.94, "WHAT HE DID", fontsize=9.5, fontweight=700, color=COLORS["muted"])
+    inputs = [
+        ("Swinging strikes", "12.9%"),
+        ("Called strikes", "20.0%"),
+        ("Chase rate", "39.6%"),
+        ("xwOBA allowed", ".148"),
+        ("Reach Rate Allowed", ".100"),
+    ]
+    row_y = 0.80
+    for label, value in inputs:
+        canvas.text(0.0, row_y, label, fontsize=9.6, color=COLORS["ink"])
+        canvas.text(0.265, row_y, value, ha="right", fontsize=9.6, fontweight=700, color=COLORS["ink"])
+        row_y -= 0.105
+
+    canvas.annotate(
+        "", xy=(0.345, 0.50), xytext=(0.295, 0.50),
+        arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6},
+    )
+
+    canvas.text(0.375, 0.94, "TWO PILLARS", fontsize=9.5, fontweight=700, color=COLORS["muted"])
+    for y, label, value, color in (
+        (0.72, "Dominance", 66.3, COLORS["forest"]),
+        (0.47, "Run prevention", 73.8, COLORS["orange"]),
+    ):
+        canvas.text(0.375, y + 0.10, label, fontsize=9.6, color=COLORS["ink"])
+        canvas.add_patch(patches.Rectangle((0.375, y), 0.245, 0.055, facecolor=COLORS["line"], linewidth=0))
+        canvas.add_patch(patches.Rectangle((0.375, y), 0.245 * value / 100.0, 0.055, facecolor=color, linewidth=0))
+        canvas.text(0.632, y + 0.027, f"{value:.1f}", va="center", fontsize=12, fontweight=700, color=color)
+
+    canvas.text(
+        0.375, 0.29, "Harmonic mean  →  core 69.8",
+        fontsize=10, fontweight=700, color=COLORS["ink"],
+    )
+    canvas.text(
+        0.375, 0.19, "× 1.003 workload  (6 IP, 85 pitches)",
+        fontsize=9.2, color=COLORS["muted"],
+    )
+
+    canvas.annotate(
+        "", xy=(0.755, 0.50), xytext=(0.705, 0.50),
+        arrowprops={"arrowstyle": "-|>", "color": COLORS["ink"], "lw": 1.6},
+    )
+
+    canvas.add_patch(
+        patches.FancyBboxPatch(
+            (0.775, 0.30),
+            0.225,
+            0.44,
+            boxstyle="round,pad=0.008,rounding_size=0.02",
+            facecolor=COLORS["white"],
+            edgecolor=COLORS["line"],
+            linewidth=1.0,
+        )
+    )
+    canvas.text(0.888, 0.655, "MALLISCORE", ha="center", fontsize=9, fontweight=700, color=COLORS["muted"])
+    canvas.text(0.888, 0.455, "70.0", ha="center", fontsize=38, fontweight=700, color=COLORS["forest"])
+    canvas.text(0.888, 0.365, "top 2% of all starts", ha="center", fontsize=8.2, color=COLORS["muted"])
+
+    strip_y = 0.10
+    canvas.add_patch(patches.Rectangle((0.775, strip_y), 0.225, 0.035, facecolor=COLORS["line"], linewidth=0))
+    for value, label, color in ((44.5, "median 44.5", COLORS["muted"]), (70.0, None, COLORS["forest"])):
+        x = 0.775 + 0.225 * (value - 5.0) / (87.4 - 5.0)
+        canvas.plot([x, x], [strip_y - 0.022, strip_y + 0.057], color=color, linewidth=2.0)
+        if label:
+            canvas.text(x, strip_y - 0.05, label, ha="center", fontsize=7, color=color)
+    canvas.text(0.775, strip_y + 0.078, "5", fontsize=7, color=COLORS["muted"])
+    canvas.text(1.0, strip_y + 0.078, "87", ha="right", fontsize=7, color=COLORS["muted"])
+
+    add_footer(fig, "Verified production scoring path · Percentile vs 7,479 starts, 2024-2026")
+    return save(fig, output_dir / "04_worked_example.png")
+
+
+def load_v4_study_scores() -> np.ndarray:
+    """Rebuild V4 scores with official HBP rather than using the V3 study column."""
+    outings = pd.read_parquet(STUDY_OUTPUTS / "outings_2024_2026.parquet")
+    wanted: dict[int, set[int]] = {}
+    for game_pk, pitcher in zip(outings["game_pk"], outings["pitcher"]):
+        wanted.setdefault(int(game_pk), set()).add(int(pitcher))
+
+    hbp: dict[tuple[int, int], int] = {}
+    raw_root = ROOT / "data" / "warehouse" / "mlb"
+    for path in raw_root.glob("20*/regular_season/raw/*feed_live.json.gz"):
+        try:
+            game_pk = int(path.name.split("_")[1])
+        except (IndexError, ValueError):
+            continue
+        pitchers = wanted.get(game_pk)
+        if not pitchers:
+            continue
+        try:
+            with gzip.open(path, "rt", encoding="utf-8") as handle:
+                feed = json.load(handle)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        teams = ((feed.get("liveData") or {}).get("boxscore") or {}).get("teams") or {}
+        for team in teams.values():
+            for player in (team.get("players") or {}).values():
+                try:
+                    pitcher = int((player.get("person") or {}).get("id"))
+                except (TypeError, ValueError):
+                    continue
+                if pitcher not in pitchers:
+                    continue
+                pitching = (player.get("stats") or {}).get("pitching") or {}
+                hbp[(game_pk, pitcher)] = int(pitching.get("hitBatsmen") or 0)
+
+    scores: list[float] = []
+    missing: list[tuple[int, int]] = []
+    for row in outings.itertuples(index=False):
+        key = (int(row.game_pk), int(row.pitcher))
+        if key not in hbp:
+            missing.append(key)
+            continue
+        raw = OutingRawMetrics(
+            swstr_pct=float(row.swstr_pct),
+            called_strike_pct=float(row.called_strike_pct),
+            chase_pct=float(row.chase_pct),
+            xwoba_allowed=float(row.xwoba_allowed),
+            game_whip=float(row.game_whip),
+            earned_runs=int(row.earned_runs),
+            home_runs=int(row.home_runs),
+            pitches=int(row.pitches),
+            outs=int(row.outs),
+            batters_faced=int(row.batters_faced),
+            hits=int(row.hits),
+            walks=int(row.walks),
+            hit_by_pitch=hbp[key],
+        )
+        scores.append(float(malliscore_v4(raw)["malli_score"]))
+
+    if missing:
+        raise RuntimeError(f"Missing official HBP for {len(missing)} study outings")
+    return np.asarray(scores)
+
+
+def render_score_distribution(output_dir: Path) -> Path:
+    scores = load_v4_study_scores()
+    percentile = {threshold: float((scores <= threshold).mean() * 100) for threshold in (50, 60, 70)}
+
+    fig, ax = new_figure(
+        "HOW TO READ MALLISCORE",
+        "Distribution of 7,479 MLB starter outings · V4 production formula · 2024 through Jul 26, 2026",
+    )
+    ax.set_position([0.075, 0.305, 0.85, 0.43])
+    bins = np.arange(5, 91, 5)
+    counts, edges, bars = ax.hist(
+        scores,
+        bins=bins,
+        color=COLORS["ink"],
+        edgecolor=COLORS["paper"],
+        linewidth=1.0,
+    )
+    for left, bar in zip(edges[:-1], bars):
+        if left >= 70:
+            bar.set_facecolor(COLORS["orange"])
+        elif left >= 60:
+            bar.set_facecolor(COLORS["forest"])
+        elif left >= 50:
+            bar.set_facecolor(COLORS["olive"])
+        else:
+            bar.set_alpha(0.72)
+
+    max_count = float(max(counts))
+    for threshold, color in (
+        (50, COLORS["olive"]),
+        (60, COLORS["forest"]),
+        (70, COLORS["orange"]),
+    ):
+        ax.axvline(threshold, color=color, linewidth=1.8, linestyle=(0, (3, 3)))
+
+    ax.set_xlim(5, 90)
+    ax.set_ylim(0, max_count * 1.12)
+    ax.set_ylabel("STARTER OUTINGS", fontsize=9, fontweight=700, labelpad=12)
+    ax.set_xticks(np.arange(10, 91, 10))
+    ax.grid(axis="y", color=COLORS["line"], linewidth=0.7, alpha=0.75)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    fig.text(
+        0.075,
+        0.225,
+        "50 is not average. The median start scores 44.5.",
+        fontsize=9.8,
+        fontweight=600,
+        color=COLORS["ink"],
+    )
+    for x, label, value, color in (
+        (0.075, "50+  STRONG", f"Top {100 - percentile[50]:.0f}% of starts", COLORS["olive"]),
+        (0.365, "60+  ELITE", f"Top {100 - percentile[60]:.0f}% of starts", COLORS["forest"]),
+        (0.655, "70+  RARE", f"Top {100 - percentile[70]:.0f}% of starts", COLORS["orange"]),
+    ):
+        fig.text(x, 0.177, label, fontsize=9.4, fontweight=700, color=color)
+        fig.text(x, 0.142, value, fontsize=8.5, color=COLORS["muted"])
+    add_footer(fig, "Data: MLB / Statcast warehouse · Actual starter outings only")
+    return save(fig, output_dir / "06_score_distribution.png")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
@@ -321,7 +591,10 @@ def main() -> int:
         render_score_architecture(args.out),
         render_disagreement(args.out),
         render_weight_sensitivity(args.out),
+        render_same_line(args.out),
+        render_worked_example(args.out),
         render_predictive_boundary(args.out),
+        render_score_distribution(args.out),
     ]
     for output in outputs:
         print(output)
