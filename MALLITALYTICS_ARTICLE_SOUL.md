@@ -122,6 +122,8 @@ WORKING TITLE:
 ARTICLE TYPE:
 PRIMARY AUDIENCE:
 READER QUESTION:
+PRIMARY DESTINATION:
+AFTER READING, THE READER SHOULD THINK, FEEL, UNDERSTAND, OR WATCH:
 
 NOTICE:
 What I want the reader to notice is...
@@ -157,6 +159,12 @@ VISUALS:
 
 WHAT TO WATCH:
 What should the reader notice in future games or analysis?
+
+X DISTRIBUTION PLAN (when X is primary):
+TEASER:
+PIN WINDOW:
+EXCERPTS OR VISUALS:
+TIMELY RESHARE TRIGGER:
 ```
 
 If the evidence needed is unavailable, narrow the thesis before writing. Never expand a
@@ -390,15 +398,90 @@ fan explaining something carefully to another smart fan.
 - presenting the writer's process as more important than the baseball question;
 - conclusions that merely restate the chart.
 
-### X Article reading rules
+### Language rules
 
-- Make the first 150 words deliver the moment, tension, and reader promise.
-- Keep most paragraphs to one to three sentences.
-- Use a meaningful subheading every three to five paragraphs.
-- Put one central idea in each section.
-- Use bold sparingly for the sentence a skimming reader must retain.
-- Break technical sections with a chart, example, table, or short summary.
-- Write the title and opening for the intended baseball reader, not for an algorithm.
+- Do not use em dashes in Mallitalytics articles.
+- Prefer periods, commas, colons, or parentheses when a sentence needs separation.
+- Remove generic AI transitions, balanced-but-empty phrasing, and repeated conclusions.
+- Read the final draft aloud. Rewrite any sentence that sounds written rather than spoken.
+
+### Required X Article standard
+
+When X is the primary destination, follow the complete official
+[X Articles guidance](https://help.x.com/en/using-x/articles) through the Mallitalytics
+editorial system. These rules are mandatory, not optional polish.
+
+#### Platform and publishing mechanics
+
+- Publishing requires an eligible X Premium, Premium+, Premium Business, or Premium
+  Organization account. Articles can be read and shared by the selected audience.
+- X Articles support text, images, video, GIFs, embedded posts, links, headings,
+  subheadings, bold, italics, strikethrough, indentation, and numbered or bulleted lists.
+- Select the audience deliberately before publishing. Do not default to subscriber-only
+  distribution for public research intended to build reach and trust.
+- Editing a published Article temporarily unpublishes it. Complete the correction,
+  verify the article again, and republish it promptly.
+- Delete only when the article should no longer exist. Use an update or correction note
+  when preserving the analytical record better serves readers.
+
+#### Purpose and audience
+
+- Define what the reader should think, feel, understand, or watch after reading.
+- Name the intended baseball reader before drafting.
+- Keep one primary purpose. Remove sections that serve a different article.
+
+#### Title, hook, and cover
+
+- Use a specific title that promises the article's real value.
+- Make the first 150 words deliver a baseball moment, tension, and reader promise.
+- Use a relevant header image that supports the subject without inventing data.
+- Do not let the cover or headline promise a stronger conclusion than the evidence.
+
+#### Mobile skimmability
+
+- Keep most paragraphs to one to three sentences and roughly two to four mobile lines.
+- Use a meaningful, descriptive subheading every three to five paragraphs.
+- Put one central idea in each paragraph and one job in each section.
+- Prefer bullets, compact tables, or short lists over walls of text.
+- Use bold sparingly for the one sentence a skimming reader must retain from a section.
+- Break technical passages with a chart, example, table, formula card, or short summary.
+
+#### Voice and evidence
+
+- Sound like a recognizable baseball analyst speaking to another curious fan, not a
+  lecture hall or a generic content system.
+- Put the evidence immediately after the claim it supports.
+- Use first-person judgment when explaining why Mallitalytics made an editorial or
+  methodological choice, then separate that judgment from the empirical result.
+
+#### Ruthless edit
+
+- Cut 20 to 30 percent from the first complete draft unless every section survives a
+  section-job audit.
+- Remove filler, duplicated examples, repeated theses, and methodology that belongs in
+  a research appendix.
+- Read the draft aloud and inspect the X mobile preview before approval.
+
+#### Close and distribution
+
+- End with one memorable takeaway, practical Watch, or deliberate call to action.
+- Tease the question before publication without giving away the whole conclusion.
+- After publication, pin the launch post for 24 to 72 hours when the article is a major
+  brand piece.
+- Share useful excerpts, charts, or short threads that route readers to the article.
+- Reply to early readers while the discussion is active.
+- Reshare evergreen work when a relevant player, game, or news event makes it timely.
+
+#### Subscriber-only standard, when used
+
+- State the additional value a subscriber receives, such as deeper research, early
+  access, exclusive analysis, or a recurring private format.
+- Use soft paywalls strategically. Keep enough public work available to demonstrate the
+  quality and point of view behind the subscription.
+- Build repeatable subscriber formats rather than hiding isolated public-style articles.
+- Thank subscribers selectively and preview the next installment to build continuity.
+- Promote subscriber-only work publicly with a useful teaser and a direct subscription
+  link. Do not misrepresent what sits behind the paywall.
 
 ---
 
@@ -586,6 +669,16 @@ Before publishing, verify:
 - The ending provides a real Watch, not a generic CTA.
 - The article passes the 13/16 readiness gate.
 - The title promises the value the article actually delivers.
+- The intended X reader and desired reader response are explicit.
+- The first 150 words contain the moment, tension, and promise.
+- Most paragraphs remain short enough for mobile reading.
+- Every section has one job and every paragraph has one central idea.
+- Claims are followed immediately by their supporting evidence.
+- The draft was cut by 20 to 30 percent or every retained section passed a section-job audit.
+- The final draft was read aloud and contains no em dashes or generic AI phrasing.
+- The X mobile preview, cover crop, links, and alt text were checked.
+- The launch plan includes a teaser, a pinned post decision, excerpt distribution, and
+  early-reader replies.
 
 ---
 

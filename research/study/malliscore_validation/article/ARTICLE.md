@@ -16,57 +16,63 @@ caveat: Descriptive single-outing index; not a projection or talent estimate
 
 Two starts, identical down to the strikeout.
 
-On May 18, 2024, Shota Imanaga went seven innings against Pittsburgh: four hits, one walk, no runs, seven strikeouts. Two months later, Michael Wacha did precisely the same thing to the White Sox. Seven innings, four hits, one walk, no runs, seven strikeouts.
+On May 18, 2024, Shota Imanaga went seven innings against Pittsburgh: four hits, one walk, no runs, seven strikeouts. Two months later, Michael Wacha produced the same line against the White Sox. Seven innings, four hits, one walk, no runs, seven strikeouts.
 
 Game Score rates both outings 79. It should. The lines are the same.
 
-But look at what happened inside them. Imanaga missed bats on a quarter of his pitches and got Pittsburgh to chase 42.5% of the time. Wacha's figures were 8.4% and 16.3%. Imanaga repeatedly took the bat out of Pittsburgh's hands. Wacha managed contact, commanded the zone, and kept the same clean result on the board.
+But the games inside those lines were not. Imanaga missed bats on 25.0% of his pitches and induced chases 42.5% of the time. Wacha posted an 8.4% swinging-strike rate and a 16.3% chase rate. Imanaga repeatedly removed contact from the equation. Wacha commanded the zone, managed contact, and reached the same clean result by another route.
 
-Same result. Different path to it. That is the reason MalliScore exists: **What did this pitcher control, what damage did he allow, and how much of the game did he carry?**
+I built MalliScore from a simple baseball belief: a pitcher who can make hitters miss controls a part of the game that defense and batted-ball fortune cannot give him. Run prevention still matters, because dominance without results is incomplete. But when two pitchers produce the same line, I want the score to recognize which one took more of the outcome into his own hands.
 
-## The box score is useful. It is also incomplete.
+**Dominance can produce run prevention. Run prevention does not prove dominance.**
 
-A pitching line, or a single number built from that line, can summarize the quality of a start. That view is useful. It is why Bill James created Game Score and why Tom Tango later updated it.
+That distinction is the reason MalliScore exists. It asks three questions about one start: What did the pitcher control? What damage did he allow? How much of the game did he carry?
 
-[Game Score](https://library.fangraphs.com/pitching/game-score/) gives us a compact reading of workload and results: outs, strikeouts, hits, walks, and runs. The [updated version](https://www.mlb.com/glossary/advanced-stats/game-score) also accounts more directly for home runs. It remains an intuitive answer to a familiar question: **How good was the pitcher's line?**
+## What the box score misses
 
-What it cannot do is separate Imanaga from Wacha, because on the dimensions Game Score reads, there is nothing to separate. The box score tells us the result. It does not tell us how the pitcher produced it.
+A pitching line, or a number built from it, can summarize the quality of a start. That is useful. It is why Bill James created Game Score and why Tom Tango later updated it.
 
-That is the missing layer MalliScore was built to examine. It is not a claim that every strong start must look like Imanaga's. Contact managers can be excellent pitchers and can produce excellent starts. The point is narrower: a clean result and active control of the lineup are related, but they are not interchangeable.
+[Game Score](https://library.fangraphs.com/pitching/game-score/) gives us a compact reading of workload and results: outs, strikeouts, hits, walks, and runs. The [updated version](https://www.mlb.com/glossary/advanced-stats/game-score) accounts more directly for home runs. It answers a familiar question: **How good was the pitcher's line?**
+
+What it cannot do is separate Imanaga from Wacha. On the dimensions Game Score reads, there is nothing to separate.
+
+That does not make Game Score wrong. It reveals a second question. Did the pitcher prevent runs by overpowering the lineup, by controlling contact, or through some combination of both?
+
+MalliScore is designed as a second opinion on that question, not a replacement for the box score.
 
 ## What MalliScore measures
 
 MalliScore is a **0-to-100 descriptive index of one starting-pitcher outing**. It is not a season rating, a projection, or a measure of true talent.
 
-It asks a narrower question:
+It evaluates the completeness of the performance through two pillars and a workload adjustment:
 
-> How complete was this pitching performance when we consider dominance, run prevention, and the amount of the game the pitcher carried?
+1. Dominance: how forcefully the pitcher controlled plate appearances.
+2. Run Prevention: how effectively he kept runners and runs off the board.
+3. Workload: how much of the game he completed.
 
-Before the formula, the scale. In this article, the **study sample** means 7,479 starter outings drawn from available raw feeds: 1,908 in 2024, 2,520 in 2025, and 3,051 in 2026 through July 26. The 2024 and 2025 coverage is incomplete and non-random, so these are sample benchmarks, not claims about every MLB start in those seasons.
+The study sample contains 7,479 starter outings from available raw feeds: 1,908 in 2024, 2,520 in 2025, and 3,051 in 2026 through July 26. Coverage in 2024 and 2025 is incomplete and non-random, so these are sample benchmarks rather than claims about every MLB start in those seasons.
 
-Across that sample, the median outing scored **44.5**. A score in the low 60s puts a start in the top 10 percent; the top 1 percent begins around 73. The highest observed score was **87.4**, recorded by Jacob Misiorowski on June 12, 2026. Nobody in the sample approached 100, and nobody is supposed to.
+Across that sample, the median MalliScore was **44.5**. The top 10 percent began in the low 60s and the top 1 percent around 73. The highest observed score was **87.4**, recorded by Jacob Misiorowski on June 12, 2026. The 100-point ceiling is theoretical, not an expectation for a normal start.
 
-The score has two performance pillars and one workload adjustment.
+### Dominance
 
-### 1. Dominance
-
-Dominance measures how forcefully the pitcher controlled plate appearances:
+The Dominance pillar uses:
 
 - **Swinging-strike rate: 30%**
 - **Called-strike rate: 25%**
 - **Chase rate: 20%**
 - **xwOBA allowed: 25%**, where lower is better
 
-There are two valid ways to prevent runs. A pitcher can limit the quality and volume of contact, often with ground balls, command, and weak contact. Or he can reduce the hitter's opportunity to put the ball in play at all, through whiffs, called strikes, and chases.
+Swinging strikes, called strikes, and chases describe active control of the plate appearance. They show the pitcher beating the hitter before a ball in play can involve positioning, defense, park effects, or batted-ball fortune.
 
-Run Prevention recognizes either route when it keeps runners and runs off the board. Dominance is deliberately narrower. It measures the second route: whether the pitcher actively powered through plate appearances. That is why it gets its own half of the score instead of being hidden inside the final line.
+That is not the only way to pitch well. Ground-ball and weak-contact pitchers can dominate games without collecting extreme whiff totals. MalliScore still credits their clean results in Run Prevention. The Dominance pillar is deliberately narrower because it asks whether the pitcher controlled the plate appearance through strikes, chases, and missed bats.
 
-Swinging strikes and called strikes are not interchangeable. Across pitcher-seasons they trade off, correlating at −.39. Some pitchers win by generating empty swings. Others steal strikes through location, movement, or sequencing; Wacha's start above is what that second path looks like. MalliScore keeps both visible.
+The current formula also includes xwOBA allowed in Dominance to credit contact suppression. That makes the pillar broader than pure bat-missing. The validation study identified its placement as an open design question because xwOBA can also be understood as a Run Prevention input. The production formula keeps it here for now rather than hiding that tension.
 
-There is a reason this half of the score exists at all. We split each qualifying pitcher-season into alternating starts, then compared the averages from the two groups. Higher values mean the measure showed up more consistently across that pitcher's season.
+Why emphasize these process indicators at all? We split each qualifying pitcher-season into alternating starts, then compared the averages from both groups. A higher value means the measure appeared more consistently across that pitcher's season.
 
 | Measure | Consistency across alternating starts |
-|---|---|
+|---|---:|
 | Swinging-strike rate | .775 |
 | Chase rate | .640 |
 | Called-strike rate | .610 |
@@ -74,15 +80,13 @@ There is a reason this half of the score exists at all. We split each qualifying
 | Earned runs | .348 |
 | Home runs | .211 |
 
-For example, a .775 swinging-strike value means pitchers who generated more whiffs in one set of starts generally did so in the other. Runs and home runs were much less consistent in the same test. The comparison includes 434 pitcher-seasons with at least eight starts.
+The test covered 434 pitcher-seasons with at least eight starts. A .775 value for swinging-strike rate means pitchers who generated more whiffs in one set of starts generally did so in the other. Earned runs and home runs repeated much less consistently.
 
-Half of MalliScore is built from the part of an outing least likely to be luck. That is the half a box score barely records.
+**This supports using dominance to describe how much of an outing the pitcher controlled. It does not establish that one high-dominance start predicts the next one.**
 
-xwOBA allowed adds the quality of the contact and plate-appearance outcomes the pitcher surrendered. It measures the damage allowed rather than the pressure applied, so there is a reasonable case for placing it in Run Prevention instead. We have left it in Dominance for now, and the validation study flagged it as the strongest open design question.
+### Run Prevention
 
-### 2. Run prevention
-
-Run prevention measures the damage that reached the scoreboard or threatened to reach it:
+The Run Prevention pillar uses:
 
 - **Reach Rate Allowed: 40%**
 - **Earned runs: 35%**
@@ -94,28 +98,28 @@ Reach Rate Allowed is:
 RRA = (H + BB + HBP) / BF
 ```
 
-It answers a direct question: **What share of the batters faced reached through a hit, walk, or hit-by-pitch?**
+It measures the share of batters who reached through a hit, walk, or hit-by-pitch. MalliScore uses batters faced as the opportunity denominator because WHIP can become unstable when innings pitched is very small. This is a design choice for a single-start index, not an argument that RRA should replace WHIP everywhere.
 
-MalliScore uses RRA rather than WHIP because WHIP divides by innings pitched. In a very short outing, that denominator can become unstable. Batters faced is the cleaner opportunity denominator for this specific job: measuring how often a pitcher allowed a hitter to reach during the opportunities he faced. This is not an argument that RRA should replace WHIP everywhere.
+Run Prevention does not care whether the pitcher escaped through strikeouts, weak contact, sequencing, or defense. It records that the traffic and damage were limited. That is why dominance can contribute to run prevention, while a clean run-prevention result cannot by itself prove dominance.
 
-### 3. Workload
+### Workload
 
-Completed outs are the main workload signal, applied as a multiplier on the rest of the score:
+Completed outs are the main workload signal. They multiply the combined pillar score:
 
-- Four innings multiplies the score by **0.69**.
+- Four innings receives a **0.69** multiplier.
 - Six innings is essentially neutral at **1.00**.
-- Seven innings earns **1.04**, nine innings **1.10**.
+- Seven innings receives **1.04** and nine innings **1.10**.
 - Pitch efficiency can move the adjustment only slightly.
 
-Note the asymmetry. Falling two innings short of six costs roughly a third of the score. Going three innings beyond six returns about a tenth. MalliScore evaluates a **complete starting-pitcher performance**, so recording more outs matters, but a pitcher cannot buy his way to a great score on length alone.
+The asymmetry is intentional. Falling two innings short of six costs much more than extending three innings beyond six can add. Length matters, but a pitcher cannot buy a great MalliScore with innings after allowing substantial damage.
 
-## How the formula works
+## How the score works
 
-Each input is compared with an empirical league baseline from 2024 starting-pitcher outings. The distance from that baseline is expressed in standard deviations, with lower-is-better statistics reversed.
+Each input is compared with an empirical baseline from 2024 starting-pitcher outings. The distance from that baseline is expressed in standard deviations, with lower-is-better statistics reversed.
 
-The listed weights are applied **after** that standardization. MalliScore does not multiply a raw 12.9% swinging-strike rate by 30%; it first asks how far 12.9% sits above or below the league baseline, then gives that standardized result 30% of the Dominance pillar.
+The listed percentages are applied **after standardization**. MalliScore does not multiply a raw 12.9% swinging-strike rate by 30%. It first determines how far that outing sits above or below the baseline, then applies the weight on that common scale.
 
-The weighted inputs become two 0-to-100 pillar scores:
+The weighted inputs become two 0-to-100 pillars:
 
 ```text
 Dominance = clamp(50 + 15 x weighted dominance z-score, 0, 100)
@@ -123,9 +127,9 @@ Dominance = clamp(50 + 15 x weighted dominance z-score, 0, 100)
 Run Prevention = clamp(50 + 15 x weighted run-prevention z-score, 0, 100)
 ```
 
-Read that as a simple rule: a league-average outing sits at 50, and every standard deviation above or below moves the pillar 15 points.
+A baseline outing sits at 50. Every standard deviation above or below the baseline moves the pillar 15 points.
 
-The two pillars are joined with a harmonic mean:
+The pillars are combined with a harmonic mean:
 
 ```text
 Core = (2 x Dominance x Run Prevention) / (Dominance + Run Prevention)
@@ -133,45 +137,16 @@ Core = (2 x Dominance x Run Prevention) / (Dominance + Run Prevention)
 MalliScore = clamp(Core x Workload, 0, 100)
 ```
 
-The harmonic mean makes balance matter. A pitcher cannot completely hide poor run prevention behind whiffs, or a low-whiff outing behind a clean scoreboard. The weaker pillar pulls the core score down.
+The harmonic mean makes balance matter. Whiffs cannot fully hide poor run prevention, and a clean scoreboard cannot completely hide a lack of control. The weaker pillar pulls the score down.
 
 ![How MalliScore combines dominance, run prevention, and workload](assets/01_score_architecture.png)
 
-## A real MalliScore example
+## Same line, different performance
 
-On August 2, 2026, Matthew Liberatore faced Toronto and produced this line:
-
-```text
-6.0 IP | 1 H | 1 BB | 0 HBP | 0 ER | 0 HR | 7 K | 85 pitches
-```
-
-He faced 20 batters, so his Reach Rate Allowed was:
-
-```text
-(1 H + 1 BB + 0 HBP) / 20 BF = .100
-```
-
-His process indicators added more detail. These are the raw outing statistics, not the weighted inputs themselves. MalliScore compares each one with its league baseline first, then applies the weights on that common standardized scale:
-
-- 12.9% swinging-strike rate
-- 20.0% called-strike rate
-- 39.6% chase rate
-- .148 xwOBA allowed
-
-Those inputs produced a **66.3 Dominance score** and a **73.8 Run Prevention score**. Their harmonic mean was 69.8. Six innings and 85 pitches supplied a nearly neutral 1.003 workload adjustment.
-
-**Final MalliScore: 70.0**, a score that would have ranked in the top 2 percent of starts in this study sample.
-
-![Matthew Liberatore's outing carried from raw line to final MalliScore](assets/04_worked_example.png)
-
-The interpretation is more useful than the number by itself. Liberatore did not earn the score only because he allowed no runs. He paired the clean line with above-baseline called strikes, chases, and contact suppression while completing six innings.
-
-## Back to Imanaga and Wacha
-
-Now the two starts we opened with, run through the same formula:
+Now return to Imanaga and Wacha:
 
 | | Imanaga, May 18 | Wacha, Jul 19 |
-|---|---|---|
+|---|---:|---:|
 | Line | 7.0 IP, 4 H, 1 BB, 0 ER, 7 K | 7.0 IP, 4 H, 1 BB, 0 ER, 7 K |
 | Game Score v2 | 79 | 79 |
 | Swinging strikes | 25.0% | 8.4% |
@@ -179,97 +154,76 @@ Now the two starts we opened with, run through the same formula:
 | Called strikes | 14.8% | 20.0% |
 | xwOBA allowed | .262 | .236 |
 | Dominance | 69.4 | 49.3 |
-| Run prevention | 68.9 | 68.0 |
+| Run Prevention | 68.9 | 68.0 |
 | Workload | 1.04 | 1.04 |
 | **MalliScore** | **72.2** | **59.5** |
 
 ![Two identical pitching lines with very different underlying performances](assets/05_same_line.png)
 
-Run prevention is nearly identical, which is what identical lines should produce. Workload is identical. The entire 12.7-point gap comes from Dominance: Imanaga's swinging-strike rate was three times Wacha's, and his chase rate was more than double.
+Run Prevention is nearly identical, as the matching lines suggest it should be. Workload is identical. The 12.7-point MalliScore gap comes almost entirely from Dominance.
 
-Note what the table does not say. Wacha was not worse. He allowed *softer* contact than Imanaga, .236 against .262, and stole more called strikes, 20.0% against 14.8%. He pitched a genuinely excellent game by managing contact and commanding the zone. Imanaga pitched a different excellent game by making Pittsburgh miss.
+Wacha still pitched an excellent game. He allowed lower xwOBA than Imanaga and collected more called strikes. His path relied more on command and contact management. Imanaga paired the same result with a swinging-strike rate three times as high and a chase rate more than twice as high.
 
-MalliScore puts Imanaga's start in the top 2 percent of the study sample and Wacha's in the top 13 percent. Both are very good outings. Imanaga receives additional credit because he paired the result with the clearest evidence of active lineup control. That is a descriptive judgment about this game, not a forecast of either pitcher's next start or career ceiling.
+MalliScore places Imanaga's start in the top 2 percent of the study sample and Wacha's in the top 13 percent. Both are strong outings. Imanaga receives additional credit because he supplied clearer evidence of active lineup control.
 
-The reverse case exists too. On July 6, 2024, Lance Lynn allowed 10 earned runs in 2.2 innings; three months earlier, Blair Henley recorded one out while allowing five in his debut. Game Score separates those by 32 points. MalliScore rates them 11.4 and 11.2, a tie at the floor, because Lynn's extra outs bought workload credit that his ten runs immediately spent. Length is credit, not absolution.
+That is a descriptive judgment about these games. It is not a forecast of either pitcher's next start or career ceiling.
 
-Same line, different score. Different line, same score. In both directions, MalliScore is reading an axis the box score does not.
+## What the validation found
 
-## MalliScore is a second opinion, not a Game Score replacement
+MalliScore and Game Score should agree most of the time, and they do. Their season-level rank correlations in the study ranged from .925 to .938. Both reward good, deep starts.
 
-Any new pitching index should be tested against the strongest familiar alternative.
+The difference appeared in reliability. We again split pitcher-seasons into alternating starts and asked whether each score told a similar story across both groups. Across 367 pitcher-seasons with at least 10 starts, MalliScore reached **.604**, compared with **.467** for Game Score v2. The paired difference was **+.137**, with a 95% confidence interval from **+.088 to +.198**.
 
-Across the study, MalliScore and Game Score v2 agreed strongly. Their season-level rank correlations ran from .925 to .938. That is expected: both reward good, deep starts.
+Reliability is not accuracy. It does not prove that MalliScore is the correct verdict on every start. It means the measure held together more consistently across a pitcher's season in this sample.
 
-On the reliability test, though, they separate. We use the same alternating-start comparison to ask whether each score tells a similar story across a pitcher's season, rather than amplifying single-game noise. Across 367 pitcher-seasons with at least 10 starts, MalliScore scored **.604 against Game Score v2's .467**, a paired advantage of **+.137 with a 95% confidence interval of +.088 to +.198**.
-
-Reliability is not accuracy. It does not mean MalliScore is more correct about any individual start. It means the number holds together better from one half of a season to the other.
-
-The mechanism is the table from earlier. Game Score is built almost entirely from the volatile column: runs, hits, walks, home runs. MalliScore gives half its weight to the stable one.
-
-The more interesting information appears when the two scores disagree.
+The disagreement cases show what each index values:
 
 - **MalliScore-favored starts** averaged a 12.9% swinging-strike rate, 5.9 innings, and 3.2 earned runs.
 - **Game Score-favored starts** averaged a 10.4% swinging-strike rate, 4.7 innings, and 1.1 earned runs.
 
 ![Average characteristics of starts favored by MalliScore and Game Score v2](assets/02_game_score_disagreement.png)
 
-MalliScore tends to prefer the longer, more dominant start that allowed some damage. Game Score tends to prefer the shorter, lower-whiff start that kept runs off the board.
+MalliScore tends to prefer the longer, more dominant outing that allowed some damage. Game Score tends to prefer the shorter, lower-whiff outing that kept runs off the board.
 
-Neither preference is universally correct. The disagreement answers the real editorial question: **Was this start impressive because of the result, or because of the way the pitcher controlled the game?**
+Neither preference is universally correct. Their disagreement creates the useful question: **Was this start impressive because of the result, or because of the way the pitcher controlled the game?**
 
-## Why these weights are not treated as perfect truth
-
-MalliScore's weights are informed choices, not statistically unique truths. That distinction matters.
-
-To test whether they were driving the rankings, we re-weighted the same inputs **20,000 different ways** across the feasible range and rescored all 1,908 starts of the 2024 development season. Rank agreement with the baseline formula never fell below a Spearman correlation of .963. Ninety-seven percent of the combinations agreed above .98.
-
-In practical terms, many reasonable weighting systems produced almost the same ordering. Pretending the data had discovered one perfect set of weights would have created false precision.
-
-![Distribution of rank correlations across 20,000 alternative MalliScore weight systems](assets/03_weight_sensitivity.png)
-
-That robustness cuts both ways. It means the score is not fragile to a defensible change in the weights. It also means the weights are not where the interesting design questions live. Those sit in the architecture: which league baselines to use, whether workload belongs as a multiplier rather than a third pillar, and where xwOBA allowed truly belongs.
+We also tested 20,000 feasible weight combinations on the 2024 development sample. Every version retained at least a .963 Spearman rank correlation with the production formula, and 97% exceeded .980. The rankings were not fragile to reasonable weight changes. The more important choices were architectural: which inputs belong, how they are normalized, and how workload interacts with the two pillars.
 
 ## What MalliScore cannot tell us
 
 MalliScore does **not** predict the next start.
 
-After controlling for a pitcher's recent form, it added no meaningful next-start information for swinging-strike rate, xwOBA allowed, strikeout-minus-walk rate, or WHIP. Game Score added no meaningful signal either. All four tests were tight enough to rule out an effect worth acting on, rather than merely inconclusive.
+After controlling for recent form, it added no meaningful next-start information for swinging-strike rate, xwOBA allowed, strikeout-minus-walk rate, or WHIP. Game Score added no meaningful signal either. The tests were precise enough to rule out an effect worth acting on.
 
-That is not a failed result. It defines the metric correctly.
+That result defines the metric rather than weakening it. MalliScore describes the performance that just happened. It should not be used as a fantasy projection, a rest-of-season forecast, or proof that a pitcher established a new talent level.
 
-MalliScore describes the performance that just happened. It should not be used as a rest-of-season projection, a fantasy forecast, or proof that a pitcher has established a new talent level.
+The study also tested the tempting belief behind the score: that more missed bats in one outing should guarantee a higher future floor or ceiling. The evidence did not support that stronger claim after accounting for broader run prevention. MalliScore therefore rewards dominance because it reveals **how this outing was controlled**, not because one dominant start promises the next one.
 
-We tested the tempting stronger claim too: that more missed bats in an outing should mean a higher future floor or ceiling. It did not hold up once we accounted for the pitcher's broader run-prevention level, and the next-start tests stayed null. MalliScore therefore credits dominance as evidence of **how this outing was controlled**, not as proof that the pitcher is now safer or more talented going forward.
+Other limits remain:
 
-The validation also leaves real limitations:
+- The empirical baselines were developed on 1,908 available starts from 2024.
+- Coverage in 2024 and 2025 is incomplete and non-random.
+- The score applies to starters. Relievers require different workload expectations.
+- Completed outs are a substantial and intentional part of the definition.
+- xwOBA allowed may fit more naturally in Run Prevention than Dominance.
+- Soft-contact specialists can prevent runs without matching the profile MalliScore most rewards.
 
-- The empirical baselines were developed on 1,908 starts from 2024.
-- Earned-run coverage was incomplete and non-random for portions of 2024 and 2025.
-- The study includes starters only; relievers need different workload expectations.
-- Completed outs correlate strongly with MalliScore. Length is a substantial and intentional part of the definition.
-- xwOBA allowed may fit more naturally inside Run Prevention than Dominance. That remains an open design question.
-- Dominance rewards the pitcher who overwhelms hitters more readily than the one who induces weak contact, because neither of its paths credits soft contact directly. Seven of 191 qualified pitcher-seasons paired top-third run prevention with bottom-third dominance. That group is small, but MalliScore under-serves it.
-- Two predictive comparisons with Game Score were underpowered and cannot support a conclusion.
+These are not caveats to bury. They define where the score is useful and where it stops.
 
-Those are not footnotes to hide. They define where the score is useful and where it stops.
+## What to watch
 
-## What to watch when MalliScore appears
+MalliScore is not meant to end the conversation with one number. It is meant to start a better one.
 
-The purpose of MalliScore is not to end the conversation with one number. It is to help start the right one.
+When it agrees with the box score, the outing probably combined process, result, and workload in the expected way.
 
-When the score agrees with the box score, the outing probably combined process, result, and workload in the expected way.
+When MalliScore is higher than the traditional line suggests, look for missed bats, called strikes, chases, contact suppression, and depth. The pitcher may have controlled more of the game than the runs imply.
 
-When MalliScore is higher than the traditional line suggests, look for whiffs, called strikes, chases, contact suppression, and depth. The pitcher may have controlled more of the game than the runs imply.
+When it is lower, look for a clean result supported by fewer missed bats, less workload, or more traffic than the scoreboard reveals.
 
-When MalliScore is lower, look for a clean result supported by fewer missed bats, fewer outs, or more traffic than the scoreboard reveals.
+And when two starters produce the same line, as Imanaga and Wacha did, ask one more question before calling the performances identical: **How much of the outcome did each pitcher take into his own hands?**
 
-And when two starts share a line but not a score, as Imanaga and Wacha did, check the pillars. The answer is usually sitting in swing-and-miss, and it usually changes how the outing should be remembered.
-
-Game Score asks how good the line was. MalliScore asks how the performance was built.
-
-Baseball is more interesting when we keep both questions.
+Game Score asks how good the line was. MalliScore asks how the performance was built. Baseball has room for both questions.
 
 ---
 
-**Method note:** The validation used 7,479 MLB starting-pitcher outings: 1,908 from 2024 for development, 2,520 from 2025 for validation, and 3,051 from 2026 through July 26 for confirmation. Reliability, agreement, and disagreement figures were computed on the current production formula across that full window; the weight-sensitivity test was run on the 2024 development season. Data came from the Mallitalytics MLB and Statcast warehouse. This article describes the production formula for actual outings as of August 2026.
+**Method note:** The study used 7,479 MLB starting-pitcher outings from available raw feeds: 1,908 from 2024 for development, 2,520 from 2025 for validation, and 3,051 from 2026 through July 26 for confirmation. Reliability, agreement, and disagreement figures were computed on the current production formula across that window. The weight-sensitivity test used the 2024 development sample. Data came from the Mallitalytics MLB and Statcast warehouse. This article describes the production formula for actual outings as of August 2026.

@@ -2,13 +2,19 @@
 
 ## Article brief
 
-**Working title:** Building MalliScore: A Modern Way to Evaluate Pitching Performance
+**Working title:** Building MalliScore: A Modern Way to Evaluate a Pitching Performance
 
 **Article type:** Metric or method article
 
 **Primary audience:** Curious baseball fans who understand the box score and common rate statistics but do not need to know model-building terminology.
 
 **Reader question:** What does MalliScore add to a pitching line or Game Score, and has its design been tested?
+
+**Primary destination:** X Articles
+
+**Desired reader response:** Understand why MalliScore rewards active lineup control,
+recognize that run prevention and dominance are related but not interchangeable, and know
+what to inspect when MalliScore disagrees with a traditional pitching line.
 
 **Notice:** A pitching result and the way the pitcher produced it are related, but not identical.
 
@@ -27,7 +33,9 @@
 
 **Boundary:** The article does not claim that MalliScore measures true talent, predicts the next start, replaces Game Score, or has uniquely optimal weights.
 
-**Best real example:** Matthew Liberatore vs Toronto, August 2, 2026. Verified from the production VPS warehouse and V4 scoring path.
+**Best real example and narrative spine:** Shota Imanaga vs Pittsburgh on May 18, 2024,
+and Michael Wacha vs the White Sox on July 19, 2024. The article opens with this comparison,
+returns to it after the formula, and closes with its practical question.
 
 **Opening example:** Shota Imanaga (2024-05-18 vs PIT) and Michael Wacha (2024-07-19 vs CWS).
 Identical traditional lines — 7.0 IP, 4 H, 1 BB, 0 ER, 7 K — and an identical Game Score v2 of
@@ -39,9 +47,9 @@ also holds on the current Reach Rate Allowed production formula. The article mus
 contact management from active lineup control without claiming either start proves a higher future
 floor or ceiling.
 
-**Secondary example (reverse direction):** Lance Lynn 2024-07-06 (11.4) and Blair Henley
-2024-04-08 (11.2) — very different lines, Game Score 32 points apart, MalliScore effectively
-tied at the floor. Retained as a compact paragraph inside the payoff section.
+**Research-only examples:** Matthew Liberatore remains the verified calculation example.
+Lance Lynn and Blair Henley remain the verified lower-tail comparison. Neither appears in
+the X draft because adding more cases weakened the single Imanaga-Wacha narrative spine.
 
 **Best disagreement pattern:** MalliScore-favored starts were longer and generated more whiffs but allowed more earned runs; Game Score-favored starts were shorter and cleaner on the scoreboard.
 
@@ -170,24 +178,25 @@ rather than one pitcher being worse.
 ## Visual plan
 
 1. **Cover:** MalliScore title with a simplified Dominance / Run Prevention / Workload architecture. No dense formula on the cover.
-2. **Formula graphic:** Inputs flowing into the two pillars, harmonic core, then workload adjustment.
-3. **Worked example:** Matthew Liberatore's line with the 66.3 / 73.8 pillars and 70.0 final score.
-4. **Score architecture:** The two pillars, harmonic-mean core, and outs-first workload adjustment.
-5. **Disagreement chart:** MalliScore-favored versus Game Score-favored starts using SwStr%, outs, and ER.
+2. **Score architecture:** Inputs flowing into the two pillars, harmonic core, then workload adjustment.
+3. **Same-line comparison:** Imanaga and Wacha with identical Game Score and different process indicators.
+4. **Disagreement chart:** MalliScore-favored versus Game Score-favored starts using SwStr%, outs, and ER.
 
 Shipped set (`assets/`, rendered by `scripts/render_malliscore_article_graphics.py`):
 `01_score_architecture`, `02_game_score_disagreement`, `03_weight_sensitivity`,
-`04_worked_example`. The next-start forest plot (`04_next_start_signal`) is still rendered
-by the script but was pulled from the article: it visualises a null in the most technical
-form available, and the prose carries that finding better for this audience.
+`04_worked_example`, and `05_same_line`. Only `01_score_architecture`, `05_same_line`, and
+`02_game_score_disagreement` belong in the X Article. The sensitivity, worked-example,
+and next-start visuals remain research assets because the prose carries those secondary
+findings with less friction for this audience.
 
 ## Publishing strategy
 
-Use the X Article as the master edition. X supports headings, links, lists, and embedded visual media, and the existing baseball audience is already there.
+Use the X Article as the first and master editorial edition. Complete its mobile preview,
+cover crop, audience setting, links, alt text, and launch package before adapting anything
+for another platform.
 
-Publish the same core body on Medium after the X edition is live. In Medium's advanced settings, mark the story as originally published elsewhere and set the X Article URL as the canonical source.
-
-Use the same body for LinkedIn, preferably as the first edition of a recurring Mallitalytics analysis newsletter. Change only the short feed introduction and final platform-specific call to action; do not rewrite the analytical argument.
+Medium and LinkedIn decisions come after the X launch. Their future versions may preserve
+the analytical core, but they are not part of the current approval scope.
 
 Recommended order:
 
