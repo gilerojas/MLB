@@ -5,10 +5,18 @@ lefty who lives off a fastball/changeup pair — and can those types be recovere
 from pitch data rather than asserted from the eye test?
 
 The study is deliberately staged so that each level can return a negative answer
-and stop. **Level 1 did exactly that**, and the finding is worth more than the
-taxonomy would have been: pitch shape space is a *continuum*, not a set of
-discrete families. See [`RESEARCH_LOG.md`](RESEARCH_LOG.md) — every design
-decision and finding is numbered there and nothing is edited after the fact.
+and stop. Three of the four did. See [`RESEARCH_LOG.md`](RESEARCH_LOG.md) — every
+design decision and finding is numbered there, and nothing is edited after the
+fact.
+
+**The answer is no, and the no is the result.** Neither pitches nor pitchers fall
+into discrete types; both lie on continua. What survives is better than a
+taxonomy: pitchers get stable, interpretable **coordinates** rather than labels,
+and those coordinates carry real information about what a pitcher does —
+predicting a third of ground-ball rate that pitcher quality predicts none of.
+They do not, however, predict how a pitcher's edge shifts by matchup, and the
+matchup targets turn out to be too noisy per-pitcher to have answered that
+either way.
 
 **Levels**
 
@@ -18,7 +26,7 @@ decision and finding is numbered there and nothing is edited after the fact.
 | L1 | does a pitch-shape taxonomy exist? | **done — no, it's a continuum** |
 | L2 | represent each pitcher's arsenal as a distribution over shape space | **done — profiles are a stable fingerprint** |
 | L3 | do *pitchers* cluster, and do the clusters mean anything? | **done — no, a continuum again** |
-| L4 | does position on the continuum predict anything? | frontier |
+| L4 | does position on the continuum predict anything? | **done — traits yes, matchups no** |
 
 L3 was a genuinely separate question from L1 — a continuous pitch surface does
 not prevent pitchers from clustering, since arsenal *combinations* are
@@ -47,6 +55,10 @@ $PY research/study/pitching_archetypes/build_arsenal_profiles.py            # ~4
 # L3 -- do pitchers cluster?
 $PY research/study/pitching_archetypes/cluster_pitchers.py                  # ~2 min
 $PY research/study/pitching_archetypes/render_l3_figures.py
+
+# L4 -- does position predict anything?
+$PY research/study/pitching_archetypes/predict_from_position.py             # ~3 min
+$PY research/study/pitching_archetypes/render_l4_figures.py
 ```
 
 Seed is `20260827` everywhere; reruns reproduce identical numbers. Outputs land
@@ -64,6 +76,8 @@ in `outputs/` and are untracked.
 | `build_arsenal_profiles.py` | Phase 3 (L2) — pitcher-season profiles over the soft basis |
 | `cluster_pitchers.py` | Phase 4 (L3) — pitcher clustering against three nulls |
 | `render_l3_figures.py` | Phase 4b — the Level-3 figure |
+| `predict_from_position.py` | Phase 5 (L4) — target reliability, then prediction from coordinates |
+| `render_l4_figures.py` | Phase 5b — the Level-4 figure |
 
 ## Data
 
@@ -103,7 +117,12 @@ falls into:
    column independently preserves all four distributions and destroys only the
    joint structure. Real pitch data beat that null by almost nothing — and lost
    to it at four values of k (L1-F5).
-4. **A shuffle null is not enough to claim clustering.** At L3 the real pitchers
+4. **Measure a target's reliability before trying to predict it.** An individual
+   starter's platoon split is ~92% noise over two seasons and his
+   third-time-through penalty ~81%. Failing to predict those says nothing about
+   the predictor — the ceiling is the honest denominator, and without it a null
+   result is uninterpretable (L4-D1, L4-F1).
+5. **A shuffle null is not enough to claim clustering.** At L3 the real pitchers
    beat both shuffle nulls decisively, which looks like a discovery and is not
    one — it only proves the features co-vary. The test that settles it is a
    single Gaussian with the real covariance: it keeps every correlation and has
@@ -128,3 +147,6 @@ falls into:
 | `l3_continuum_axes.csv` | L3-F2 — principal axes of the pitcher cloud, correlated against readable features |
 | `l3_cluster_summary.csv`, `l3_pitcher_assignments.csv` | descriptive k=8 grouping (did **not** survive the nulls) |
 | `l3_pitchers_vs_nulls.png` | the decisive Level-3 figure |
+| `l4_target_reliability.csv` | split-half reliability per target — the ceiling any model can reach |
+| `l4_prediction.csv` | cross-validated R² for baseline, baseline+coordinates, and coordinates alone |
+| `l4_ceiling_vs_achieved.png` | the Level-4 figure |

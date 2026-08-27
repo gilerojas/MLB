@@ -360,9 +360,111 @@ feature family for the starter projection ceiling
 
 ---
 
+## L4 — Does position on the continuum predict anything?
+
+**Data.** 212,335 plate appearances from 2024–25 starters. **179 starters**
+clear an 80-PA floor in every split (opposite/same hand, 1st/3rd time through).
+
+### L4-D1 · Measure each target's reliability before modelling it
+The step that makes a null interpretable. A target that is mostly noise cannot
+be predicted by anything, and failing on it says nothing about the coordinates —
+it only restates that the target is noise. Split-half reliability is measured by
+**odd/even game** (not by PA, which would let within-game correlation leak across
+the halves and inflate the estimate) and Spearman-Brown corrected. That value is
+the ceiling any model could reach, and every result below is scored against it
+rather than against 1.0.
+
+### L4-D2 · The baseline already knows how good the pitcher is
+Coordinates are added on top of a model carrying overall xwOBA allowed and
+workload, so they must earn their place rather than merely correlate with being
+good. Reported as an increment, cross-validated with repeated 5-fold.
+
+### L4-D3 · Separate conditioning targets from descriptive ones
+`platoon_split` and `tto_penalty` are the *interesting* targets — they ask
+whether arsenal shape governs how a pitcher's edge changes by matchup or by time
+through the order. `swstr_rate`, `gb_rate`, `k_rate` and `bb_rate` are stable
+single rates that mostly confirm the representation carries real information.
+Shape predicting ground balls is **partly mechanical** — sinkers induce grounders
+— so a hit there is a validity check, not a discovery, and is reported as such.
+
+### L4-F1 · The matchup targets are almost pure noise ❌ *(and this is why L4 stops)*
+| target | kind | split-half r | reliability | ceiling R² |
+|---|---|---|---|---|
+| platoon_split | conditioning | 0.041 | **0.078** | 0.078 |
+| tto_penalty | conditioning | 0.104 | **0.188** | 0.188 |
+| swstr_rate | descriptive | 0.810 | 0.895 | 0.895 |
+| gb_rate | descriptive | 0.796 | 0.887 | 0.887 |
+| k_rate | descriptive | 0.772 | 0.871 | 0.871 |
+| bb_rate | descriptive | 0.592 | 0.744 | 0.744 |
+
+An individual starter's platoon split is **~92% noise** at two seasons of
+workload, and his third-time-through penalty **~81% noise**. These are not
+findings about arsenals; they are findings about the targets, and they match what
+is already known — individual platoon splits need many hundreds more PA to
+stabilise. **No feature set could have predicted either at this sample size.**
+
+### L4-F2 · Coordinates predict traits, not matchups
+Out-of-sample R², repeated 5-fold CV, n=179:
+
+| target | ceiling | baseline | + coords | increment |
+|---|---|---|---|---|
+| **gb_rate** | 0.887 | −0.033 | **+0.289** | **+0.322** |
+| **swstr_rate** | 0.895 | 0.490 | **+0.627** | **+0.137** |
+| k_rate | 0.871 | 0.642 | +0.682 | +0.040 |
+| bb_rate | 0.744 | 0.042 | +0.017 | −0.025 |
+| tto_penalty | 0.188 | −0.032 | −0.037 | −0.005 |
+| platoon_split | 0.078 | −0.006 | −0.006 | +0.046 |
+
+Three readings, in order of how much they matter:
+
+1. **Ground-ball rate is the clean result.** Knowing how good a pitcher is
+   predicts *none* of it (R² = −0.03); knowing his coordinates predicts a third.
+   Quality and batted-ball profile are orthogonal, and the coordinates capture
+   the second one. Partly mechanical, as flagged in L4-D3, but it confirms the
+   representation is measuring something real and non-redundant.
+2. **Swinging-strike rate gains a genuine +0.137 over a strong baseline**, and
+   strikeout rate a modest +0.040 — the coordinates add to quality rather than
+   restate it.
+3. **Walk rate gains nothing** (−0.025), correctly: command is not a property of
+   arsenal shape, and the model declining to claim otherwise is a good sign.
+4. **Both conditioning targets return nothing.** For `tto_penalty` the ceiling
+   is low but non-trivial (0.188) and the increment is −0.005 — closer to a real
+   null. For `platoon_split` the ceiling is 0.078 and the increment's spread
+   (±0.11) swamps it; **UNDERPOWERED**, not a null.
+
+### L4-F3 · This does not break the starter projection ceiling
+The motivating hope was that archetype × matchup would be the new feature family
+for `research/study/BETTING_MARKET_VALUE_RESEARCH.md`. It is not. The
+conditioning effects that would have carried that signal are unmeasurable at
+pitcher-season scale, and the descriptive gains are in traits the existing
+rolling features already carry. This is consistent with the earlier ablation
+finding that contact-quality and stuff features added nothing to the projection
+— arsenal shape is a *description* of a pitcher, and the projection's remaining
+headroom is exogenous.
+
+### L4-Q1 · What would reopen this
+Not more features — more *events*. The conditioning questions are answerable at
+population scale even though they are unanswerable per pitcher: pooling all
+plate appearances and fitting position × batter-handedness as a fixed effect
+across 212k PA is a different, better-powered question than predicting 179 noisy
+per-pitcher differences. That is a redesign, not a rerun, and it is out of scope
+for this study.
+
+---
+
 ## Status
 
-L1, L2, L3 complete. **Two decisive negatives and one usable positive:** neither
-pitches nor pitchers form discrete types, and the right representation of a
-pitcher is a position on a continuum. Frontier: **L4** — does that position
-predict anything?
+**Study complete: L1–L4.** Three negatives and two positives.
+
+- **L1** ❌ pitches do not form discrete families — a continuum.
+- **L2** ✅ arsenal profiles are stable, distinctive fingerprints (cosine 0.936
+  within a pitcher vs 0.475 between).
+- **L3** ❌ pitchers do not form discrete archetypes — a continuum again, with
+  interpretable axes (slot & separation plane, horizontal spread, velocity).
+- **L4** ❌/✅ position predicts *traits* (ground-ball rate +0.32 over a baseline
+  that predicts none of it, swinging-strike rate +0.14) but not *matchups*, and
+  the matchup targets are too noisy per-pitcher to have been answerable.
+
+The usable deliverable is `l2_arsenal_profiles.parquet` — a stable, interpretable
+coordinate system for pitchers, validated as non-redundant with pitcher quality.
+Nothing here becomes a label, a bucket, or an archetype name.
