@@ -16,8 +16,8 @@ decision and finding is numbered there and nothing is edited after the fact.
 |---|---|---|
 | L0 | design decisions before touching data | done |
 | L1 | does a pitch-shape taxonomy exist? | **done — no, it's a continuum** |
-| L2 | represent each pitcher's arsenal as a distribution over shape space | frontier |
-| L3 | do *pitchers* cluster, and do the clusters mean anything? | open |
+| L2 | represent each pitcher's arsenal as a distribution over shape space | **done — profiles are a stable fingerprint** |
+| L3 | do *pitchers* cluster, and do the clusters mean anything? | frontier |
 | L4 | does an archetype label add signal over the features it came from? | open |
 
 L3 is a genuinely separate question from L1: a continuous pitch surface does not
@@ -30,10 +30,15 @@ Order matters — later phases read the cache the first one builds.
 
 ```bash
 PY=./mlb_env.nosync/bin/python
+# L1 -- pitch shape space
 $PY research/study/pitching_archetypes/build_pitch_dataset.py --years 2025  # ~3 min
 $PY research/study/pitching_archetypes/explore_shape_space.py               # ~6 min
 $PY research/study/pitching_archetypes/stability_vs_null.py                 # ~5 min
 $PY research/study/pitching_archetypes/render_l1_figures.py
+
+# L2 -- arsenal profiles
+$PY research/study/pitching_archetypes/build_pitch_dataset.py --years 2024 2025 2026  # ~9 min
+$PY research/study/pitching_archetypes/build_arsenal_profiles.py            # ~4 min
 ```
 
 Seed is `20260827` everywhere; reruns reproduce identical numbers. Outputs land
@@ -48,6 +53,7 @@ in `outputs/` and are untracked.
 | `explore_shape_space.py` | Phase 2 — mirroring audit, PCA, k sweep over both feature blocks |
 | `stability_vs_null.py` | Phase 2b — bootstrap stability against a marginal-preserving null |
 | `render_l1_figures.py` | Phase 2c — the two Level-1 figures |
+| `build_arsenal_profiles.py` | Phase 3 (L2) — pitcher-season profiles over the soft basis |
 
 ## Data
 
@@ -57,9 +63,19 @@ reused: it carries no movement columns at all — no `pfx_*`, no `spin_axis`, no
 `arm_angle`. Phase 1 writes its own cache to
 `research/study/.cache/archetype_pitches_<years>.parquet`.
 
-2025 coverage on every shape column is 99.4–99.6%. Nothing is imputed; pitches
-missing a shape column are kept in the cache and dropped at the modelling step so
-the loss stays visible.
+Only **2024, 2025 and 2026** are usable. `pitches_enriched/` is empty for
+2021–2023 — those seasons were never enriched — so this is a three-season study.
+
+2024/2025 coverage on every shape column is 99.2–99.6%. Two gaps are carried
+rather than imputed, both visible in the outputs:
+
+- **2026 `arm_angle` coverage is 3.6%** (vs 99%+ in 2024/2025) — the in-season
+  2026 pipeline is not populating it. Each pitcher-season carries an
+  `arm_angle_cov` column and L3 gates on it (L2-D5).
+- **2026 is partial**, ending 2026-08-13.
+
+Nothing is imputed; pitches missing a shape column are kept in the cache and
+dropped at the modelling step so the loss stays visible.
 
 ## Method notes worth carrying to any writeup
 
@@ -89,3 +105,6 @@ falls into:
 | `l1_q4_family_vs_pitchtype.csv` | k=4 family centroids, purity, and top-two `pitch_type` |
 | `l1_shape_continuum.png` | density of the mirrored movement space + label ellipses |
 | `l1_stability_vs_null.png` | the stability-vs-null curve |
+| `l2_basis_centroids.csv` | the 16-cell soft basis in readable units — a coordinate system, not pitch types |
+| `l2_arsenal_profiles.parquet` / `.csv` | one row per pitcher-season: cell distribution (pooled, vsL, vsR), arm angle, extension, release point, velocity envelope, arsenal breadth |
+| `l2_fingerprint_check.csv` | L2-F1 — same-pitcher vs different-pitcher profile similarity |

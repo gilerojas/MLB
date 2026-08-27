@@ -175,6 +175,96 @@ same null discipline, and must be allowed to return the same negative answer.
 
 ---
 
+## L2 — Representing an arsenal
+
+**Data.** 2024, 2025 and 2026 pooled: 1,941,083 pitches after filtering.
+2023 and earlier are **not available** — those seasons were never enriched, so
+`pitches_enriched/` is empty for 2021–2023. The study is a three-season study.
+
+**1,475 pitcher-seasons** clear the 400-pitch floor, from 773 distinct pitchers;
+**581** of those are starter-seasons (≥80% of pitches thrown as SP).
+
+### L2-D1 · The 16-cell basis is a coordinate system, not a taxonomy
+L1 killed hard family labels, but a pitcher can still be described by *where* his
+pitches sit. A 16-component Gaussian mixture is fit once over the pooled seasons
+and every pitch receives a vector of membership weights rather than a label. K=16
+was chosen as a resolution — the point where L1's stability had clearly broken
+down (ARI < 0.9), so no one can mistake it for a claim about how many pitch types
+exist — fine enough to resolve arsenal shape, coarse enough that each cell still
+holds thousands of pitches. **No downstream phase may treat a cell as a pitch
+type.**
+
+### L2-D2 · Fit the basis once, pooled across seasons
+A basis refit per season would make coordinates incomparable year to year and
+would silently destroy the persistence tests that L2-F1 and L3 both depend on.
+
+### L2-D3 · Split the distribution by batter handedness
+Each pitcher-season carries the pooled 16-cell vector plus separate vectors
+`vsL` and `vsR`. Half of the original intuition — the lefty who lives off a
+changeup does so *against right-handed hitters* — is invisible in the pooled
+vector and lives entirely in this split.
+
+### L2-D4 · Identity features enter here
+`arm_angle`, `release_extension` and release point were held out of L1 by L0-D3
+because they describe the pitcher rather than the pitch. At L2 that is exactly
+what is wanted. Added alongside them: `fb_velo` (95th pct), `slow_velo`
+(10th pct), `velo_spread`, `arsenal_breadth` = exp(entropy) of the cell vector,
+and movement dispersion. `arsenal_breadth` reads as "how many pitches does he
+really have" and, unlike a count of distinct `pitch_type` values, does not
+depend on the label conventions L1 discredited.
+
+### L2-D5 · 2026 `arm_angle` is a known ingest gap, carried not imputed
+Coverage by season: 2024 **99.2%**, 2025 **99.5%**, 2026 **3.6%**. The in-season
+2026 pipeline is not populating `arm_angle`. Every pitcher-season therefore
+carries an `arm_angle_cov` column, and **L3 must gate on it** rather than
+consume a median drawn from a handful of pitches. 2026 is also partial — the
+cache ends 2026-08-13. Not imputed, not dropped, just visible.
+
+### L2-F1 · The representation is a fingerprint ✅ *(decisive)*
+The load-bearing question at this level: is an arsenal profile a stable property
+of a pitcher, or is it noise? A pitcher's profile in one season must resemble
+**his own** profile the next season more than it resembles a stranger's. Cosine
+similarity on the pooled cell distribution:
+
+| comparison | n | mean cosine | sd |
+|---|---|---|---|
+| same pitcher, consecutive seasons | 702 | **0.936** | 0.057 |
+| different pitchers | 3,503 | **0.475** | 0.211 |
+| separation | | **Cohen's d = 2.98** | |
+
+An enormous gap. Arsenals are both highly stable within a pitcher and highly
+distinctive between pitchers, which is precisely the precondition L3 needs. Note
+what this does *not* say: that pitchers fall into groups. It says each pitcher
+has a consistent, individual signature — a necessary condition for archetypes,
+not evidence of them.
+
+### L2-F2 · Profiles are interpretable on inspection ✅
+2025 spot check against known pitcher identities:
+
+| pitcher | arm angle | fb velo | velo spread | breadth | top cell |
+|---|---|---|---|---|---|
+| Tyler Rogers | **−60.7°** | 84.7 | 10.8 | **2.99** | 80mph, glove-side, sinking |
+| Kyle Hendricks | 42.9° | 87.5 | **9.5** | 6.83 | 87mph arm-side run, 40% |
+| Clayton Kershaw | 54.9° | 90.0 | 17.5 | 8.07 | 91mph neutral, 32% |
+| Chris Sale | **8.3°** | 96.9 | 19.7 | 8.09 | 80mph sweep, 22% |
+| Logan Gilbert | 39.7° | 96.6 | 15.1 | 6.71 | 87mph neutral, 28% |
+| Paul Skenes | 23.4° | 99.1 | 14.9 | 9.58 | 95mph arm-side ride, 28% |
+| Tarik Skubal | 49.7° | 99.1 | 12.3 | **10.01** | 96mph ride, 21% |
+
+Rogers' negative arm angle correctly recovers a submariner, and his breadth of
+3.0 correctly recovers a three-pitch reliever. Hendricks has the narrowest
+velocity spread in the group. Sale's 8.3° recovers a genuine low-slot lefty.
+Nothing here was tuned — these fall out of the pipeline.
+
+### L2-Q1 · Open question for L3
+The `vsL`/`vsR` split triples the feature width (16 pooled + 16 + 16, plus
+identity and velocity blocks) against only 581 starter-seasons. L3 must reduce
+dimension before clustering or it will fit noise, and the reduction has to happen
+*inside* any resampling loop, not before it, or the null test is contaminated.
+
+---
+
 ## Status
 
-L1 complete. Frontier: **L2**, per L1-D6.
+L1 and L2 complete. Frontier: **L3** — do pitchers cluster? Same null discipline
+as L1-F5, same permission to return a negative.
