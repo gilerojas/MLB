@@ -17,12 +17,16 @@ decision and finding is numbered there and nothing is edited after the fact.
 | L0 | design decisions before touching data | done |
 | L1 | does a pitch-shape taxonomy exist? | **done — no, it's a continuum** |
 | L2 | represent each pitcher's arsenal as a distribution over shape space | **done — profiles are a stable fingerprint** |
-| L3 | do *pitchers* cluster, and do the clusters mean anything? | frontier |
-| L4 | does an archetype label add signal over the features it came from? | open |
+| L3 | do *pitchers* cluster, and do the clusters mean anything? | **done — no, a continuum again** |
+| L4 | does position on the continuum predict anything? | frontier |
 
-L3 is a genuinely separate question from L1: a continuous pitch surface does not
-prevent pitchers from clustering, because arsenal *combinations* are constrained
-by what is physically compatible.
+L3 was a genuinely separate question from L1 — a continuous pitch surface does
+not prevent pitchers from clustering, since arsenal *combinations* are
+constrained by what is physically compatible. It came back negative too. What
+survives is better than a label: pitchers get **coordinates** on a small number
+of interpretable axes (slot and separation plane, horizontal spread, raw
+velocity), and coordinates condition downstream analysis at least as well as
+categories while carrying more information.
 
 ## Running it
 
@@ -39,6 +43,10 @@ $PY research/study/pitching_archetypes/render_l1_figures.py
 # L2 -- arsenal profiles
 $PY research/study/pitching_archetypes/build_pitch_dataset.py --years 2024 2025 2026  # ~9 min
 $PY research/study/pitching_archetypes/build_arsenal_profiles.py            # ~4 min
+
+# L3 -- do pitchers cluster?
+$PY research/study/pitching_archetypes/cluster_pitchers.py                  # ~2 min
+$PY research/study/pitching_archetypes/render_l3_figures.py
 ```
 
 Seed is `20260827` everywhere; reruns reproduce identical numbers. Outputs land
@@ -54,6 +62,8 @@ in `outputs/` and are untracked.
 | `stability_vs_null.py` | Phase 2b — bootstrap stability against a marginal-preserving null |
 | `render_l1_figures.py` | Phase 2c — the two Level-1 figures |
 | `build_arsenal_profiles.py` | Phase 3 (L2) — pitcher-season profiles over the soft basis |
+| `cluster_pitchers.py` | Phase 4 (L3) — pitcher clustering against three nulls |
+| `render_l3_figures.py` | Phase 4b — the Level-3 figure |
 
 ## Data
 
@@ -93,6 +103,12 @@ falls into:
    column independently preserves all four distributions and destroys only the
    joint structure. Real pitch data beat that null by almost nothing — and lost
    to it at four values of k (L1-F5).
+4. **A shuffle null is not enough to claim clustering.** At L3 the real pitchers
+   beat both shuffle nulls decisively, which looks like a discovery and is not
+   one — it only proves the features co-vary. The test that settles it is a
+   single Gaussian with the real covariance: it keeps every correlation and has
+   no clusters in it by construction. Real pitchers did not beat it (L3-D4,
+   L3-F1).
 
 ## Outputs
 
@@ -108,3 +124,7 @@ falls into:
 | `l2_basis_centroids.csv` | the 16-cell soft basis in readable units — a coordinate system, not pitch types |
 | `l2_arsenal_profiles.parquet` / `.csv` | one row per pitcher-season: cell distribution (pooled, vsL, vsR), arm angle, extension, release point, velocity envelope, arsenal breadth |
 | `l2_fingerprint_check.csv` | L2-F1 — same-pitcher vs different-pitcher profile similarity |
+| `l3_cluster_stability.csv` | per k: silhouette and bootstrap ARI for real data and all three nulls |
+| `l3_continuum_axes.csv` | L3-F2 — principal axes of the pitcher cloud, correlated against readable features |
+| `l3_cluster_summary.csv`, `l3_pitcher_assignments.csv` | descriptive k=8 grouping (did **not** survive the nulls) |
+| `l3_pitchers_vs_nulls.png` | the decisive Level-3 figure |

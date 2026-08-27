@@ -264,7 +264,105 @@ dimension before clustering or it will fit noise, and the reduction has to happe
 
 ---
 
+## L3 — Do pitchers cluster?
+
+**Data.** 2024 + 2025 only. 2026 is excluded: `arm_angle` is 3.6% covered
+(L2-D5) and the local cache is partial through 2026-08-13 because in-season
+ingest moved to the VPS and the local copy stopped updating. **275 starters**
+(≥80% of pitches as SP), 136 of them present in both seasons, 57 features.
+
+### L3-D1 · One row per pitcher, not per pitcher-season
+L2-F1 measured within-pitcher, across-season similarity at cosine 0.936 — a
+pitcher's two seasons are near-duplicates. Left as separate rows they would land
+on both sides of every bootstrap split and inflate stability for reasons having
+nothing to do with clustering. Seasons are averaged to one row per pitcher.
+
+### L3-D2 · Centered log-ratio on the compositional blocks
+The cell vectors sum to one, so their components are not free to vary
+independently and plain Euclidean distance on them is not meaningful. CLR maps
+each composition into real space where it is. GMM responsibilities are strictly
+positive, so no zero-handling is needed beyond an underflow floor.
+
+### L3-D3 · Dimension reduction inside the resampling loop
+57 features against 275 rows. PCA (10 components, 83.9% of variance) is refit on
+whatever rows it is handed, so inside a bootstrap it is refit per split. Fitting
+it once on all rows would let a held-out half inform its own projection and
+quietly contaminate every stability number.
+
+### L3-D4 · Three nulls, and only the third one tests the question
+This is the methodological core of the level, and getting it wrong would have
+produced a false discovery.
+
+- **Null A** — every column shuffled independently. Destroys all joint structure.
+- **Null B** — whole blocks shuffled between pitchers, each block kept intact.
+  Every pitcher gets some real pitcher's pooled arsenal, another's `vsL`, and so
+  on. Destroys only the association *between* blocks.
+- **Null C** — a single multivariate Gaussian with the real data's mean and
+  covariance. Keeps every correlation exactly and contains **no clusters
+  anywhere by construction.**
+
+Nulls A and B are the obvious choices and they are nearly useless here. Beating
+them establishes only that pitcher features co-vary, which was never in doubt.
+Null C is the only one that isolates the actual question: *is this cloud lumpy,
+or is it one smooth cloud?*
+
+### L3-F1 · Pitchers do not form discrete archetypes ❌ *(decisive)*
+| k | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| real | .63 | .61 | .54 | .66 | .55 | .49 | .50 | .49 | .45 | .45 | .43 |
+| Null A | .14 | .13 | .14 | .14 | .14 | .14 | .14 | .14 | .16 | .13 | .14 |
+| Null B | .34 | .37 | .35 | .29 | .27 | .27 | .25 | .28 | .25 | .26 | .25 |
+| **Null C** | **.79** | **.55** | **.61** | **.55** | **.44** | **.41** | **.36** | **.35** | **.34** | **.32** | **.31** |
+| excess vs C | −.16 | +.06 | −.06 | +.12 | +.11 | +.08 | +.15 | +.14 | +.12 | +.13 | +.12 |
+
+Real pitchers crush Nulls A and B — which, read alone, looks exactly like the
+discovery the study set out to find. Against Null C it evaporates. Mean excess
+across k is **+0.073**, and the real data **loses outright at k=2 and k=4**.
+
+Silhouette says the same thing independently: real 0.117–0.153 against the
+Gaussian cloud's 0.096–0.156. At k=2 the structureless cloud scores *higher*
+than the real pitchers (0.156 vs 0.153).
+
+**Verdict: pitcher archetypes, as discrete types, do not exist.** The groups
+k-means returns are slices of one continuous cloud. Inspecting them confirms it —
+at k=8 the groups differ mainly by arm angle (33° → 53°) and fastball velocity
+(92.6 → 97.0), which are two continuous knobs, not eight kinds of pitcher.
+
+This is the same result as L1, one level up. Pitches lie on a continuum; so do
+the pitchers built out of them.
+
+### L3-F2 · The continuum has named axes, and those are usable ✅
+A cloud with no clusters still has shape. PCA on the pitcher matrix, correlated
+against interpretable features:
+
+| axis | var | reads as | low end | high end |
+|---|---|---|---|---|
+| **PC1** | 24.1% | **slot & separation plane** — arm angle +0.62, vertical movement spread +0.66, horizontal spread −0.66 | Alex Wood, Tanner Houck, Landen Roupp | Tyler Glasnow, Dylan Cease, Triston McKenzie |
+| **PC2** | 13.7% | **horizontal spread** — mov_x_sd +0.56, arm angle −0.32 | Marco Gonzales, Lucas Giolito, James Paxton | Dustin May, Clarke Schmidt, Joe Boyle |
+| **PC3** | 10.0% | **raw velocity** — fb_velo +0.60 | Chris Flexen, Clayton Kershaw, Mitch Spence | Luis Castillo, Cam Schlittler, Keaton Winn |
+| PC4 | 8.3% | vertical spread, inverted | | |
+
+The four axes together carry only 56% of variance — diffuse, which is itself
+consistent with a continuum rather than a small number of types. But the axes
+are real, stable and interpretable, and they are what replaces the archetype
+label: **a pitcher gets coordinates, not a category.**
+
+### L3-Q1 · What L4 must now ask
+The original motivation was never the label for its own sake — it was whether
+knowing a pitcher's type conditions anything. That question survives L3-F1
+intact, because coordinates condition things just as well as categories do, and
+carry more information. L4 should test the continuous axes, not a cluster ID:
+does position on PC1/PC3 interact with opposing-lineup handedness or with
+`n_thruorder_pitcher` to predict `delta_run_exp` beyond the pitcher's own
+rate stats? A negative there would close the study; a positive one is a new
+feature family for the starter projection ceiling
+(see `research/study/BETTING_MARKET_VALUE_RESEARCH.md`).
+
+---
+
 ## Status
 
-L1 and L2 complete. Frontier: **L3** — do pitchers cluster? Same null discipline
-as L1-F5, same permission to return a negative.
+L1, L2, L3 complete. **Two decisive negatives and one usable positive:** neither
+pitches nor pitchers form discrete types, and the right representation of a
+pitcher is a position on a continuum. Frontier: **L4** — does that position
+predict anything?
