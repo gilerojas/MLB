@@ -21,7 +21,7 @@ import sys
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -41,12 +41,23 @@ load_dotenv(REPO_ROOT / "jobs" / ".env")
 load_dotenv(REPO_ROOT / "mlbops" / ".env")
 
 from api.db.database import insert_queue_item, log_notification  # noqa: E402
+from morning_intel import persistence as _persist  # noqa: E402
+from morning_intel import scouting as _scout  # noqa: E402
+from morning_intel import signal_stats as _sig  # noqa: E402
 from src import batter_recent as _br  # noqa: E402
 from src import pitcher_recent as _pr  # noqa: E402
+from src.editorial_system import mallitalytics_editorial_contract  # noqa: E402
 
-WAREHOUSE_ROOT = REPO_ROOT / "data" / "warehouse" / "mlb"
+# The VPS holds the live warehouse at /data/warehouse/mlb inside the api container.
+# Overriding this is what lets the job run next to the data instead of pulling
+# 1,500+ parquet files from Drive on every run.
+WAREHOUSE_ROOT = Path(os.getenv("MLB_WAREHOUSE_ROOT") or (REPO_ROOT / "data" / "warehouse" / "mlb"))
 OUTPUTS_ROOT = REPO_ROOT / "outputs"
-INTEL_OUT = _INTEL_DIR / "snapshots"
+INTEL_OUT = Path(os.getenv("MLB_INTEL_SNAPSHOT_DIR") or (_INTEL_DIR / "snapshots"))
+SCOUTING_LEDGER = Path(os.getenv("MLB_SCOUTING_LEDGER") or (_INTEL_DIR / "scouting" / "ledger.jsonl"))
+# Postseason lands in its own warehouse stage. Reading only regular_season means
+# the engine silently freezes in October instead of failing loudly.
+STAGE_ORDER = ("regular_season", "playoffs")
 STATS_BASE = "https://statsapi.mlb.com/api/v1"
 MLB_NEWS_RSS = "https://www.mlb.com/feeds/news/rss.xml"
 SPORT_ID = 1
@@ -55,7 +66,7 @@ READ_COLS = [
     "game_pk", "game_date", "pitcher", "batter", "player_name", "pitch_type",
     "release_speed", "description", "zone", "type", "launch_speed",
     "launch_speed_angle", "estimated_woba_using_speedangle",
-    "at_bat_number",
+    "at_bat_number", "stand",
 ]
 SWING_CODES = [
     "foul_bunt", "foul", "hit_into_play", "swinging_strike", "foul_tip",
@@ -199,6 +210,12 @@ class IntelReport:
     milestones_detail: list[dict] = field(default_factory=list)
     anomalies_pitchers: list[dict] = field(default_factory=list)
     anomalies_batters: list[dict] = field(default_factory=list)
+    # Publishable findings vs signals only being tracked until they repeat.
+    leads: list[dict] = field(default_factory=list)
+    watch: list[dict] = field(default_factory=list)
+    # Wider pool persisted purely so tomorrow's run can measure repeats.
+    signal_pool: list[dict] = field(default_factory=list)
+    scouting_entries: list[dict] = field(default_factory=list)
     editorial_brief: str = ""
     tweet_drafts: list[str] = field(default_factory=list)
     queue_ids: list[int] = field(default_factory=list)
@@ -260,15 +277,28 @@ def _norm_game_date_series(s: pd.Series) -> pd.Series:
 
 
 def iter_enriched_parquets(season: int, stage: str = "regular_season"):
-    base = WAREHOUSE_ROOT / str(season) / stage
-    if not base.exists():
-        return []
-    out = []
-    for path in sorted(base.rglob("game_*_pitches_enriched.parquet")):
-        fd = _parse_file_date(path)
-        if fd is not None:
-            out.append((path, fd))
-    return out
+    """
+    Indexed enriched files for a stage, or for every stage when ``stage`` is "all".
+
+    Duplicate game files (the warehouse has picked up iCloud copies before) are
+    collapsed by game_pk. A doubled game inflates every window count, which would
+    understate the standard errors the ranking now depends on.
+    """
+    stages = STAGE_ORDER if stage == "all" else (stage,)
+    by_game: dict[str, tuple[Path, date]] = {}
+    for st in stages:
+        base = WAREHOUSE_ROOT / str(season) / st
+        if not base.exists():
+            continue
+        for path in sorted(base.rglob("game_*_pitches_enriched.parquet")):
+            fd = _parse_file_date(path)
+            if fd is None:
+                continue
+            m = PARQUET_NAME_RE.search(path.name)
+            game_pk = m.group(1) if m else str(path)
+            if game_pk not in by_game:
+                by_game[game_pk] = (path, fd)
+    return sorted(by_game.values(), key=lambda pair: pair[1])
 
 
 def load_parquet_paths(paths: list[Path]) -> pd.DataFrame:
@@ -312,6 +342,7 @@ def enrich_pitch_features(df: pd.DataFrame) -> pd.DataFrame:
     df["in_zone"] = df["zone"].lt(10)
     df["chase"] = (~df["in_zone"]) & df["swing"]
     df["bip"] = df["type"] == "X"
+    df["stand"] = df["stand"].fillna("").astype(str).str.upper().str[:1]
     return df
 
 
@@ -365,33 +396,116 @@ def _batter_table(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index()
 
 
+def _expected_mix_for_split(base_df, stand_shares: dict[str, float]) -> pd.Series:
+    """
+    Baseline mix reweighted to the handedness the pitcher actually faced recently.
+
+    A pitcher facing a lefty-heavy lineup throws more changeups. That is a change
+    in the opponent, not in the pitcher, and it was the single largest source of
+    false mix alarms.
+    """
+    parts = []
+    weights = []
+    for hand, share in stand_shares.items():
+        pool = base_df[base_df["stand"] == hand]
+        if len(pool) < 20:
+            continue
+        parts.append(pool["pitch_type"].value_counts(normalize=True))
+        weights.append(share)
+    if not parts or sum(weights) <= 0:
+        return base_df["pitch_type"].value_counts(normalize=True)
+    total = sum(weights)
+    expected = None
+    for series, weight in zip(parts, weights):
+        scaled = series * (weight / total)
+        expected = scaled if expected is None else expected.add(scaled, fill_value=0.0)
+    return expected
+
+
+def _outing_mix_rates(window_df, pitch_type: str) -> list[float]:
+    """Usage rate of one pitch type in each qualifying outing of the window."""
+    rates = []
+    for _, outing in window_df.groupby("game_pk", sort=False):
+        if len(outing) < 12:
+            continue
+        rates.append(float((outing["pitch_type"] == pitch_type).mean()))
+    return rates
+
+
+def _mix_holds_across_starts(rates: list[float], base_rate: float, direction: int) -> int:
+    """How many of the window's outings move the same way. Guards one-start blips."""
+    if direction > 0:
+        return sum(1 for r in rates if r > base_rate)
+    return sum(1 for r in rates if r < base_rate)
+
+
 def _dominant_mix_shift(window_df, base_df, pid):
+    """
+    Largest usage shift against a handedness-adjusted baseline.
+
+    Returns ``(pitch_type, expected_pct, observed_pct, n_window, holds, n_outings,
+    is_new_pitch, outing_rates)`` or None. Usage is compared to what this pitcher
+    throws against the handedness he just faced, and the shift must show up in more
+    than one outing before it counts.
+    """
     w = window_df[_pid_match_series(window_df["pitcher"], pid)]
     b = base_df[_pid_match_series(base_df["pitcher"], pid)]
     if len(w) < MIN_PITCHES_WINDOW or len(b) < MIN_PITCHES_BASELINE:
         return None
-    wc = w["pitch_type"].value_counts(normalize=True)
-    bc = b["pitch_type"].value_counts(normalize=True)
-    keys = set(wc.index) | set(bc.index)
+
+    stand_counts = w["stand"].value_counts(normalize=True).to_dict()
+    stand_shares = {h: s for h, s in stand_counts.items() if h in ("L", "R")}
+    expected = _expected_mix_for_split(b, stand_shares)
+    observed = w["pitch_type"].value_counts(normalize=True)
+
+    n_outings = int(w.groupby("game_pk").size().ge(12).sum())
     best = None
-    for k in keys:
-        pv = float(wc.get(k, 0.0))
-        pb = float(bc.get(k, 0.0))
-        if pb < 0.05 and pv < 0.05:
+    for k in set(observed.index) | set(expected.index):
+        pv = float(observed.get(k, 0.0))
+        pe = float(expected.get(k, 0.0))
+        if pe < 0.05 and pv < 0.05:
             continue
-        delta = pv - pb
-        if best is None or abs(delta) > abs(best[2]):
-            best = (k, pb, pv)
+        delta = pv - pe
+        if best is None or abs(delta) > abs(best[2] - best[1]):
+            best = (k, pe, pv)
     if best is None:
         return None
-    k, pb, pv = best
-    if abs(pv - pb) < 0.08:
+
+    k, pe, pv = best
+    if abs(pv - pe) < 0.08:
         return None
-    return (k, pb * 100, pv * 100)
+    direction = 1 if pv > pe else -1
+    rates = _outing_mix_rates(w, k)
+    holds = _mix_holds_across_starts(rates, pe, direction)
+    # A genuinely new pitch is a story; a one-outing usage wobble is not.
+    is_new_pitch = pe < 0.02 and pv >= 0.10
+    if holds < 2 and not is_new_pitch:
+        return None
+    return (k, pe * 100, pv * 100, len(w), holds, n_outings, is_new_pitch, rates)
 
 
 def _anomaly_pitcher_label() -> str:
     return f"last {RECENT_STARTS} vs prior {BASELINE_STARTS} starts"
+
+
+def _pitch_item(pid, wlab, metric, window_val, base_val, delta, n_w, n_b, counts, se):
+    """One pitcher anomaly, annotated with its own standard error."""
+    return _sig.annotate({
+        "player_id": pid,
+        "role": "pitcher",
+        "window_days": None,
+        "window_kind": "starts",
+        "window_starts": RECENT_STARTS,
+        "baseline_starts": BASELINE_STARTS,
+        "window_label": wlab,
+        "metric": metric,
+        "window": window_val,
+        "baseline": base_val,
+        "delta": delta,
+        "n_window": n_w,
+        "n_baseline": n_b,
+        "counts": counts,
+    }, se)
 
 
 def detect_pitcher_anomalies(full_df, anchor):
@@ -413,66 +527,42 @@ def detect_pitcher_anomalies(full_df, anchor):
         bpool = _pr.pool_for_games(pit_df, pid, bg)
         if len(wpool) < 50 or len(bpool) < 100:
             continue
+        counts = {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)}
+
         w_vel = float(wpool["release_speed"].mean())
         b_vel = float(bpool["release_speed"].mean())
         velo_d = w_vel - b_vel
         if abs(velo_d) >= 1.2:
-            out.append({
-                "player_id": pid,
-                "role": "pitcher",
-                "window_days": None,
-                "window_kind": "starts",
-                "window_starts": RECENT_STARTS,
-                "baseline_starts": BASELINE_STARTS,
-                "window_label": wlab,
-                "metric": "avg_velo_mph",
-                "window": round(w_vel, 2),
-                "baseline": round(b_vel, 2),
-                "delta": round(velo_d, 2),
-                "n_window": len(wpool),
-                "n_baseline": len(bpool),
-                "counts": {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)},
-            })
+            se = _sig.mean_diff_se(
+                float(wpool["release_speed"].std(ddof=1)), int(wpool["release_speed"].count()),
+                float(bpool["release_speed"].std(ddof=1)), int(bpool["release_speed"].count()),
+                metric="avg_velo_mph",
+            )
+            out.append(_pitch_item(
+                pid, wlab, "avg_velo_mph", round(w_vel, 2), round(b_vel, 2),
+                round(velo_d, 2), len(wpool), len(bpool), counts, se,
+            ))
+
         w_wh = float(wpool["whiff"].mean())
         b_wh = float(bpool["whiff"].mean())
         d_wh = (w_wh - b_wh) * 100.0
         if abs(d_wh) >= 5.0:
-            out.append({
-                "player_id": pid,
-                "role": "pitcher",
-                "window_days": None,
-                "window_kind": "starts",
-                "window_starts": RECENT_STARTS,
-                "baseline_starts": BASELINE_STARTS,
-                "window_label": wlab,
-                "metric": "whiff_pct",
-                "window": round(w_wh * 100.0, 1),
-                "baseline": round(b_wh * 100.0, 1),
-                "delta": round(d_wh, 1),
-                "n_window": len(wpool),
-                "n_baseline": len(bpool),
-                "counts": {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)},
-            })
+            se = _sig.rate_se_from_pcts(w_wh * 100.0, len(wpool), b_wh * 100.0, len(bpool))
+            out.append(_pitch_item(
+                pid, wlab, "whiff_pct", round(w_wh * 100.0, 1), round(b_wh * 100.0, 1),
+                round(d_wh, 1), len(wpool), len(bpool), counts, se,
+            ))
+
         w_ch = float(wpool["chase"].mean())
         b_ch = float(bpool["chase"].mean())
         d_ch = (w_ch - b_ch) * 100.0
         if abs(d_ch) >= 5.0:
-            out.append({
-                "player_id": pid,
-                "role": "pitcher",
-                "window_days": None,
-                "window_kind": "starts",
-                "window_starts": RECENT_STARTS,
-                "baseline_starts": BASELINE_STARTS,
-                "window_label": wlab,
-                "metric": "chase_pct",
-                "window": round(w_ch * 100.0, 1),
-                "baseline": round(b_ch * 100.0, 1),
-                "delta": round(d_ch, 1),
-                "n_window": len(wpool),
-                "n_baseline": len(bpool),
-                "counts": {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)},
-            })
+            se = _sig.rate_se_from_pcts(w_ch * 100.0, len(wpool), b_ch * 100.0, len(bpool))
+            out.append(_pitch_item(
+                pid, wlab, "chase_pct", round(w_ch * 100.0, 1), round(b_ch * 100.0, 1),
+                round(d_ch, 1), len(wpool), len(bpool), counts, se,
+            ))
+
         wb = wpool[wpool["bip"]]
         bb = bpool[bpool["bip"]]
         if len(wb) >= 6 and len(bb) >= 15:
@@ -480,42 +570,60 @@ def detect_pitcher_anomalies(full_df, anchor):
             xw_b = float(bb["estimated_woba_using_speedangle"].mean())
             d_xw = xw_w - xw_b
             if abs(d_xw) >= 0.04:
-                out.append({
-                    "player_id": pid,
-                    "role": "pitcher",
-                    "window_days": None,
-                    "window_kind": "starts",
-                    "window_starts": RECENT_STARTS,
-                    "baseline_starts": BASELINE_STARTS,
-                    "window_label": wlab,
-                    "metric": "xwoba_on_BIP",
-                    "window": round(xw_w, 3),
-                    "baseline": round(xw_b, 3),
-                    "delta": round(d_xw, 3),
-                    "n_window": len(wb),
-                    "n_baseline": len(bb),
-                    "counts": {"bip_recent": len(wb), "bip_baseline": len(bb)},
-                })
+                se = _sig.mean_diff_se(
+                    float(wb["estimated_woba_using_speedangle"].std(ddof=1)),
+                    int(wb["estimated_woba_using_speedangle"].count()),
+                    float(bb["estimated_woba_using_speedangle"].std(ddof=1)),
+                    int(bb["estimated_woba_using_speedangle"].count()),
+                    metric="xwoba_on_BIP",
+                )
+                out.append(_pitch_item(
+                    pid, wlab, "xwoba_on_BIP", round(xw_w, 3), round(xw_b, 3),
+                    round(d_xw, 3), len(wb), len(bb),
+                    {"bip_recent": len(wb), "bip_baseline": len(bb)}, se,
+                ))
+
         mix = _dominant_mix_shift(wpool, bpool, pid)
         if mix:
-            name, pb, pv = mix
-            out.append({
-                "player_id": pid,
-                "role": "pitcher",
-                "window_days": None,
-                "window_kind": "starts",
-                "window_starts": RECENT_STARTS,
-                "baseline_starts": BASELINE_STARTS,
-                "window_label": wlab,
-                "metric": f"mix_{name}_pct",
-                "window": round(pv, 1),
-                "baseline": round(pb, 1),
-                "delta": round(pv - pb, 1),
-                "n_window": len(wpool),
-                "n_baseline": len(bpool),
-                "counts": {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)},
-            })
+            name, pe, pv, n_mix, holds, n_outings, is_new, rates = mix
+            # Between-outing spread, not per-pitch binomial: the outing is the
+            # unit at which a pitcher actually changes his usage.
+            se = _sig.cluster_se([r * 100.0 for r in rates], pe)
+            item = _pitch_item(
+                pid, wlab, f"mix_{name}_pct", round(pv, 1), round(pe, 1),
+                round(pv - pe, 1), n_mix, len(bpool),
+                {**counts, "outings_holding": holds, "outings": n_outings}, se,
+            )
+            item["baseline_kind"] = "handedness_adjusted"
+            item["new_pitch"] = bool(is_new)
+            out.append(item)
     return out
+
+def _bat_item(bid, wlab, kind, win_n, base_n, metric, window_val, base_val, delta, n_w, n_b, counts, se):
+    """One batter anomaly, annotated with its own standard error."""
+    return _sig.annotate({
+        "player_id": bid,
+        "role": "batter",
+        "window_days": None,
+        "window_kind": kind,
+        "window_n": win_n,
+        "baseline_n": base_n,
+        "window_label": wlab,
+        "metric": metric,
+        "window": window_val,
+        "baseline": base_val,
+        "delta": delta,
+        "n_window": n_w,
+        "n_baseline": n_b,
+        "counts": counts,
+    }, se)
+
+
+def _std(series) -> float:
+    try:
+        return float(pd.to_numeric(series, errors="coerce").std(ddof=1))
+    except (TypeError, ValueError):
+        return float("nan")
 
 
 def detect_batter_anomalies(full_df, anchor):
@@ -539,77 +647,52 @@ def detect_batter_anomalies(full_df, anchor):
             sw = _br.summarize_bip_pool(wr)
             sb = _br.summarize_bip_pool(br)
             wlab = f"last {RECENT_BBE} vs prior {BASELINE_BBE} BBE"
+            counts = {
+                "barrels_recent": sw.get("barrels", 0),
+                "barrels_baseline": sb.get("barrels", 0),
+            }
+
             ev_w = sw.get("avg_ev")
             ev_b = sb.get("avg_ev")
             if ev_w is not None and ev_b is not None:
                 ev_d = float(ev_w) - float(ev_b)
                 if abs(ev_d) >= 2.0:
-                    out.append({
-                        "player_id": bid,
-                        "role": "batter",
-                        "window_days": None,
-                        "window_kind": "bbe",
-                        "window_n": RECENT_BBE,
-                        "baseline_n": BASELINE_BBE,
-                        "window_label": wlab,
-                        "metric": "avg_EV_mph",
-                        "window": round(float(ev_w), 2),
-                        "baseline": round(float(ev_b), 2),
-                        "delta": round(ev_d, 2),
-                        "n_window": sw["n"],
-                        "n_baseline": sb["n"],
-                        "counts": {
-                            "barrels_recent": sw.get("barrels", 0),
-                            "barrels_baseline": sb.get("barrels", 0),
-                        },
-                    })
+                    se = _sig.mean_diff_se(
+                        _std(wr["launch_speed"]), sw["n"], _std(br["launch_speed"]), sb["n"],
+                        metric="avg_EV_mph",
+                    )
+                    out.append(_bat_item(
+                        bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "avg_EV_mph",
+                        round(float(ev_w), 2), round(float(ev_b), 2), round(ev_d, 2),
+                        sw["n"], sb["n"], counts, se,
+                    ))
+
             br_w = float(sw.get("barrel_pct") or 0.0)
             br_b = float(sb.get("barrel_pct") or 0.0)
             br_d = br_w - br_b
             if abs(br_d) >= 4.0:
-                out.append({
-                    "player_id": bid,
-                    "role": "batter",
-                    "window_days": None,
-                    "window_kind": "bbe",
-                    "window_n": RECENT_BBE,
-                    "baseline_n": BASELINE_BBE,
-                    "window_label": wlab,
-                    "metric": "barrel_pct",
-                    "window": round(br_w, 1),
-                    "baseline": round(br_b, 1),
-                    "delta": round(br_d, 1),
-                    "n_window": sw["n"],
-                    "n_baseline": sb["n"],
-                    "counts": {
-                        "barrels_recent": sw.get("barrels", 0),
-                        "barrels_baseline": sb.get("barrels", 0),
-                    },
-                })
+                se = _sig.rate_se_from_pcts(br_w, sw["n"], br_b, sb["n"])
+                out.append(_bat_item(
+                    bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "barrel_pct",
+                    round(br_w, 1), round(br_b, 1), round(br_d, 1),
+                    sw["n"], sb["n"], counts, se,
+                ))
+
             xw_w = sw.get("xwoba")
             xw_b = sb.get("xwoba")
             if xw_w is not None and xw_b is not None:
                 d_xw = float(xw_w) - float(xw_b)
                 if abs(d_xw) >= 0.04:
-                    out.append({
-                        "player_id": bid,
-                        "role": "batter",
-                        "window_days": None,
-                        "window_kind": "bbe",
-                        "window_n": RECENT_BBE,
-                        "baseline_n": BASELINE_BBE,
-                        "window_label": wlab,
-                        "metric": "xwoba_on_BIP",
-                        "window": round(float(xw_w), 3),
-                        "baseline": round(float(xw_b), 3),
-                        "delta": round(d_xw, 3),
-                        "n_window": sw["n"],
-                        "n_baseline": sb["n"],
-                        "counts": {
-                            "barrels_recent": sw.get("barrels", 0),
-                            "barrels_baseline": sb.get("barrels", 0),
-                        },
-                    })
+                    se = _sig.mean_diff_se(
+                        _std(wr["estimated_woba_using_speedangle"]), sw["n"],
+                        _std(br["estimated_woba_using_speedangle"]), sb["n"],
+                        metric="xwoba_on_BIP",
+                    )
+                    out.append(_bat_item(
+                        bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "xwoba_on_BIP",
+                        round(float(xw_w), 3), round(float(xw_b), 3), round(d_xw, 3),
+                        sw["n"], sb["n"], counts, se,
+                    ))
 
     # PA-based fallback for batters without enough BBE
     for bid, _ in pit_df.groupby("batter"):
@@ -632,37 +715,212 @@ def detect_batter_anomalies(full_df, anchor):
         if w_wh is not None and b_wh is not None:
             d = float(w_wh) - float(b_wh)
             if abs(d) >= 5.0:
-                out.append({
-                    "player_id": bid,
-                    "role": "batter",
-                    "window_days": None,
-                    "window_kind": "pa",
-                    "window_n": RECENT_PA_PITCH_ROWS,
-                    "baseline_n": BASELINE_PA_PITCH_ROWS,
-                    "window_label": (
+                se = _sig.rate_se_from_pcts(
+                    float(w_wh), sw["n_pa_pitch_rows"], float(b_wh), sb["n_pa_pitch_rows"],
+                )
+                out.append(_bat_item(
+                    bid,
+                    (
                         f"last {RECENT_PA_PITCH_ROWS} vs prior {BASELINE_PA_PITCH_ROWS} "
                         "PA (pitch rows)"
                     ),
-                    "metric": "whiff_pct",
-                    "window": round(float(w_wh), 1),
-                    "baseline": round(float(b_wh), 1),
-                    "delta": round(d, 1),
-                    "n_window": sw["n_pa_pitch_rows"],
-                    "n_baseline": sb["n_pa_pitch_rows"],
-                    "counts": {},
-                })
+                    "pa", RECENT_PA_PITCH_ROWS, BASELINE_PA_PITCH_ROWS, "whiff_pct",
+                    round(float(w_wh), 1), round(float(b_wh), 1), round(d, 1),
+                    sw["n_pa_pitch_rows"], sb["n_pa_pitch_rows"], {}, se,
+                ))
     return out
+
+# Roughly 1,500 player-metric comparisons run every morning, so |z| > 2.5 still
+# yields on the order of fifteen hits by chance alone. That is why repeats and
+# corroborating reporting carry weight in the score rather than z standing alone.
+LEAD_Z = 2.5
+WATCH_Z = 1.5
+MAX_LEADS = 8
+MAX_LEADS_PER_FAMILY = 3
+FDR_Q = 0.05
+
+
+def anomaly_score(item: dict) -> float:
+    """
+    Rank by surprise, not by raw size.
+
+    Starts at |z| — the delta measured against its own sampling error — then
+    rewards a signal that repeated across days and one that has reporting behind
+    it. A smaller move with a known mechanism outranks a larger unexplained one.
+    """
+    score = abs(float(item.get("z") or 0.0))
+    streak = int((item.get("persistence") or {}).get("streak") or 0)
+    score *= 1.0 + 0.15 * min(streak, 4)
+    corroboration = item.get("corroboration") or []
+    if any(int(c.get("tier") or 9) <= _scout.TIER_REPORTING for c in corroboration):
+        score += 1.0
+    if item.get("new_pitch"):
+        score += 0.5
+    return score
 
 
 def rank_unique_anomalies(items, top=25):
+    """Best row per player-metric, ordered by composite score."""
     best = {}
     for it in items:
         key = (it["player_id"], it["role"], it["metric"])
         cur = best.get(key)
-        if cur is None or abs(float(it["delta"])) > abs(float(cur["delta"])):
+        if cur is None or abs(float(it.get("z") or 0.0)) > abs(float(cur.get("z") or 0.0)):
             best[key] = it
-    ranked = sorted(best.values(), key=lambda x: abs(float(x["delta"])), reverse=True)
+    for it in best.values():
+        it["score"] = round(anomaly_score(it), 3)
+    ranked = sorted(best.values(), key=lambda x: x["score"], reverse=True)
     return ranked[:top]
+
+
+def mark_significance(items: list[dict], q: float = 0.05) -> list[dict]:
+    """Flag which signals survive false-discovery control across the whole slate."""
+    p_values = [_sig.two_sided_p(float(it.get("z") or 0.0)) for it in items]
+    for it, p, keep in zip(items, p_values, _sig.benjamini_hochberg(p_values, q=q)):
+        it["p"] = round(p, 6)
+        it["fdr_significant"] = bool(keep)
+    return items
+
+
+def split_leads_and_watch(items: list[dict], max_leads: int = MAX_LEADS) -> tuple[list[dict], list[dict]]:
+    """
+    Partition ranked anomalies into what is publishable and what is only tracked.
+
+    A lead has to clear false-discovery control, or be a repeat or a corroborated
+    signal that clears the softer bar. Sub-threshold signals used to be discarded
+    every morning; holding them in a watch list is what lets a quiet velocity
+    drift graduate once it repeats.
+    """
+    leads, watch = [], []
+    for it in items:
+        z = abs(float(it.get("z") or 0.0))
+        streak = int((it.get("persistence") or {}).get("streak") or 0)
+        corroborated = bool(it.get("corroboration"))
+        significant = bool(it.get("fdr_significant"))
+        if significant or (z >= WATCH_Z and (streak >= 2 or corroborated)):
+            leads.append(it)
+        elif z >= WATCH_Z:
+            watch.append(it)
+    # The newsletter wants a handful of distinct angles. Without a per-family cap
+    # one metric monopolizes the list even when each finding is individually sound.
+    kept, spill = [], []
+    family_counts: dict[str, int] = defaultdict(int)
+    for it in leads:
+        family = "mix" if str(it["metric"]).startswith("mix_") else str(it["metric"])
+        if len(kept) < max_leads and family_counts[family] < MAX_LEADS_PER_FAMILY:
+            family_counts[family] += 1
+            kept.append(it)
+        else:
+            spill.append(it)
+    return kept, spill + watch
+
+
+# Metrics stable enough to carry a prior season forward. Pitch usage is excluded:
+# a pitcher's mix is a plan that genuinely resets between seasons.
+PRIOR_METRICS = {
+    "pitcher": ("avg_velo_mph", "whiff_pct", "chase_pct", "xwoba_on_BIP"),
+    "batter": ("avg_EV_mph", "barrel_pct", "xwoba_on_BIP"),
+}
+PRIORS_DIR = Path(os.getenv("MLB_INTEL_PRIORS_DIR") or (_INTEL_DIR / "priors"))
+
+
+def priors_path(season: int) -> Path:
+    return PRIORS_DIR / f"priors_{season}.json"
+
+
+def build_prior_summary(season: int, stage: str = "all") -> dict:
+    """
+    Per-player season aggregates used as an early-season baseline.
+
+    Built once per season by ``--build-priors``, never during the daily run: it
+    reads the whole season and the morning job has no business paying that cost.
+    """
+    indexed = iter_enriched_parquets(season, stage)
+    if not indexed:
+        return {}
+    df = enrich_pitch_features(load_parquet_paths([p for p, _ in indexed]))
+    if df.empty:
+        return {}
+
+    out: dict[str, dict] = {}
+    pit = df[df["pitcher"].notna()]
+    for pid, grp in pit.groupby(pd.to_numeric(pit["pitcher"], errors="coerce")):
+        if not np.isfinite(pid) or len(grp) < 200:
+            continue
+        bip = grp[grp["bip"]]
+        out[f"pitcher:{int(pid)}"] = {
+            "n": int(len(grp)),
+            "avg_velo_mph": float(grp["release_speed"].mean()),
+            "whiff_pct": float(grp["whiff"].mean()) * 100.0,
+            "chase_pct": float(grp["chase"].mean()) * 100.0,
+            "xwoba_on_BIP": (
+                float(bip["estimated_woba_using_speedangle"].mean()) if len(bip) >= 25 else None
+            ),
+        }
+
+    bat = df[df["batter"].notna() & df["bip"]]
+    for bid, grp in bat.groupby(pd.to_numeric(bat["batter"], errors="coerce")):
+        if not np.isfinite(bid) or len(grp) < 50:
+            continue
+        barrels = int((grp["launch_speed_angle"] == 6).sum())
+        out[f"batter:{int(bid)}"] = {
+            "n": int(len(grp)),
+            "avg_EV_mph": float(grp["launch_speed"].mean()),
+            "barrel_pct": barrels / len(grp) * 100.0,
+            "xwoba_on_BIP": float(grp["estimated_woba_using_speedangle"].mean()),
+        }
+    return out
+
+
+def load_priors(season: int) -> dict:
+    path = priors_path(season)
+    if not path.exists():
+        return {}
+    try:
+        with path.open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def apply_prior_season(items: list[dict], season: int, anchor: date, stage: str, report) -> list[dict]:
+    """
+    Pull thin in-season baselines toward the player's prior season.
+
+    In April a "baseline" of 40 batted balls is barely a baseline at all. Blending
+    it with last season by the same stabilization weight used elsewhere means one
+    formula covers the whole calendar instead of April needing its own rules.
+    """
+    priors = load_priors(season - 1)
+    if not priors:
+        report.notes.append(
+            f"No {season - 1} priors cached — early-season baselines are unblended. "
+            "Run --build-priors once that season is in the warehouse."
+        )
+        return items
+
+    blended = 0
+    for item in items:
+        role = item.get("role")
+        metric = str(item.get("metric") or "")
+        if metric not in PRIOR_METRICS.get(role, ()):
+            continue
+        prior = priors.get(f"{role}:{int(item['player_id'])}")
+        if not prior or prior.get(metric) is None:
+            continue
+        n_b = int(item.get("n_baseline") or 0)
+        new_base = _sig.blend_prior(float(item["baseline"]), n_b, float(prior[metric]), metric)
+        if abs(new_base - float(item["baseline"])) < 1e-9:
+            continue
+        item["baseline_unblended"] = item["baseline"]
+        item["baseline"] = round(new_base, 3)
+        item["baseline_kind"] = f"blended_with_{season - 1}"
+        item["delta"] = round(float(item["window"]) - new_base, 3)
+        _sig.annotate(item, item.get("se"))
+        blended += 1
+    if blended:
+        report.notes.append(f"Blended {blended} baselines with {season - 1} priors.")
+    return items
 
 
 def _pid_match_series(s: pd.Series, pid: int) -> pd.Series:
@@ -1288,9 +1546,12 @@ def generate_editorial_glm(findings_summary: str, n: int = 5) -> tuple[str, list
         return "", ["(Set GLM_API_KEY for the editorial brief and tweet drafts.)"]
     model = os.getenv("GLM_MODEL", "glm-5.2").strip() or "glm-5.2"
     base_url = os.getenv("GLM_BASE_URL", "https://api.z.ai/api/coding/paas/v4").rstrip("/")
-    system_prompt = """You are the editor of Mallitalytics Morning Intel, a concise daily MLB newsletter for Gilberto Rojas.
+    editorial_contract = mallitalytics_editorial_contract("newsletter")
+    system_prompt = f"""You are the editor of Mallitalytics Morning Intel, a concise daily MLB newsletter for Gilberto Rojas.
 
 Voice: analytical, useful, baseball-literate, and direct. Write like a stable professional publication, not an AI assistant.
+
+{editorial_contract}
 
 Grounding rules:
 - Use only facts explicitly present in the supplied JSON.
@@ -1731,7 +1992,12 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
     yesterday = anchor - timedelta(days=1)
     today = anchor
     tomorrow = anchor + timedelta(days=1)
+    name_index = _scout.build_name_index(WAREHOUSE_ROOT / str(season) / "players_registry.json")
+    if not name_index:
+        report.notes.append("No players_registry.json — news could not be linked to players.")
     report.news_stories = api_mlb_news(limit=6)
+    for story in report.news_stories:
+        story["player_ids"] = _scout.resolve_players(story.get("title", ""), name_index)
     report.yesterday_results = api_game_results(yesterday)
     df = pd.DataFrame()
     indexed = iter_enriched_parquets(season, stage)
@@ -1750,11 +2016,32 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
             report.notes.append("Parquet load produced empty frame.")
         else:
             df = enrich_pitch_features(df)
-            report.anomalies_pitchers = rank_unique_anomalies(
-                detect_pitcher_anomalies(df, anchor),
+            raw = detect_pitcher_anomalies(df, anchor) + detect_batter_anomalies(df, anchor)
+            raw = apply_prior_season(raw, season, anchor, stage, report)
+
+            history = _persist.build_history(_persist.load_recent(INTEL_OUT, anchor))
+            _persist.apply(raw, history)
+
+            ledger_entries = _scout.read_since(
+                SCOUTING_LEDGER,
+                datetime.now(timezone.utc) - timedelta(days=14),
             )
-            report.anomalies_batters = rank_unique_anomalies(
-                detect_batter_anomalies(df, anchor),
+            report.scouting_entries = ledger_entries
+            _scout.corroborate(raw, ledger_entries)
+
+            # False-discovery control has to see every test, so rank the full
+            # deduped slate before trimming to the snapshot pool.
+            scored = rank_unique_anomalies(raw, top=len(raw))
+            mark_significance(scored, q=FDR_Q)
+            n_sig = sum(1 for a in scored if a["fdr_significant"])
+            pool = scored[:_persist.SIGNAL_POOL_SIZE]
+            report.signal_pool = pool
+            report.leads, report.watch = split_leads_and_watch(pool)
+            report.anomalies_pitchers = [a for a in pool if a["role"] == "pitcher"][:25]
+            report.anomalies_batters = [a for a in pool if a["role"] == "batter"][:25]
+            report.notes.append(
+                f"{len(scored)} tests -> {n_sig} survive FDR q={FDR_Q} -> "
+                f"{len(report.leads)} leads, {len(report.watch)} watch."
             )
     ids = list({int(a["player_id"]) for a in report.anomalies_pitchers + report.anomalies_batters})
     mile_ids = list(dict.fromkeys(
@@ -1864,6 +2151,10 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
         "milestones_detail": report.milestones_detail,
         "anomalies_pitchers": report.anomalies_pitchers,
         "anomalies_batters": report.anomalies_batters,
+        "leads": report.leads,
+        "watch": report.watch,
+        # Read back by the next run to measure repeats — not newsletter content.
+        "signal_pool": report.signal_pool,
         "editorial_brief": report.editorial_brief,
         "tweet_drafts": report.tweet_drafts,
         "queue_ids": report.queue_ids,
@@ -1890,7 +2181,16 @@ def main():
     parser = argparse.ArgumentParser(description="Mallitalytics morning intel job")
     parser.add_argument("--date", default=None, help="Anchor YYYY-MM-DD (default yesterday UTC)")
     parser.add_argument("--season", type=int, default=None, help="Warehouse season year")
-    parser.add_argument("--stage", default="regular_season", help="Warehouse stage folder")
+    parser.add_argument(
+        "--stage",
+        default="all",
+        help="Warehouse stage folder, or 'all' to include postseason alongside the regular season.",
+    )
+    parser.add_argument(
+        "--build-priors",
+        action="store_true",
+        help="Aggregate the season into a prior-season baseline cache, then exit. Run once per season.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--skip-notify", action="store_true")
     parser.add_argument("--skip-claude", action="store_true")
@@ -1907,6 +2207,12 @@ def main():
     args = parser.parse_args()
     anchor = date.fromisoformat(args.date) if args.date else date.today()
     season = args.season or anchor.year
+    if args.build_priors:
+        summary = build_prior_summary(season, args.stage)
+        PRIORS_DIR.mkdir(parents=True, exist_ok=True)
+        priors_path(season).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"Wrote {priors_path(season)} ({len(summary)} player-seasons)")
+        return
     print(f"\n{'='*60}\n  Morning Intel — anchor={anchor} season={season}\n{'='*60}")
     run_intel(
         anchor,
