@@ -1,6 +1,13 @@
-# Morning Intel newsletter: current-season Statcast + MLB APIs + GLM 5.2 + Gmail.
+# Morning Intel newsletter: current-season Statcast + MLB APIs + GLM 5.3 + Gmail.
 # This job is read-only with respect to the production queue and only downloads
 # the enriched pitch files needed for league-wide signals.
+#
+# SUPERSEDED BY deploy/vps_morning_intel.sh. That script runs the same job on the
+# VPS against the live warehouse, with no Drive pull and no 1,500-file transfer.
+# This workflow is still wired up so the briefing does not stop while the VPS
+# cron is being installed; once it is, disable the workflow_run trigger below.
+# Note that mlb.com serves headlines to Actions but 403s the VPS, so the two
+# paths differ in the news section only.
 
 name: Morning Intel
 
@@ -163,7 +170,7 @@ jobs:
           TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
           TWILIO_WHATSAPP_TO: ${{ secrets.TWILIO_WHATSAPP_TO }}
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
-          GLM_MODEL: glm-5.2
+          GLM_MODEL: glm-5.3
           GLM_BASE_URL: https://api.z.ai/api/coding/paas/v4
           MPLBACKEND: Agg
         run: |

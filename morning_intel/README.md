@@ -5,8 +5,61 @@ Everything for the daily intel pipeline lives **in this folder** (except the Git
 | Path | Purpose |
 |------|---------|
 | `morning_intel.py` | Main CLI — MLB news + scores + Statcast signals + GLM editorial + newsletter email |
+| `signal_stats.py` | Standard errors, shrinkage, FDR — how a delta becomes a ranked finding |
+| `persistence.py` | Reads prior snapshots so a signal that repeats outranks one that does not |
+| `scouting.py` | Scouting ledger + news-to-player entity resolution |
+| `collect_scouting.py` | Collector CLI — transactions, MLB.com, Grok → ledger |
 | `morning_digest.py` | Deprecated stub (points you to `morning_intel.py`) |
 | `snapshots/` | JSON data and HTML newsletter previews written each run |
+| `scouting/ledger.jsonl` | Append-only sourced claims (gitignored) |
+| `priors/` | Cached prior-season baselines (gitignored) |
+
+## How a signal becomes a lead
+
+Findings are ranked by **delta over its own standard error**, not by raw delta.
+Ranking by size alone sorts toward whichever metric is noisiest at the smallest
+sample — it previously filled the newsletter with pitch-mix swings on 50-pitch
+windows and batters who happened to hit three barrels in ten balls in play.
+
+1. **Detect** — each metric emits its own standard error. Rates use a pooled
+   binomial; means regularize toward league dispersion measured from the
+   warehouse; pitch mix uses *between-outing* spread, because a pitcher picks a
+   plan per start rather than per pitch.
+2. **Blend** — thin baselines are pulled toward the cached prior season by the
+   metric's stabilization weight, so April needs no special-casing.
+3. **Persist** — prior snapshots are read back and repeats are scored up. A
+   false positive from noise rarely repeats three days running.
+4. **Corroborate** — ledger claims from the last 14 days attach to the signal. A
+   smaller move with a known mechanism outranks a larger unexplained one.
+5. **Control** — Benjamini-Hochberg across the whole slate, because ~1,600
+   comparisons run every morning and any fixed cutoff admits chance findings.
+6. **Split** — a handful of leads (capped per metric family so one metric cannot
+   monopolize them) and a watch list that graduates on repeat.
+
+## Running
+
+```bash
+# briefing (local warehouse)
+python morning_intel/morning_intel.py --dry-run --skip-notify --skip-claude
+
+# on the VPS, next to the live warehouse — this is the production path
+deploy/vps_morning_intel.sh
+
+# scouting collector; safe to run more often than the briefing
+python morning_intel/collect_scouting.py --hours 24 --dry-run
+
+# prior-season baselines, once per season, wherever that season is complete
+python morning_intel/morning_intel.py --season 2025 --build-priors
+```
+
+`priors_<season>.json` is a derived artifact and is gitignored. Build it where
+the season is complete and copy it to `morning_intel/priors/` on the target
+host — the VPS warehouse currently holds only the current season.
+
+**Known constraint:** `mlb.com` refuses datacenter traffic, so the RSS headline
+section is empty when the job runs on the VPS (`statsapi.mlb.com` is
+unaffected). The reason appears in the pipeline notes rather than silently
+emptying the section, and the scouting ledger still supplies reporting.
 
 **Environment variables** (create `morning_intel/.env` — gitignored — or reuse `jobs/.env`; both are loaded)
 
