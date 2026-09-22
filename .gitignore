@@ -78,6 +78,8 @@ Thumbs.db
 
 # Generated assets (keeps git status readable; force-add with -f if you must commit one file)
 *.png
+# Brand assets are source, not output — the newsletter loads them at runtime.
+!assets/brand/*.png
 *.jpg
 *.jpeg
 *.gif

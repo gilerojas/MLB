@@ -55,6 +55,10 @@ WAREHOUSE_ROOT = Path(os.getenv("MLB_WAREHOUSE_ROOT") or (REPO_ROOT / "data" / "
 OUTPUTS_ROOT = REPO_ROOT / "outputs"
 INTEL_OUT = Path(os.getenv("MLB_INTEL_SNAPSHOT_DIR") or (_INTEL_DIR / "snapshots"))
 SCOUTING_LEDGER = Path(os.getenv("MLB_SCOUTING_LEDGER") or (_INTEL_DIR / "scouting" / "ledger.jsonl"))
+# Email-optimised brand mark. Gmail strips data: URIs on <img>, so the mail
+# carries this as an inline CID attachment; the saved preview inlines it instead.
+LOGO_EMAIL_PATH = Path(os.getenv("MLB_INTEL_LOGO") or (REPO_ROOT / "assets" / "brand" / "logo_email_horizontal.png"))
+LOGO_CID = "mallilogo"
 # Postseason lands in its own warehouse stage. Reading only regular_season means
 # the engine silently freezes in October instead of failing loudly.
 STAGE_ORDER = ("regular_season", "playoffs")
@@ -1390,6 +1394,52 @@ def api_mlb_news(limit: int = 6) -> tuple[list[dict], str]:
         return [], f"MLB.com news feed unreachable ({type(exc).__name__})."
 
 
+def _stories_from_ledger(entries: list[dict], limit: int = 5) -> list[dict]:
+    """
+    Stand in for the headline feed using sourced ledger claims.
+
+    mlb.com refuses the VPS, so on that host the feed is always empty. The ledger
+    already holds dated, attributed reporting, which is closer to what the section
+    was for than a list of headlines was.
+    """
+    # Official transactions already have their own panel, and most of them are
+    # affiliate roster moves rather than league news, so this draws on reporting.
+    # Newest first, and a hinge outranks a routine move.
+    priority = {"injury": 0, "role_change": 1, "quote": 2, "performance": 3}
+    candidates = [
+        e for e in entries
+        if e.get("url") and e.get("claim")
+        and str(e.get("source") or "") != "mlb_transactions"
+    ]
+    # Newest first, then a stable pass puts the more newsworthy kinds on top.
+    candidates.sort(key=lambda e: str(e.get("ts") or ""), reverse=True)
+    ranked = sorted(
+        candidates,
+        key=lambda e: (
+            priority.get(str(e.get("event_type") or ""), 4),
+            int(e.get("tier") or 9),
+        ),
+    )
+    seen: set[str] = set()
+    stories: list[dict] = []
+    for entry in ranked:
+        claim = str(entry["claim"]).strip()
+        if claim in seen:
+            continue
+        seen.add(claim)
+        stories.append({
+            "title": claim,
+            "url": str(entry["url"]),
+            "author": str(entry.get("source") or "ledger"),
+            "published_at": entry.get("ts") or "",
+            "image_url": "",
+            "player_ids": entry.get("player_ids") or [],
+        })
+        if len(stories) >= limit:
+            break
+    return stories
+
+
 def api_game_results(day: date) -> list[str]:
     """Return concise final scores for the previous day's MLB slate."""
     try:
@@ -1907,59 +1957,141 @@ def _email_date(value: str) -> str:
         return value
 
 
-def _email_list(items: list[str], empty: str = "Nothing to report.", limit: int = 8) -> str:
-    rows = items[:limit] or [empty]
-    return "".join(
-        "<tr><td style='padding:9px 0;border-bottom:1px solid #e5e7eb;"
-        "font-size:14px;line-height:1.45;color:#263548'>"
-        f"{html.escape(str(row))}</td></tr>"
-        for row in rows
+# Brand palette (MALLITALYTICS_BRAND.md section 3). Orange is the attention
+# colour and appears at most once per edition; it fails contrast as text on the
+# cream surface (2.28:1), so it is only ever a fill behind dark ink.
+BRAND_INK = "#2E3A43"
+BRAND_GREEN = "#4E7B62"
+BRAND_OLIVE = "#A5B884"
+BRAND_ORANGE = "#F97D34"
+BRAND_CREAM = "#F2EFE9"
+BRAND_RULE = "#DCD7CC"
+BRAND_TRACK = "#E3DFD6"
+BRAND_MUTED = "#6F7B84"
+# Montserrat is the brand face; email clients that refuse webfonts fall back.
+# No quotes in these stacks: a quoted family inside a single-quoted style
+# attribute closes the attribute early and the whole declaration is dropped.
+FONT_STACK = "Montserrat,Helvetica,Arial,sans-serif"
+FONT_DATA = "JetBrains Mono,Menlo,Consolas,monospace"
+
+# Confidence is a status encoding, so every chip carries its word as well as its
+# colour. Verified contrast: ink on orange 4.44:1, ink on olive 5.43:1.
+_CONFIDENCE_CHIP = {
+    "strong": (BRAND_OLIVE, BRAND_INK),
+    "solid": (BRAND_CREAM, BRAND_INK),
+    "tentative": (BRAND_CREAM, BRAND_MUTED),
+}
+
+
+def _band(title: str, fill: str = BRAND_INK) -> str:
+    """A section band. Carries the hierarchy on its own — no decorative eyebrow."""
+    return (
+        f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+        f"<td style='background:{fill};padding:7px 14px'>"
+        f"<div style=\"font-family:{FONT_STACK};font-size:12px;font-weight:700;"
+        f"letter-spacing:.1em;color:{BRAND_CREAM};text-transform:uppercase\">"
+        f"{html.escape(title)}</div></td></tr></table>"
     )
 
 
-_CONFIDENCE_COLORS = {"strong": "#007f78", "solid": "#2b6cb0", "tentative": "#7a8696"}
+def _meter(z: float, max_z: float = 8.0) -> str:
+    """
+    A thin magnitude bar for |z|, drawn as table cells so Outlook keeps it.
+
+    One hue on a light track, the value labelled in ink beside it — the bar is
+    for scanning eight leads at a glance, not for reading a number off.
+    """
+    pct = max(6, min(100, round(abs(z) / max_z * 100)))
+    return (
+        "<table role='presentation' cellspacing='0' cellpadding='0' width='100%' "
+        "style='margin-top:7px'><tr>"
+        f"<td width='{pct}%' style='background:{BRAND_GREEN};height:6px;"
+        "font-size:0;line-height:0;border-radius:3px'>&nbsp;</td>"
+        f"<td style='background:{BRAND_TRACK};height:6px;font-size:0;line-height:0;"
+        "border-radius:3px'>&nbsp;</td>"
+        "</tr></table>"
+    )
 
 
 def _lead_rows_html(items: list[dict]) -> str:
-    """Publishable findings: the number, what stands behind it, and any hinge."""
+    """Publishable findings: the number as hero, then what stands behind it."""
     if not items:
         return (
-            "<tr><td style='padding:14px 0;color:#6b7788;font-size:14px'>"
+            f"<tr><td style='padding:18px 16px;font-family:{FONT_STACK};font-size:14px;"
+            f"color:{BRAND_MUTED};background:#ffffff;border:1px solid {BRAND_RULE}'>"
             "No finding cleared the bar today. That is a result, not a gap.</td></tr>"
         )
     rows = []
-    for item in items:
+    for idx, item in enumerate(items):
         name = html.escape(str(item.get("player_name") or item.get("player_id") or "Unknown"))
         metric = html.escape(_metric_label(str(item.get("metric") or "")))
         tag = _confidence_tag(item)
-        color = _CONFIDENCE_COLORS[tag]
+        chip_bg, chip_ink = _CONFIDENCE_CHIP[tag]
+        # Solid sits on the cream surface, so its outline is what separates it
+        # from tentative; fill alone would make the two identical.
+        chip_border = BRAND_RULE if tag == "tentative" else BRAND_GREEN
+        delta = float(item.get("delta") or 0.0)
+        arrow = "&#9650;" if delta > 0 else "&#9660;"
         context = html.escape(_anomaly_window_phrase(item))
         if item.get("n_window"):
-            context += f" · n={item['n_window']}"
+            context += f" &middot; n={item['n_window']}"
         if item.get("window_end"):
-            context += f" · through {html.escape(str(item['window_end']))}"
+            context += f" &middot; through {html.escape(str(item['window_end']))}"
         if item.get("persistence_label"):
-            context += f" · {html.escape(str(item['persistence_label']))}"
+            context += f" &middot; {html.escape(str(item['persistence_label']))}"
+        note = ""
+        if item.get("baseline_kind") == "handedness_adjusted":
+            counts = item.get("counts") or {}
+            holds, outings = counts.get("outings_holding"), counts.get("outings")
+            detail = "baseline adjusted for batter handedness"
+            if holds and outings:
+                detail += f"; held in {holds} of {outings} outings"
+            note = (
+                f"<div style='font-family:{FONT_STACK};font-size:11px;color:{BRAND_MUTED};"
+                f"margin-top:5px'>{detail}</div>"
+            )
         hinges = "".join(
-            "<div style='font-size:12px;line-height:1.45;color:#3d4a5c;margin-top:5px;"
-            "padding-left:10px;border-left:2px solid #dbe4ee'>"
+            f"<div style='margin-top:7px;padding-left:9px;border-left:2px solid {BRAND_OLIVE};"
+            f"font-family:{FONT_STACK};font-size:12px;line-height:1.45;color:{BRAND_INK}'>"
+            f"<span style='font-weight:700'>"
+            f"{html.escape(str(hit.get('event_type') or 'note'))}</span> &middot; "
+            f"{html.escape(str(hit.get('claim') or ''))} "
             f"<a href='{html.escape(str(hit.get('url') or ''), quote=True)}' "
-            "style='color:#2b6cb0;text-decoration:none'>"
-            f"{html.escape(str(hit.get('event_type') or 'note'))}</a>: "
-            f"{html.escape(str(hit.get('claim') or ''))}</div>"
+            f"style='color:{BRAND_GREEN};text-decoration:underline'>source</a></div>"
             for hit in (item.get("corroboration") or [])[:2]
         )
+        edge = (
+            f"border-left:4px solid {BRAND_ORANGE}" if idx == 0
+            else f"border-left:1px solid {BRAND_RULE}"
+        )
         rows.append(
-            "<tr><td style='padding:12px 0;border-bottom:1px solid #e5e7eb'>"
-            f"<div style='font-size:14px;font-weight:700;color:#172235'>{name}"
-            f"<span style='font-size:10px;font-weight:700;color:{color};text-transform:uppercase;"
-            f"margin-left:8px'>{tag}</span></div>"
-            f"<div style='font-size:13px;line-height:1.45;color:#263548;margin-top:3px'>{metric} "
-            f"{html.escape(str(item.get('window')))} vs {html.escape(str(item.get('baseline')))} "
-            f"<span style='color:#007f78'>(Δ{html.escape(str(item.get('delta')))}, "
-            f"z={html.escape(str(item.get('z')))})</span></div>"
-            f"<div style='font-size:11px;color:#7a8696;margin-top:3px'>{context}</div>"
-            f"{hinges}</td></tr>"
+            f"<tr><td style='padding:0 0 10px'>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
+            f"style='background:#ffffff;border:1px solid {BRAND_RULE};{edge}'>"
+            f"<tr><td style='padding:13px 15px'>"
+            # name + confidence chip
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+            f"<td style=\"font-family:{FONT_STACK};font-size:15px;font-weight:700;"
+            f"color:{BRAND_INK}\">{name}</td>"
+            f"<td align='right'><span style=\"font-family:{FONT_STACK};font-size:10px;"
+            f"font-weight:700;letter-spacing:.08em;text-transform:uppercase;"
+            f"color:{chip_ink};background:{chip_bg};border:1px solid {chip_border};"
+            f"padding:3px 8px\">{tag}</span></td>"
+            f"</tr></table>"
+            # the number as hero
+            f"<div style=\"font-family:{FONT_DATA};font-size:21px;font-weight:700;"
+            f"color:{BRAND_INK};margin-top:7px\">{html.escape(str(item.get('window')))}"
+            f"<span style='font-size:13px;color:{BRAND_MUTED};font-weight:400'> from "
+            f"{html.escape(str(item.get('baseline')))}</span></div>"
+            f"<div style=\"font-family:{FONT_STACK};font-size:12px;color:{BRAND_INK};"
+            f"margin-top:2px\">{arrow} {metric} &middot; "
+            f"<span style='font-family:{FONT_DATA}'>"
+            f"z={html.escape(str(item.get('z')))}</span></div>"
+            f"{_meter(float(item.get('z') or 0.0))}"
+            f"<div style='font-family:{FONT_STACK};font-size:11px;color:{BRAND_MUTED};"
+            f"margin-top:6px'>{context}</div>"
+            f"{note}{hinges}"
+            f"</td></tr></table></td></tr>"
         )
     return "".join(rows)
 
@@ -1967,58 +2099,86 @@ def _lead_rows_html(items: list[dict]) -> str:
 def _watch_rows_html(items: list[dict], limit: int = _WATCH_SHOWN) -> str:
     """Signals held back until they repeat, rather than discarded overnight."""
     if not items:
-        return "<tr><td style='padding:12px 0;color:#6b7788;font-size:13px'>Nothing on watch.</td></tr>"
-    return "".join(
-        "<tr><td style='padding:7px 0;border-bottom:1px solid #eef1f4;font-size:12px;color:#3d4a5c'>"
-        f"<strong style='color:#172235'>"
-        f"{html.escape(str(item.get('player_name') or item.get('player_id')))}</strong> · "
-        f"{html.escape(_metric_label(str(item.get('metric') or '')))} "
-        f"{html.escape(str(item.get('window')))} vs {html.escape(str(item.get('baseline')))} "
-        f"(z={html.escape(str(item.get('z')))})"
-        + (
-            f" · {html.escape(str(item.get('persistence_label')))}"
+        return (
+            f"<tr><td style='padding:10px 0;font-family:{FONT_STACK};font-size:12px;"
+            f"color:{BRAND_MUTED}'>Nothing on watch.</td></tr>"
+        )
+    rows = []
+    for item in items[:limit]:
+        tail = (
+            f" &middot; {html.escape(str(item.get('persistence_label')))}"
             if item.get("persistence_label") else ""
         )
-        + "</td></tr>"
-        for item in items[:limit]
+        rows.append(
+            f"<tr><td style='padding:6px 0;border-bottom:1px solid {BRAND_RULE};"
+            f"font-family:{FONT_STACK};font-size:12px;line-height:1.4;color:{BRAND_INK}'>"
+            f"<strong>{html.escape(str(item.get('player_name') or item.get('player_id')))}"
+            f"</strong> &middot; {html.escape(_metric_label(str(item.get('metric') or '')))} "
+            f"<span style='font-family:{FONT_DATA}'>"
+            f"{html.escape(str(item.get('window')))} from "
+            f"{html.escape(str(item.get('baseline')))} &middot; "
+            f"z={html.escape(str(item.get('z')))}</span>"
+            f"<span style='color:{BRAND_MUTED}'>{tail}</span></td></tr>"
+        )
+    return "".join(rows)
+
+
+def _panel_list(items: list[str], empty: str, limit: int = 8) -> str:
+    """Compact boxed list for the reference panels."""
+    if not items:
+        return (
+            f"<tr><td style='padding:8px 0;font-family:{FONT_STACK};font-size:12px;"
+            f"color:{BRAND_MUTED}'>{html.escape(empty)}</td></tr>"
+        )
+    return "".join(
+        f"<tr><td style='padding:5px 0;border-bottom:1px solid {BRAND_RULE};"
+        f"font-family:{FONT_STACK};font-size:12px;line-height:1.4;color:{BRAND_INK}'>"
+        f"{html.escape(str(line))}</td></tr>"
+        for line in items[:limit]
     )
 
 
-def render_digest_html(report: IntelReport) -> str:
-    """Render a responsive, email-client-safe private morning newsletter."""
-    stories = report.news_stories[:6]
-    lead = stories[0] if stories else None
-    lead_html = ""
-    if lead:
-        image_url = html.escape(str(lead.get("image_url") or ""), quote=True)
-        image_html = (
-            f"<img src='{image_url}' alt='' width='620' style='display:block;width:100%;"
-            "height:auto;max-height:310px;object-fit:cover;border:0'>"
-            if image_url else ""
-        )
-        lead_html = (
-            "<tr><td style='padding:0 0 18px'>"
-            f"<a href='{html.escape(str(lead['url']), quote=True)}' style='text-decoration:none'>{image_html}"
-            "<div style='padding:16px 18px;background:#122033'>"
-            "<div style='font-size:11px;font-weight:700;color:#43c5bc;text-transform:uppercase'>Top story</div>"
-            f"<div style='font-size:22px;line-height:1.25;font-weight:800;color:#ffffff;margin-top:6px'>{html.escape(str(lead['title']))}</div>"
-            f"<div style='font-size:12px;color:#aeb9c8;margin-top:8px'>{html.escape(str(lead.get('author') or 'MLB.com'))} · MLB.com</div>"
-            "</div></a></td></tr>"
-        )
-    secondary_news = "".join(
-        "<tr><td style='padding:10px 0;border-bottom:1px solid #e5e7eb'>"
-        f"<a href='{html.escape(str(story['url']), quote=True)}' style='font-size:14px;line-height:1.4;"
-        f"font-weight:700;color:#172235;text-decoration:none'>{html.escape(str(story['title']))}</a>"
-        f"<div style='font-size:11px;color:#7a8696;margin-top:3px'>{html.escape(str(story.get('author') or 'MLB.com'))}</div>"
-        "</td></tr>"
-        for story in stories[1:]
-    ) or "<tr><td style='padding:12px 0;color:#6b7788'>No MLB headlines available.</td></tr>"
+def _logo_data_uri() -> str:
+    """Base64 logo for the saved preview file, which has no CID part to resolve."""
+    try:
+        import base64
+        return "data:image/png;base64," + base64.b64encode(LOGO_EMAIL_PATH.read_bytes()).decode()
+    except OSError:
+        return ""
+
+
+def render_digest_html(report: IntelReport, logo_src: str = f"cid:{LOGO_CID}") -> str:
+    """
+    Private morning newsletter.
+
+    Structure is borrowed from the printed sports-newsletter form the user
+    supplied — centred masthead, banded section headers, modular panels. The
+    palette is not: that template is primary yellow and red, and the brand runs
+    warm and analytical rather than loud, so the bands carry brand ink and the
+    orange stays reserved for the strongest finding.
+    """
+    stories = report.news_stories[:5]
+    news_rows = "".join(
+        f"<tr><td style='padding:7px 0;border-bottom:1px solid {BRAND_RULE}'>"
+        f"<a href='{html.escape(str(story['url']), quote=True)}' "
+        f"style=\"font-family:{FONT_STACK};font-size:13px;line-height:1.4;font-weight:600;"
+        f"color:{BRAND_INK};text-decoration:none\">{html.escape(str(story['title']))}</a></td></tr>"
+        for story in stories
+    ) or (
+        f"<tr><td style='padding:8px 0;font-family:{FONT_STACK};font-size:12px;"
+        f"color:{BRAND_MUTED}'>No MLB headlines retrieved.</td></tr>"
+    )
 
     tweet_rows = "".join(
-        "<tr><td style='padding:10px 0;border-bottom:1px solid #dbe4ee;font-size:13px;"
-        f"line-height:1.5;color:#263548'><strong style='color:#d85a1a'>{idx}.</strong> {html.escape(tweet)}</td></tr>"
+        f"<tr><td style='padding:8px 0;border-bottom:1px solid {BRAND_RULE};"
+        f"font-family:{FONT_STACK};font-size:13px;line-height:1.5;color:{BRAND_INK}'>"
+        f"<span style='color:{BRAND_GREEN};font-weight:700'>{idx}.</span> "
+        f"{html.escape(tweet)}</td></tr>"
         for idx, tweet in enumerate(report.tweet_drafts[:5], 1)
-    ) or "<tr><td style='padding:10px 0;color:#6b7788'>No drafts generated.</td></tr>"
+    ) or (
+        f"<tr><td style='padding:8px 0;font-family:{FONT_STACK};font-size:12px;"
+        f"color:{BRAND_MUTED}'>No drafts generated.</td></tr>"
+    )
 
     brief_paragraphs = [
         html.escape(paragraph.strip()).replace("\n", "<br>")
@@ -2027,66 +2187,149 @@ def render_digest_html(report: IntelReport) -> str:
     ]
     brief_html = ""
     if brief_paragraphs:
-        brief_html = (
-            '<tr><td class="pad" style="padding:22px 30px 8px">'
-            '<div style="font-size:11px;font-weight:800;color:#007f78;text-transform:uppercase;margin-bottom:9px">The read</div>'
-            '<div style="border-left:3px solid #43c5bc;padding-left:16px">'
-            + "".join(
-                f'<p style="margin:0 0 {"10px" if idx < len(brief_paragraphs) - 1 else "0"};font-size:15px;line-height:1.55;color:#263548">{paragraph}</p>'
-                for idx, paragraph in enumerate(brief_paragraphs)
-            )
-            + "</div></td></tr>"
+        body = "".join(
+            f"<p style=\"margin:0 0 {'9px' if i < len(brief_paragraphs) - 1 else '0'};"
+            f"font-family:{FONT_STACK};font-size:14px;line-height:1.6;color:{BRAND_INK}\">"
+            f"{para}</p>"
+            for i, para in enumerate(brief_paragraphs)
         )
+        brief_html = (
+            f"<tr><td class='pad' style='padding:18px 26px 0'>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
+            f"style='background:#ffffff;border:1px solid {BRAND_RULE};"
+            f"border-left:4px solid {BRAND_ORANGE}'>"
+            f"<tr><td style='padding:14px 16px'>{body}</td></tr></table></td></tr>"
+        )
+
+    notes_html = ""
+    if report.notes:
+        notes_html = "".join(
+            f"<div style='font-family:{FONT_STACK};font-size:11px;line-height:1.5;"
+            f"color:{BRAND_MUTED}'>{html.escape(str(note))}</div>"
+            for note in report.notes
+        )
+
+    # Built here rather than inline: an f-string expression cannot contain a
+    # backslash on Python 3.11, which is the runtime in the API container.
+    band_leads = _band("Today's leads")
+    band_board = _band("Today's board")
+    band_watch = _band("Watch \u00b7 %d tracked" % len(report.watch), BRAND_GREEN)
+    band_notebook = _band("Content notebook \u00b7 private")
+    counts = (
+        f"{len(report.leads)} leads &middot; {len(report.watch)} on watch &middot; "
+        f"{len(report.probables_today)} probables"
+    )
 
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>@media only screen and (max-width:680px){{.shell{{width:100%!important}}.pad{{padding-left:18px!important;padding-right:18px!important}}.col{{display:block!important;width:100%!important}}}}</style>
-</head><body style="margin:0;padding:0;background:#eef1f4;font-family:Arial,Helvetica,sans-serif">
-<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#eef1f4"><tr><td align="center" style="padding:24px 8px">
-<table role="presentation" class="shell" width="680" cellspacing="0" cellpadding="0" border="0" style="width:680px;max-width:680px;background:#ffffff">
-<tr><td class="pad" style="padding:26px 30px 22px;background:#0b1726;border-top:4px solid #e96724">
-  <div style="font-size:12px;font-weight:700;color:#43c5bc;text-transform:uppercase">Mallitalytics</div>
-  <div style="font-size:28px;line-height:1.15;font-weight:800;color:#ffffff;margin-top:5px">Morning Intel</div>
-  <div style="font-size:13px;color:#aeb9c8;margin-top:8px">{html.escape(_email_date(report.anchor_date))} · Your daily baseball briefing</div>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>@media only screen and (max-width:680px){{.shell{{width:100%!important}}.pad{{padding-left:16px!important;padding-right:16px!important}}.col{{display:block!important;width:100%!important;padding:0 0 16px 0!important}}}}</style>
+</head><body style="margin:0;padding:0;background:{BRAND_CREAM}">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:{BRAND_CREAM}">
+<tr><td align="center" style="padding:22px 8px">
+<table role="presentation" class="shell" width="700" cellspacing="0" cellpadding="0" border="0" style="width:700px;max-width:700px;background:{BRAND_CREAM};border:1px solid {BRAND_RULE}">
+
+<tr><td align="center" style="background:{BRAND_CREAM};padding:26px 26px 18px">
+  <img src="{logo_src}" alt="Mallitalytics" width="280" style="display:block;width:280px;max-width:74%;height:auto;border:0">
 </td></tr>
+<tr><td align="center" style="background:{BRAND_INK};padding:11px 20px">
+  <div style="font-family:{FONT_STACK};font-size:14px;font-weight:700;letter-spacing:.24em;color:{BRAND_CREAM};text-transform:uppercase">Morning Intel</div>
+  <div style="font-family:{FONT_STACK};font-size:12px;color:{BRAND_OLIVE};margin-top:5px">{html.escape(_email_date(report.anchor_date))}</div>
+</td></tr>
+<tr><td style="background:{BRAND_ORANGE};height:4px;font-size:0;line-height:0">&nbsp;</td></tr>
+<tr><td align="center" style="background:#ffffff;padding:8px 20px;border-bottom:1px solid {BRAND_RULE}">
+  <div style="font-family:{FONT_DATA};font-size:11px;color:{BRAND_MUTED}">{counts}</div>
+</td></tr>
+
 {brief_html}
-<tr><td class="pad" style="padding:24px 30px 8px">
-  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:12px">The leadoff</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{lead_html}{secondary_news}</table>
+
+<tr><td class="pad" style="padding:18px 26px 0">{band_leads}
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:10px">{_lead_rows_html(report.leads)}</table>
 </td></tr>
-<tr><td class="pad" style="padding:20px 30px">
+
+<tr><td class="pad" style="padding:8px 26px 0">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-    <td class="col" width="49%" valign="top" style="padding-right:10px">
-      <div style="font-size:11px;font-weight:800;color:#2b6cb0;text-transform:uppercase;margin-bottom:6px">Last night</div>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_email_list(report.yesterday_results, 'No final games.', 10)}</table>
+    <td class="col" width="50%" valign="top" style="padding-right:9px">
+      {band_watch}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{_watch_rows_html(report.watch)}</table>
     </td>
-    <td class="col" width="49%" valign="top" style="padding-left:10px">
-      <div style="font-size:11px;font-weight:800;color:#007f78;text-transform:uppercase;margin-bottom:6px">Today&apos;s board</div>
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_email_list(report.probables_today, 'No games scheduled.', 10)}</table>
+    <td class="col" width="50%" valign="top" style="padding-left:9px">
+      {_band("Around the league", BRAND_GREEN)}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{news_rows}</table>
     </td>
   </tr></table>
 </td></tr>
-<tr><td class="pad" style="padding:20px 30px;background:#f7f9fb;border-top:1px solid #dfe5eb;border-bottom:1px solid #dfe5eb">
-  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:10px">Today&apos;s leads</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_lead_rows_html(report.leads)}</table>
-  <div style="font-size:11px;font-weight:800;color:#7a8696;text-transform:uppercase;margin:18px 0 6px">Watch · {len(report.watch)} tracked</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_watch_rows_html(report.watch)}</table>
-</td></tr>
-<tr><td class="pad" style="padding:22px 30px">
+
+<tr><td class="pad" style="padding:16px 26px 0">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-    <td class="col" width="49%" valign="top" style="padding-right:10px"><div style="font-size:11px;font-weight:800;color:#7c3f98;text-transform:uppercase;margin-bottom:6px">Roster wire</div><table role="presentation" width="100%">{_email_list(report.transactions, 'No notable moves.', 8)}</table></td>
-    <td class="col" width="49%" valign="top" style="padding-left:10px"><div style="font-size:11px;font-weight:800;color:#a06a00;text-transform:uppercase;margin-bottom:6px">Milestone radar</div><table role="presentation" width="100%">{_email_list(report.milestones, 'No milestones in range.', 8)}</table></td>
+    <td class="col" width="50%" valign="top" style="padding-right:9px">
+      {_band("Last night")}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{_panel_list(report.yesterday_results, "No final games.", 9)}</table>
+    </td>
+    <td class="col" width="50%" valign="top" style="padding-left:9px">
+      {band_board}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{_panel_list(report.probables_today, "No games scheduled.", 9)}</table>
+    </td>
   </tr></table>
 </td></tr>
-<tr><td class="pad" style="padding:22px 30px;background:#edf3f8;border-top:1px solid #d7e1ea">
-  <div style="font-size:11px;font-weight:800;color:#d85a1a;text-transform:uppercase">Private content notebook</div>
-  <div style="font-size:12px;color:#6b7788;margin:5px 0 8px">Starting points for today&apos;s Mallitalytics posts. Review before publishing.</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{tweet_rows}</table>
+
+<tr><td class="pad" style="padding:16px 26px 0">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
+    <td class="col" width="50%" valign="top" style="padding-right:9px">
+      {_band("Roster wire")}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{_panel_list(report.transactions, "No moves.", 9)}</table>
+    </td>
+    <td class="col" width="50%" valign="top" style="padding-left:9px">
+      {_band("Milestone radar")}
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{_panel_list(report.milestones, "Nothing close.", 9)}</table>
+    </td>
+  </tr></table>
 </td></tr>
-<tr><td class="pad" style="padding:18px 30px;background:#0b1726;color:#8fa0b4;font-size:11px;line-height:1.5">
-  News links: MLB.com · Data: MLB Stats API and Statcast · Internal edition<br>Mallitalytics turns baseball data into useful context.
+
+<tr><td class="pad" style="padding:16px 26px 0">{band_notebook}
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">{tweet_rows}</table>
 </td></tr>
+
+<tr><td class="pad" style="padding:18px 26px 24px">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-top:1px solid {BRAND_RULE}">
+  <tr><td style="padding:12px 0 0">
+    {notes_html}
+    <div style="font-family:{FONT_STACK};font-size:11px;color:{BRAND_MUTED};margin-top:9px">
+      Statcast via the Mallitalytics warehouse, data through {html.escape(report.anchor_date)}.
+      Reporting is labelled as such and is not measurement.
+    </div>
+  </td></tr></table>
+</td></tr>
+
 </table></td></tr></table></body></html>"""
+
+
+def _resend_logo_attachment() -> list[dict]:
+    """Resend carries the same mark as an inline attachment keyed by content id."""
+    try:
+        import base64
+        return [{
+            "filename": "mallitalytics.png",
+            "content": base64.b64encode(LOGO_EMAIL_PATH.read_bytes()).decode(),
+            "content_id": LOGO_CID,
+            "content_type": "image/png",
+        }]
+    except OSError:
+        return []
+
+
+def _attach_inline_logo(message: EmailMessage) -> None:
+    """Attach the brand mark to the HTML part so `cid:` resolves in the client."""
+    try:
+        payload = LOGO_EMAIL_PATH.read_bytes()
+    except OSError:
+        print(f"  Logo missing at {LOGO_EMAIL_PATH}; sending without the mark.")
+        return
+    html_part = message.get_payload()[-1]
+    html_part.add_related(
+        payload, maintype="image", subtype="png", cid=f"<{LOGO_CID}>",
+        filename="mallitalytics.png",
+    )
 
 
 def send_resend_twilio(subject, html_body, plain_body, dry):
@@ -2110,6 +2353,7 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
                     "from": resend_from, "to": recipient, "subject": subject,
                     "html": html_body,
                     "text": plain_body,
+                    "attachments": _resend_logo_attachment(),
                 },
                 timeout=20,
             )
@@ -2135,6 +2379,7 @@ def send_resend_twilio(subject, html_body, plain_body, dry):
             message["To"] = recipient
             message.set_content(plain_body)
             message.add_alternative(html_body, subtype="html")
+            _attach_inline_logo(message)
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=25) as smtp:
                 smtp.login(gmail_user, gmail_password)
                 smtp.send_message(message)
@@ -2225,6 +2470,8 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
             )
             report.scouting_entries = ledger_entries
             _scout.corroborate(raw, ledger_entries)
+            if not report.news_stories:
+                report.news_stories = _stories_from_ledger(ledger_entries)
 
             # False-discovery control has to see every test, so rank the full
             # deduped slate before trimming to the snapshot pool.
@@ -2369,7 +2616,8 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
     plain = render_digest_plain(report)
     newsletter_html = render_digest_html(report)
     html_path = INTEL_OUT / f"intel_{anchor.isoformat()}.html"
-    html_path.write_text(newsletter_html, encoding="utf-8")
+    # The preview is opened in a browser, where a cid: reference resolves to nothing.
+    html_path.write_text(render_digest_html(report, logo_src=_logo_data_uri()), encoding="utf-8")
     print(f"  Wrote {html_path}")
     print("\n" + plain)
     if not skip_notify:
