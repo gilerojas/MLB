@@ -101,6 +101,8 @@ morning_intel/.env
 morning_intel/snapshots/*.html
 morning_intel/snapshots/*.json
 !morning_intel/snapshots/.gitkeep
+morning_intel/scouting/*.jsonl
+morning_intel/priors/*.json
 data/hub.db
 logs/
 supabase/seed/*

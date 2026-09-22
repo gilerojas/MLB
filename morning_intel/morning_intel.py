@@ -737,6 +737,7 @@ LEAD_Z = 2.5
 WATCH_Z = 1.5
 MAX_LEADS = 8
 MAX_LEADS_PER_FAMILY = 3
+_WATCH_SHOWN = 8
 FDR_Q = 0.05
 
 
@@ -1315,13 +1316,24 @@ def parse_mlb_news_rss(xml_text: str, limit: int = 6) -> list[dict]:
     return stories
 
 
-def api_mlb_news(limit: int = 6) -> list[dict]:
+def api_mlb_news(limit: int = 6) -> tuple[list[dict], str]:
+    """
+    MLB.com headlines, plus why they are missing when they are.
+
+    mlb.com refuses datacenter traffic outright — from the VPS this returns 403
+    regardless of user agent, while statsapi.mlb.com is unaffected. Returning the
+    reason keeps that in the pipeline notes instead of silently emptying the
+    section, which is how it would otherwise read as "no news today".
+    """
     try:
         response = requests.get(MLB_NEWS_RSS, timeout=20)
         response.raise_for_status()
-        return parse_mlb_news_rss(response.text, limit=limit)
-    except Exception:
-        return []
+        return parse_mlb_news_rss(response.text, limit=limit), ""
+    except requests.HTTPError as exc:
+        code = exc.response.status_code if exc.response is not None else "?"
+        return [], f"MLB.com news feed unavailable (HTTP {code}); scouting ledger still applies."
+    except requests.RequestException as exc:
+        return [], f"MLB.com news feed unreachable ({type(exc).__name__})."
 
 
 def api_game_results(day: date) -> list[str]:
@@ -1532,8 +1544,36 @@ def build_findings_blob(report: IntelReport) -> str:
         "transactions": report.transactions[:20],
         "probables_today": report.probables_today[:12],
         "milestones": report.milestones[:20],
-        "pitcher_anomalies": report.anomalies_pitchers[:15],
-        "batter_anomalies": report.anomalies_batters[:15],
+        # Leads carry their own confidence and any reporting that explains them,
+        # so the editorial model can pair a number with a mechanism instead of
+        # guessing at one.
+        "leads": [
+            {
+                "player": a.get("player_name"),
+                "role": a.get("role"),
+                "metric": a.get("metric"),
+                "window": a.get("window"),
+                "baseline": a.get("baseline"),
+                "delta": a.get("delta"),
+                "z": a.get("z"),
+                "confidence": _confidence_tag(a),
+                "sample": a.get("n_window"),
+                "window_label": a.get("window_label"),
+                "persistence": a.get("persistence_label"),
+                "corroboration": a.get("corroboration") or [],
+            }
+            for a in report.leads
+        ],
+        "watch": [
+            {
+                "player": a.get("player_name"),
+                "metric": a.get("metric"),
+                "delta": a.get("delta"),
+                "z": a.get("z"),
+                "persistence": a.get("persistence_label"),
+            }
+            for a in report.watch[:10]
+        ],
         "notes": report.notes,
     }
     return json.dumps(blob, indent=2, default=str)
@@ -1558,7 +1598,14 @@ Grounding rules:
 - News headlines are link context only. Do not infer article details from a headline.
 - Never invent injuries, trades, scores, trends, causes, quotations, or statistics.
 - Distinguish observed Statcast changes from explanations. A change is not automatically causal.
+- Lead with "leads". "watch" entries have not cleared the bar — never state one as a finding.
+- Respect each lead's confidence field. A "tentative" lead is phrased as a question worth
+  following, never as an established trend.
+- Corroboration is reporting, not measurement. Label it as such and keep it separate from the
+  Statcast number it sits beside; a hinge explains a signal, it does not confirm it.
 - If the slate is empty or data is missing, say so plainly rather than filling space.
+- A quiet day with no leads is a legitimate edition. Say there is nothing rather than promoting
+  a weak signal to fill the space.
 - Avoid hype, engagement bait, rhetorical questions, and generic baseball cliches.
 
 Return only valid JSON with keys morning_brief and tweet_drafts."""
@@ -1707,32 +1754,82 @@ def _anomaly_window_phrase(a: dict) -> str:
     return "vs baseline"
 
 
+_METRIC_LABELS = {
+    "avg_velo_mph": "avg velo",
+    "whiff_pct": "whiff%",
+    "chase_pct": "chase%",
+    "xwoba_on_BIP": "xwOBA/BIP",
+    "avg_EV_mph": "avg EV",
+    "barrel_pct": "barrel%",
+}
+
+
+def _metric_label(metric: str) -> str:
+    if metric.startswith("mix_") and metric.endswith("_pct"):
+        return f"{metric[4:-4]} usage"
+    return _METRIC_LABELS.get(metric, metric)
+
+
+def _confidence_tag(a: dict) -> str:
+    """How much weight this finding carries, in plain words rather than a z-score."""
+    z = abs(float(a.get("z") or 0.0))
+    if a.get("fdr_significant") and z >= 4.0:
+        return "strong"
+    if a.get("fdr_significant"):
+        return "solid"
+    return "tentative"
+
+
+def _lead_line(a: dict) -> str:
+    """One publishable finding: the stat, its confidence, and any human hinge."""
+    name = a.get("player_name") or a.get("player_id")
+    bits = [
+        f"{name} · {_metric_label(a['metric'])} "
+        f"{a['window']} vs {a['baseline']} (Δ{a['delta']:+g}, z={a.get('z')}, {_confidence_tag(a)})",
+        f"    {_anomaly_window_phrase(a)}"
+        + (f" · n={a.get('n_window')}" if a.get("n_window") else "")
+        + (f" · {a['persistence_label']}" if a.get("persistence_label") else ""),
+    ]
+    if a.get("baseline_kind") == "handedness_adjusted":
+        counts = a.get("counts") or {}
+        holds, outings = counts.get("outings_holding"), counts.get("outings")
+        detail = "baseline adjusted for batter handedness"
+        if holds and outings:
+            detail += f"; held in {holds} of {outings} outings"
+        bits.append(f"    {detail}")
+    for hit in (a.get("corroboration") or [])[:2]:
+        tier = "official" if hit.get("tier") == _scout.TIER_OFFICIAL else "reporting"
+        bits.append(f"    ↳ [{tier}] {hit.get('event_type')}: {hit.get('claim')} ({hit.get('url')})")
+    return "\n".join(bits)
+
+
+def _watch_line(a: dict) -> str:
+    name = a.get("player_name") or a.get("player_id")
+    tail = f" · {a['persistence_label']}" if a.get("persistence_label") else ""
+    return (
+        f"{name} · {_metric_label(a['metric'])} "
+        f"{a['window']} vs {a['baseline']} (z={a.get('z')}){tail}"
+    )
+
+
 def render_digest_plain(report: IntelReport) -> str:
     lines = [
         f"MALLITALYTICS MORNING INTEL | {report.anchor_date}", "",
     ]
     if report.editorial_brief:
         lines += ["THE READ", report.editorial_brief, ""]
-    lines += ["THE LEADOFF"]
+    lines += ["TODAY'S LEADS"]
+    if report.leads:
+        for lead in report.leads:
+            lines.append(_lead_line(lead))
+    else:
+        lines.append("No finding cleared the bar today. That is a result, not a gap.")
+    lines += ["", f"WATCH ({len(report.watch)} tracked, not yet publishable)"]
+    lines += [_watch_line(a) for a in report.watch[:_WATCH_SHOWN]] or ["(none)"]
+    lines += ["", "THE LEADOFF"]
     lines += [f"- {s['title']} — {s['url']}" for s in report.news_stories[:6]] or ["No headlines available."]
     lines += ["", "LAST NIGHT"]
     lines += report.yesterday_results or ["No final games."]
-    lines += ["", "DATA SIGNALS — PITCHERS"]
-    for anomaly in report.anomalies_pitchers[:5]:
-        lines.append(
-            f"{anomaly.get('player_name')} · {anomaly['metric']}: "
-            f"{anomaly['window']} vs {anomaly['baseline']} (Δ{anomaly['delta']})"
-        )
-    if not report.anomalies_pitchers:
-        lines.append("No qualified pitcher signals.")
-    lines += ["", "DATA SIGNALS — HITTERS"]
-    for anomaly in report.anomalies_batters[:5]:
-        lines.append(
-            f"{anomaly.get('player_name')} · {anomaly['metric']}: "
-            f"{anomaly['window']} vs {anomaly['baseline']} (Δ{anomaly['delta']})"
-        )
-    if not report.anomalies_batters:
-        lines.append("No qualified hitter signals.")
     lines += ["", "TODAY'S BOARD"]
     lines += report.probables_today[:15] or ["(none)"]
     lines += ["", "TOMORROW"]
@@ -1765,27 +1862,69 @@ def _email_list(items: list[str], empty: str = "Nothing to report.", limit: int 
     )
 
 
-def _anomaly_rows(items: list[dict], empty: str) -> str:
+_CONFIDENCE_COLORS = {"strong": "#007f78", "solid": "#2b6cb0", "tentative": "#7a8696"}
+
+
+def _lead_rows_html(items: list[dict]) -> str:
+    """Publishable findings: the number, what stands behind it, and any hinge."""
     if not items:
         return (
-            "<tr><td style='padding:12px 0;color:#6b7788;font-size:14px'>"
-            f"{html.escape(empty)}</td></tr>"
+            "<tr><td style='padding:14px 0;color:#6b7788;font-size:14px'>"
+            "No finding cleared the bar today. That is a result, not a gap.</td></tr>"
         )
     rows = []
-    for item in items[:5]:
+    for item in items:
         name = html.escape(str(item.get("player_name") or item.get("player_id") or "Unknown"))
-        metric = html.escape(str(item.get("metric") or "Signal"))
-        window = html.escape(str(item.get("window") or "—"))
-        baseline = html.escape(str(item.get("baseline") or "—"))
-        delta = html.escape(str(item.get("delta") or "—"))
+        metric = html.escape(_metric_label(str(item.get("metric") or "")))
+        tag = _confidence_tag(item)
+        color = _CONFIDENCE_COLORS[tag]
+        context = html.escape(_anomaly_window_phrase(item))
+        if item.get("n_window"):
+            context += f" · n={item['n_window']}"
+        if item.get("persistence_label"):
+            context += f" · {html.escape(str(item['persistence_label']))}"
+        hinges = "".join(
+            "<div style='font-size:12px;line-height:1.45;color:#3d4a5c;margin-top:5px;"
+            "padding-left:10px;border-left:2px solid #dbe4ee'>"
+            f"<a href='{html.escape(str(hit.get('url') or ''), quote=True)}' "
+            "style='color:#2b6cb0;text-decoration:none'>"
+            f"{html.escape(str(hit.get('event_type') or 'note'))}</a>: "
+            f"{html.escape(str(hit.get('claim') or ''))}</div>"
+            for hit in (item.get("corroboration") or [])[:2]
+        )
         rows.append(
-            "<tr><td style='padding:10px 0;border-bottom:1px solid #e5e7eb'>"
-            f"<div style='font-size:14px;font-weight:700;color:#172235'>{name}</div>"
-            f"<div style='font-size:12px;line-height:1.45;color:#667386;margin-top:3px'>{metric} · "
-            f"{window} vs {baseline} · <span style='color:#007f78'>Δ{delta}</span></div>"
-            "</td></tr>"
+            "<tr><td style='padding:12px 0;border-bottom:1px solid #e5e7eb'>"
+            f"<div style='font-size:14px;font-weight:700;color:#172235'>{name}"
+            f"<span style='font-size:10px;font-weight:700;color:{color};text-transform:uppercase;"
+            f"margin-left:8px'>{tag}</span></div>"
+            f"<div style='font-size:13px;line-height:1.45;color:#263548;margin-top:3px'>{metric} "
+            f"{html.escape(str(item.get('window')))} vs {html.escape(str(item.get('baseline')))} "
+            f"<span style='color:#007f78'>(Δ{html.escape(str(item.get('delta')))}, "
+            f"z={html.escape(str(item.get('z')))})</span></div>"
+            f"<div style='font-size:11px;color:#7a8696;margin-top:3px'>{context}</div>"
+            f"{hinges}</td></tr>"
         )
     return "".join(rows)
+
+
+def _watch_rows_html(items: list[dict], limit: int = _WATCH_SHOWN) -> str:
+    """Signals held back until they repeat, rather than discarded overnight."""
+    if not items:
+        return "<tr><td style='padding:12px 0;color:#6b7788;font-size:13px'>Nothing on watch.</td></tr>"
+    return "".join(
+        "<tr><td style='padding:7px 0;border-bottom:1px solid #eef1f4;font-size:12px;color:#3d4a5c'>"
+        f"<strong style='color:#172235'>"
+        f"{html.escape(str(item.get('player_name') or item.get('player_id')))}</strong> · "
+        f"{html.escape(_metric_label(str(item.get('metric') or '')))} "
+        f"{html.escape(str(item.get('window')))} vs {html.escape(str(item.get('baseline')))} "
+        f"(z={html.escape(str(item.get('z')))})"
+        + (
+            f" · {html.escape(str(item.get('persistence_label')))}"
+            if item.get("persistence_label") else ""
+        )
+        + "</td></tr>"
+        for item in items[:limit]
+    )
 
 
 def render_digest_html(report: IntelReport) -> str:
@@ -1871,11 +2010,10 @@ def render_digest_html(report: IntelReport) -> str:
   </tr></table>
 </td></tr>
 <tr><td class="pad" style="padding:20px 30px;background:#f7f9fb;border-top:1px solid #dfe5eb;border-bottom:1px solid #dfe5eb">
-  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:10px">Mallitalytics data signals</div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
-    <td class="col" width="49%" valign="top" style="padding-right:10px"><div style="font-size:13px;font-weight:800;color:#172235">Pitchers</div><table role="presentation" width="100%">{_anomaly_rows(report.anomalies_pitchers, 'No qualified pitcher signals.')}</table></td>
-    <td class="col" width="49%" valign="top" style="padding-left:10px"><div style="font-size:13px;font-weight:800;color:#172235">Hitters</div><table role="presentation" width="100%">{_anomaly_rows(report.anomalies_batters, 'No qualified hitter signals.')}</table></td>
-  </tr></table>
+  <div style="font-size:11px;font-weight:800;color:#e96724;text-transform:uppercase;margin-bottom:10px">Today&apos;s leads</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_lead_rows_html(report.leads)}</table>
+  <div style="font-size:11px;font-weight:800;color:#7a8696;text-transform:uppercase;margin:18px 0 6px">Watch · {len(report.watch)} tracked</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">{_watch_rows_html(report.watch)}</table>
 </td></tr>
 <tr><td class="pad" style="padding:22px 30px">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>
@@ -1995,7 +2133,9 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
     name_index = _scout.build_name_index(WAREHOUSE_ROOT / str(season) / "players_registry.json")
     if not name_index:
         report.notes.append("No players_registry.json — news could not be linked to players.")
-    report.news_stories = api_mlb_news(limit=6)
+    report.news_stories, news_error = api_mlb_news(limit=6)
+    if news_error:
+        report.notes.append(news_error)
     for story in report.news_stories:
         story["player_ids"] = _scout.resolve_players(story.get("title", ""), name_index)
     report.yesterday_results = api_game_results(yesterday)
@@ -2043,7 +2183,13 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
                 f"{len(scored)} tests -> {n_sig} survive FDR q={FDR_Q} -> "
                 f"{len(report.leads)} leads, {len(report.watch)} watch."
             )
-    ids = list({int(a["player_id"]) for a in report.anomalies_pitchers + report.anomalies_batters})
+    # Leads and watch are drawn from the whole ranked pool, so a lead outside the
+    # per-role top 25 would otherwise render without a name.
+    displayed = (
+        report.anomalies_pitchers + report.anomalies_batters
+        + report.leads + report.watch[:_WATCH_SHOWN]
+    )
+    ids = list({int(a["player_id"]) for a in displayed})
     mile_ids = list(dict.fromkeys(
         [int(a["player_id"]) for a in report.anomalies_pitchers[:15]]
         + [int(a["player_id"]) for a in report.anomalies_batters[:15]]
@@ -2055,6 +2201,8 @@ def run_intel(anchor, season, stage, dry_run, skip_notify, skip_claude, skip_que
     pos_map = {k: v.get("primary_position") or "" for k, v in people_meta.items()}
     hydrate_anomaly_names(report.anomalies_pitchers, names_map)
     hydrate_anomaly_names(report.anomalies_batters, names_map)
+    hydrate_anomaly_names(report.leads, names_map)
+    hydrate_anomaly_names(report.watch[:_WATCH_SHOWN], names_map)
     # Combine today + yesterday to catch intra-day moves (today first, then yesterday)
     txs_today = [(t, today) for t in api_transactions(today)]
     txs_yesterday = [(t, yesterday) for t in api_transactions(yesterday)]
