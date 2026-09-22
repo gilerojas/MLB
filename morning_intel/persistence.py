@@ -55,6 +55,7 @@ def build_history(snapshots: list[tuple[date, dict]]) -> dict[str, dict]:
     recent, which is the stronger claim when snapshots are contiguous.
     """
     per_key_days: dict[str, list[date]] = {}
+    per_key_windows: dict[str, set[str]] = {}
     ordered_days = [d for d, _ in snapshots]
     for d, snap in snapshots:
         pool = snap.get("signal_pool")
@@ -63,7 +64,9 @@ def build_history(snapshots: list[tuple[date, dict]]) -> dict[str, dict]:
         for item in pool:
             if not isinstance(item, dict):
                 continue
-            per_key_days.setdefault(_key(item), []).append(d)
+            key = _key(item)
+            per_key_days.setdefault(key, []).append(d)
+            per_key_windows.setdefault(key, set()).add(str(item.get("window_end") or ""))
 
     history: dict[str, dict] = {}
     for key, days in per_key_days.items():
@@ -74,22 +77,45 @@ def build_history(snapshots: list[tuple[date, dict]]) -> dict[str, dict]:
                 streak += 1
             else:
                 break
+        # A window that never advanced is the same evidence re-printed, not a
+        # repeat. Counting it as one is how a player who stopped playing would
+        # collect the largest persistence bonus in the system.
+        windows = {w for w in per_key_windows.get(key, set()) if w}
         history[key] = {
             "seen_in": len(present),
             "of_snapshots": len(ordered_days),
             "streak": streak,
+            "distinct_windows": len(windows),
             "first_seen": min(present).isoformat(),
         }
     return history
+
+
+def confirmed_streak(info: dict | None) -> int:
+    """
+    Repeats backed by genuinely new evidence.
+
+    Zero when the window never moved, however many mornings the line reappeared.
+    """
+    if not info:
+        return 0
+    if int(info.get("distinct_windows") or 0) < 2:
+        return 0
+    return int(info.get("streak") or 0)
 
 
 def streak_label(info: dict | None) -> str:
     """Short human tag for the newsletter."""
     if not info or not info.get("seen_in"):
         return "new today"
-    streak = int(info.get("streak") or 0)
+    streak = confirmed_streak(info)
     if streak >= 2:
         return f"{streak + 1} days running"
+    distinct = int(info.get("distinct_windows") or 0)
+    # Zero means the prior snapshots predate window dates, which is not the same
+    # as knowing the window sat still.
+    if distinct == 1 and int(info.get("seen_in") or 0) >= 2:
+        return "repeat of unchanged window"
     return f"seen {info['seen_in']} of last {info['of_snapshots']}"
 
 

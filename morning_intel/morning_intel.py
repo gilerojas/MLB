@@ -84,6 +84,15 @@ MIN_PITCHES_WINDOW = 40
 MIN_PITCHES_BASELINE = 80
 MIN_BIP_WINDOW = 12
 MIN_BIP_BASELINE = 25
+# Opportunity-based windows have no clock of their own. A player who stops
+# playing keeps his "last 10 BBE" forever, so the same frozen line gets reported
+# every morning — Stanton's window sat on Apr 21-24 and was still being published
+# in mid-May, and would have published today, 150 days stale. Worse, a frozen
+# signal repeats daily and would collect the maximum persistence bonus.
+# A window must therefore be recent, and it must not be stretched across months.
+MAX_WINDOW_STALENESS_DAYS = 10
+MAX_BBE_WINDOW_SPAN_DAYS = 45
+MAX_STARTS_WINDOW_SPAN_DAYS = 45
 # (stat_group, api_field, targets, short_label, unit_phrase)
 # Hitting: HR, XBH components, batter Ks, career-ish hit totals.
 # Pitching: pitcher Ks, saves, complete games (not HR/hits allowed — those are defensive noise).
@@ -488,7 +497,34 @@ def _anomaly_pitcher_label() -> str:
     return f"last {RECENT_STARTS} vs prior {BASELINE_STARTS} starts"
 
 
-def _pitch_item(pid, wlab, metric, window_val, base_val, delta, n_w, n_b, counts, se):
+def _window_dates(frame) -> tuple[Optional[date], Optional[date]]:
+    """First and last game date present in a window, for staleness reporting."""
+    if frame is None or len(frame) == 0 or "gd" not in frame:
+        return None, None
+    series = frame["gd"].dropna()
+    if series.empty:
+        return None, None
+    return series.min(), series.max()
+
+
+def _window_is_current(frame, anchor: date, max_span_days: int) -> bool:
+    """
+    Whether a window describes recent form rather than a frozen snapshot.
+
+    Rejects two distinct failures: a player who has not appeared lately, whose
+    window never advances, and a window whose events are so spread out that
+    "last 10" spans a third of a season and means nothing about form.
+    """
+    start, end = _window_dates(frame)
+    if start is None or end is None:
+        return False
+    if (anchor - end).days > MAX_WINDOW_STALENESS_DAYS:
+        return False
+    return (end - start).days <= max_span_days
+
+
+def _pitch_item(pid, wlab, metric, window_val, base_val, delta, n_w, n_b, counts, se,
+                window_start=None, window_end=None):
     """One pitcher anomaly, annotated with its own standard error."""
     return _sig.annotate({
         "player_id": pid,
@@ -505,6 +541,8 @@ def _pitch_item(pid, wlab, metric, window_val, base_val, delta, n_w, n_b, counts
         "n_window": n_w,
         "n_baseline": n_b,
         "counts": counts,
+        "window_start": window_start,
+        "window_end": window_end,
     }, se)
 
 
@@ -527,7 +565,11 @@ def detect_pitcher_anomalies(full_df, anchor):
         bpool = _pr.pool_for_games(pit_df, pid, bg)
         if len(wpool) < 50 or len(bpool) < 100:
             continue
+        # A pitcher on the IL keeps his last three starts indefinitely.
+        if not _window_is_current(wpool, anchor, MAX_STARTS_WINDOW_SPAN_DAYS):
+            continue
         counts = {"pitches_recent": len(wpool), "pitches_baseline": len(bpool)}
+        w_start, w_end = _window_dates(wpool)
 
         w_vel = float(wpool["release_speed"].mean())
         b_vel = float(bpool["release_speed"].mean())
@@ -540,7 +582,7 @@ def detect_pitcher_anomalies(full_df, anchor):
             )
             out.append(_pitch_item(
                 pid, wlab, "avg_velo_mph", round(w_vel, 2), round(b_vel, 2),
-                round(velo_d, 2), len(wpool), len(bpool), counts, se,
+                round(velo_d, 2), len(wpool), len(bpool), counts, se, w_start, w_end,
             ))
 
         w_wh = float(wpool["whiff"].mean())
@@ -550,7 +592,7 @@ def detect_pitcher_anomalies(full_df, anchor):
             se = _sig.rate_se_from_pcts(w_wh * 100.0, len(wpool), b_wh * 100.0, len(bpool))
             out.append(_pitch_item(
                 pid, wlab, "whiff_pct", round(w_wh * 100.0, 1), round(b_wh * 100.0, 1),
-                round(d_wh, 1), len(wpool), len(bpool), counts, se,
+                round(d_wh, 1), len(wpool), len(bpool), counts, se, w_start, w_end,
             ))
 
         w_ch = float(wpool["chase"].mean())
@@ -560,7 +602,7 @@ def detect_pitcher_anomalies(full_df, anchor):
             se = _sig.rate_se_from_pcts(w_ch * 100.0, len(wpool), b_ch * 100.0, len(bpool))
             out.append(_pitch_item(
                 pid, wlab, "chase_pct", round(w_ch * 100.0, 1), round(b_ch * 100.0, 1),
-                round(d_ch, 1), len(wpool), len(bpool), counts, se,
+                round(d_ch, 1), len(wpool), len(bpool), counts, se, w_start, w_end,
             ))
 
         wb = wpool[wpool["bip"]]
@@ -580,7 +622,7 @@ def detect_pitcher_anomalies(full_df, anchor):
                 out.append(_pitch_item(
                     pid, wlab, "xwoba_on_BIP", round(xw_w, 3), round(xw_b, 3),
                     round(d_xw, 3), len(wb), len(bb),
-                    {"bip_recent": len(wb), "bip_baseline": len(bb)}, se,
+                    {"bip_recent": len(wb), "bip_baseline": len(bb)}, se, w_start, w_end,
                 ))
 
         mix = _dominant_mix_shift(wpool, bpool, pid)
@@ -593,13 +635,15 @@ def detect_pitcher_anomalies(full_df, anchor):
                 pid, wlab, f"mix_{name}_pct", round(pv, 1), round(pe, 1),
                 round(pv - pe, 1), n_mix, len(bpool),
                 {**counts, "outings_holding": holds, "outings": n_outings}, se,
+                w_start, w_end,
             )
             item["baseline_kind"] = "handedness_adjusted"
             item["new_pitch"] = bool(is_new)
             out.append(item)
     return out
 
-def _bat_item(bid, wlab, kind, win_n, base_n, metric, window_val, base_val, delta, n_w, n_b, counts, se):
+def _bat_item(bid, wlab, kind, win_n, base_n, metric, window_val, base_val, delta, n_w, n_b, counts, se,
+              window_start=None, window_end=None):
     """One batter anomaly, annotated with its own standard error."""
     return _sig.annotate({
         "player_id": bid,
@@ -616,6 +660,8 @@ def _bat_item(bid, wlab, kind, win_n, base_n, metric, window_val, base_val, delt
         "n_window": n_w,
         "n_baseline": n_b,
         "counts": counts,
+        "window_start": window_start,
+        "window_end": window_end,
     }, se)
 
 
@@ -644,6 +690,11 @@ def detect_batter_anomalies(full_df, anchor):
             wr, br = _br.bip_windows(ordered, RECENT_BBE, BASELINE_BBE)
             if wr.empty or br.empty:
                 continue
+            # Without this a benched or injured hitter's window never advances
+            # and the identical line publishes every morning indefinitely.
+            if not _window_is_current(wr, anchor, MAX_BBE_WINDOW_SPAN_DAYS):
+                continue
+            bw_start, bw_end = _window_dates(wr)
             sw = _br.summarize_bip_pool(wr)
             sb = _br.summarize_bip_pool(br)
             wlab = f"last {RECENT_BBE} vs prior {BASELINE_BBE} BBE"
@@ -664,7 +715,7 @@ def detect_batter_anomalies(full_df, anchor):
                     out.append(_bat_item(
                         bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "avg_EV_mph",
                         round(float(ev_w), 2), round(float(ev_b), 2), round(ev_d, 2),
-                        sw["n"], sb["n"], counts, se,
+                        sw["n"], sb["n"], counts, se, bw_start, bw_end,
                     ))
 
             br_w = float(sw.get("barrel_pct") or 0.0)
@@ -675,7 +726,7 @@ def detect_batter_anomalies(full_df, anchor):
                 out.append(_bat_item(
                     bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "barrel_pct",
                     round(br_w, 1), round(br_b, 1), round(br_d, 1),
-                    sw["n"], sb["n"], counts, se,
+                    sw["n"], sb["n"], counts, se, bw_start, bw_end,
                 ))
 
             xw_w = sw.get("xwoba")
@@ -691,7 +742,7 @@ def detect_batter_anomalies(full_df, anchor):
                     out.append(_bat_item(
                         bid, wlab, "bbe", RECENT_BBE, BASELINE_BBE, "xwoba_on_BIP",
                         round(float(xw_w), 3), round(float(xw_b), 3), round(d_xw, 3),
-                        sw["n"], sb["n"], counts, se,
+                        sw["n"], sb["n"], counts, se, bw_start, bw_end,
                     ))
 
     # PA-based fallback for batters without enough BBE
@@ -708,6 +759,9 @@ def detect_batter_anomalies(full_df, anchor):
         )
         if wr.empty or br.empty:
             continue
+        if not _window_is_current(wr, anchor, MAX_BBE_WINDOW_SPAN_DAYS):
+            continue
+        pw_start, pw_end = _window_dates(wr)
         sw = _br.summarize_pa_pool(wr)
         sb = _br.summarize_pa_pool(br)
         w_wh = sw.get("whiff_per_pitch")
@@ -726,7 +780,7 @@ def detect_batter_anomalies(full_df, anchor):
                     ),
                     "pa", RECENT_PA_PITCH_ROWS, BASELINE_PA_PITCH_ROWS, "whiff_pct",
                     round(float(w_wh), 1), round(float(b_wh), 1), round(d, 1),
-                    sw["n_pa_pitch_rows"], sb["n_pa_pitch_rows"], {}, se,
+                    sw["n_pa_pitch_rows"], sb["n_pa_pitch_rows"], {}, se, pw_start, pw_end,
                 ))
     return out
 
@@ -750,7 +804,7 @@ def anomaly_score(item: dict) -> float:
     it. A smaller move with a known mechanism outranks a larger unexplained one.
     """
     score = abs(float(item.get("z") or 0.0))
-    streak = int((item.get("persistence") or {}).get("streak") or 0)
+    streak = _persist.confirmed_streak(item.get("persistence"))
     score *= 1.0 + 0.15 * min(streak, 4)
     corroboration = item.get("corroboration") or []
     if any(int(c.get("tier") or 9) <= _scout.TIER_REPORTING for c in corroboration):
@@ -795,7 +849,7 @@ def split_leads_and_watch(items: list[dict], max_leads: int = MAX_LEADS) -> tupl
     leads, watch = [], []
     for it in items:
         z = abs(float(it.get("z") or 0.0))
-        streak = int((it.get("persistence") or {}).get("streak") or 0)
+        streak = _persist.confirmed_streak(it.get("persistence"))
         corroborated = bool(it.get("corroboration"))
         significant = bool(it.get("fdr_significant"))
         if significant or (z >= WATCH_Z and (streak >= 2 or corroborated)):
@@ -1788,6 +1842,7 @@ def _lead_line(a: dict) -> str:
         f"{a['window']} vs {a['baseline']} (Δ{a['delta']:+g}, z={a.get('z')}, {_confidence_tag(a)})",
         f"    {_anomaly_window_phrase(a)}"
         + (f" · n={a.get('n_window')}" if a.get("n_window") else "")
+        + (f" · through {a['window_end']}" if a.get("window_end") else "")
         + (f" · {a['persistence_label']}" if a.get("persistence_label") else ""),
     ]
     if a.get("baseline_kind") == "handedness_adjusted":
@@ -1881,6 +1936,8 @@ def _lead_rows_html(items: list[dict]) -> str:
         context = html.escape(_anomaly_window_phrase(item))
         if item.get("n_window"):
             context += f" · n={item['n_window']}"
+        if item.get("window_end"):
+            context += f" · through {html.escape(str(item['window_end']))}"
         if item.get("persistence_label"):
             context += f" · {html.escape(str(item['persistence_label']))}"
         hinges = "".join(
