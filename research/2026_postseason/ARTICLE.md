@@ -1,4 +1,4 @@
-# What the Division Series seeds leave out
+# My read on every Division Series matchup
 
 *Draft for the October 3, 2026 Division Series. Regular-season numbers run through September 27. Picks are provisional until lineups and pitching plans are confirmed.*
 
