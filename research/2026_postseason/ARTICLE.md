@@ -22,9 +22,9 @@ Tampa's pitchers allowed MLB's lowest walk rate, so New York may have to supply 
 
 Chicago has a fair argument here: a +56 run differential against Cleveland's +11, a 7-6 edge in their season series, and 211 home runs, fifth-most in MLB. Sweeping Houston only adds to the reasons to take the White Sox seriously.
 
-My concern is whether Chicago has enough pitching to get through this series. Cleveland ranked fourth in strikeout rate minus walk rate, a measure of getting strikeouts while limiting free passes; the White Sox ranked 21st. Chicago's 4.12 ERA was around the league's 4.17, so calling the whole staff bad would go too far. I just trust Cleveland's arms more when a game gets tight.
+Cleveland has the stronger strikeout-and-walk profile: fourth in strikeout rate minus walk rate, compared with Chicago's 21st. That measures how often a staff gets strikeouts while limiting free passes. Chicago's 4.12 ERA was close to the league's 4.17, so its pitching results were still roughly average overall.
 
-And somehow, the Guardians keep showing up here. This is their [third consecutive postseason appearance](https://www.mlb.com/guardians/news/guardians-clinch-2026-al-central-title). That familiarity adds to my confidence in them, even though experience alone won't get an out.
+The Guardians are back for their [third consecutive postseason appearance](https://www.mlb.com/guardians/news/guardians-clinch-2026-al-central-title). Chicago's power can turn a close game on one swing, so keeping runners off base ahead of those swings will matter for Cleveland.
 
 **My pick: Guardians. Chicago's pitching is the part I trust least in this matchup. Cleveland's stronger staff and recent October experience give me more confidence in how it will handle a close series.**
 
