@@ -147,6 +147,8 @@ EVIDENCE NEEDED:
 -
 -
 -
+COMPARISON ANCHORS:
+What tells the reader whether each main number is ordinary, strong, or rare?
 
 BEST REAL EXAMPLE:
 BEST COUNTEREXAMPLE OR DISAGREEMENT CASE:
@@ -311,6 +313,19 @@ Mallitalytics treats data as evidence, not decoration.
 For a player, outing, or current trend, use warehouse/Statcast first and web reporting
 for one human hinge: an injury return, pitch-design change, role change, mechanical
 adjustment, or relevant quote.
+
+### Comparison anchor
+
+A number that carries an argument needs a reference point. Give the reader a relevant
+league rate, rank, opponent comparison, earlier period, or distribution so they can tell
+whether the number is ordinary, strong, or rare. Put the anchor near the first use of
+the number, then explain what the comparison changes about the baseball read.
+
+Match the season, population, role, and denominator. Compare rates with rates. If using
+a count or rank, check differences in games and opportunities. Say whether a high or low
+value helps the subject. Prefer the one anchor that clarifies the point over a string of
+rankings. Do not invent a league average or use a tiny difference to claim a meaningful
+edge. This is the comparison anchor rule for every Mallitalytics article.
 
 ### Claim ledger
 
