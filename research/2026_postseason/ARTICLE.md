@@ -1,37 +1,43 @@
 # What the Division Series seeds leave out
 
-*Draft as of October 1, 2026, before Phillies-Braves Game 3. Regular-season numbers run through September 27.*
+*Draft for the October 3, 2026 Division Series. Regular-season numbers run through September 27. Picks are provisional until lineups and pitching plans are confirmed.*
 
-Tampa Bay won five more games than New York and took the AL's top seed. The Yankees still outscored opponents by 52 more runs. That makes this series harder to read from the standings alone. Before I pick a side, I want to see which starters and relievers each team can actually bring into it.
+Tampa Bay won the AL's top seed. Milwaukee won 103 games. The Dodgers won 100. Those records deserve respect, but they don't settle a five-game series. A bullpen can end up covering half the important innings, and one swing can undo six good ones from a starter.
 
-Tampa Bay walked 6.9% of the hitters it faced, the lowest rate among MLB's 30 staffs. New York hit 223 home runs, second-most; the Rays allowed 201, eighth-most. A walk before one of those Yankee swings can turn a quiet inning into a crooked number.
+I looked at what each team did across the full season, then at the arms and lineups it can bring into this weekend. The recent form matters too, though I won't let one hot month erase six months of evidence. Here is where I land on each matchup.
 
-The Yankees also struck out in 24.7% of their plate appearances. The MLB rate was 22.1%, and only three teams had a higher rate than New York. I want to see whether Tampa's available pitchers can keep the bases empty while they work through that lineup.
+## Yankees vs. Rays
 
-Cleveland has the bye and home field against Chicago. It also has an 85-77 record and a +11 run differential. The White Sox won one fewer game, yet outscored their opponents by 56 runs.
+The Rays won five more games, but the Yankees outscored opponents by 52 more runs. New York's staff had MLB's lowest ERA at 3.23, and its lineup hit 223 home runs, second-most in the majors. Tampa Bay allowed 201 homers, eighth-most. That's a difficult combination for a team facing this lineup.
 
-I'd hesitate before treating this as a routine series for the higher seed.
+Tampa's best answer is to make those home runs solo shots. Its pitchers walked just 6.9% of batters faced, the lowest rate among all 30 staffs. The Yankees also struck out in 24.7% of their plate appearances, compared with the 22.1% MLB rate; only three teams struck out more often. [Drew Rasmussen is lined up for Game 1](https://www.mlb.com/news/yankees-vs-rays-alds-game-1-starting-lineups-pitching-matchup), and New York still has to show it can get its power into games against pitchers who don't give away baserunners.
 
-Chicago hit 211 home runs, fifth-most in MLB, which gives it a way to score even when hits are scarce. In [FanGraphs' look at postseason scoring from 2015 through its 2022 publication cutoff](https://blogs.fangraphs.com/no-hitters-are-great-but-the-long-ball-still-wins-in-october/), home runs accounted for a higher share of runs in October than in the regular season every year examined. Cleveland's staff struck out 1,530 hitters, third-most in the majors. Chicago's 4.12 team ERA was close to MLB's 4.17, which gives me reason to look closely at its own pitching.
+**My pick: Yankees. Their better run differential, league-leading team ERA, and home-run power give them more ways to win, even if Tampa keeps the bases empty early.**
 
-I can see an upset path. I need to know which arms Chicago can use to keep a lead if its lineup provides one.
+## White Sox vs. Guardians
 
-[Jay Jaffe found](https://blogs.fangraphs.com/less-is-more-relief-pitching-has-dominated-this-postseason/) that relievers took a larger share of postseason innings than regular-season innings in each year from 2015 through his 2022 publication cutoff. The 2022 playoffs were still underway when he wrote it. Managers get more chances to give important outs to the pitchers they trust most.
+Chicago is the lower seed, yet its +56 run differential is better than Cleveland's +11. The White Sox hit 211 home runs, fifth-most in MLB, and carried that power into a two-game sweep of Houston. This is a real upset threat, not a ceremonial opponent for the team with the bye.
 
-A one-run lead puts the focus on a handful of arms. Their recent usage belongs in the conversation alongside their season numbers.
+Cleveland's edge is on the mound. Its pitchers struck out 1,530 hitters, third-most in MLB, and their strikeout-minus-walk rate ranked fourth. Chicago's staff ranked 21st by that measure. [Parker Messick is slated for Game 1 and Gavin Williams for Game 2](https://www.mlb.com/news/parker-messick-gavin-williams-to-start-alds-games-1-and-2-for-guardians). I can picture the White Sox winning with two big swings, but I trust Cleveland's route to 27 outs a little more over five games.
 
-Milwaukee has the strongest regular-season case in this field: 103 wins and a +214 run differential. The Brewers also went 22-8 in their final 30 games. San Diego went 20-10 over that same length of season.
+**My pick: Guardians. Chicago has enough power to flip the series, but Cleveland's stronger strikeout-and-walk profile and clearer opening pitching plan make it my narrow choice.**
 
-But the Padres' full-season differential was +41. I want to know what changed during that late run, because the recent records alone don't explain away such a large gap.
+## Padres vs. Brewers
 
-Milwaukee drew 668 walks, second-most in MLB, and hit 154 home runs. Only one team hit fewer. If the Brewers keep putting runners on base, San Diego has to keep finding outs before an inning gets away. The Padres' best case will become clearer when we know which starters are lined up, who is rested, and whether the players behind that 20-10 finish are the ones taking the field.
+San Diego finished 20-10 in its last 30 regular-season games and swept the Cubs in the Wild Card Series. That deserves attention. Milwaukee went 22-8 over its last 30, though, and the full-season gap is hard to ignore: 103 wins and a +214 run differential for the Brewers, against 91 wins and +41 for the Padres.
 
-Los Angeles waits for the winner of Atlanta and Philadelphia. The Dodgers won 100 games, outscored opponents by 201 runs, and posted a .762 team OPS, second in MLB. Their pitchers struck out 1,521 batters and walked 480, a 17.6-percentage-point gap between their strikeout and walk rates. Only one staff had a larger gap.
+Milwaukee didn't build that offense on home runs. The Brewers hit 154, with only one MLB team hitting fewer, but drew 668 walks, second-most in the majors. They can keep an inning alive until one hit changes it. Their staff's strikeout-minus-walk rate ranked third, compared with San Diego's 18th. [Jacob Misiorowski is lined up for Game 1](https://www.mlb.com/padres/news/padres-brewers-nl-division-series-game-1-starting-lineups-and-pitching-matchup). The Padres' late run gives me pause; it doesn't erase the Brewers' stronger case on both sides of the ball.
 
-Atlanta brings 94 wins and a +116 differential. Philadelphia won 88 and finished at +15, although its staff's strikeout-minus-walk gap was 17.8 percentage points, the best in MLB and barely above the Dodgers'. That makes me curious about the Phillies pitchers behind that number and what Thursday's deciding game leaves them for Saturday. Atlanta's available arms will need the same look if it advances.
+**My pick: Brewers. Their full-season advantage is too large to dismiss, and their ability to get on base pairs with a staff that misses bats and limits walks.**
 
-The first close lead these teams hand to a bullpen may tell us more than the seed beside either name. I'll be watching who gets those outs and which lineup makes that choice uncomfortable.
+## Braves vs. Dodgers
 
-*Data: Mallitalytics' 2026 regular-season game warehouse for records, run differential, and final-30-game windows; [MLB Stats API team season totals](https://statsapi.mlb.com/api/v1/teams/stats?sportId=1&season=2026&stats=season&group=hitting,pitching&gameType=R) for batting and pitching figures and ranks among 30 MLB teams. The 22.1% MLB strikeout rate and 4.17 ERA pool league totals. Last 30 means each club's final 30 played regular-season games. The Yankees played 161 games after a September 27 cancellation.*
+Atlanta earned this matchup by beating Philadelphia 6-2 in Thursday's deciding Wild Card game. The Braves used six pitchers, including Chris Sale for the final four outs. That doesn't rule anyone out for Saturday, but their Division Series pitching plan matters after a three-game series that went the distance.
 
-<!-- Editorial check before publication: Confirm the Phillies-Braves result, Division Series rosters, starter order, reliever availability, and any final picks. The paragraphs above make no player-level availability claims. -->
+Los Angeles had the bye. Its offense posted a .762 OPS, second in MLB, while its staff's strikeout-minus-walk rate also ranked second. The Dodgers finished at +201 in run differential; Atlanta finished at +116. The Braves' 94 wins and fifth-ranked team ERA make them capable of taking this series. The Dodgers still bring the deeper full-season case, with more time to set their rotation and bullpen.
+
+**My pick: Dodgers. Atlanta has the pitching to make it close, but Los Angeles brings the stronger combined offense and strikeout-and-walk profile, plus a rested staff.**
+
+These are picks, not probabilities. Before the first pitch, I'll be watching the announced rotations and which relievers are actually available. Those details can change the shape of a short series much faster than a season-long rank can.
+
+*Data: Mallitalytics' 2026 regular-season game warehouse for records, run differential, and final-30-game windows; [MLB Stats API team season totals](https://statsapi.mlb.com/api/v1/teams/stats?sportId=1&season=2026&stats=season&group=hitting,pitching&gameType=R) for batting and pitching figures and ranks among 30 MLB teams; [MLB postseason schedule and results](https://statsapi.mlb.com/api/v1/schedule?sportId=1&startDate=2026-09-29&endDate=2026-10-03&gameTypes=F,D) for Wild Card outcomes. The 22.1% MLB strikeout rate pools league totals. Last 30 means each club's final 30 played regular-season games. The Yankees played 161 games after a September 27 cancellation.*
