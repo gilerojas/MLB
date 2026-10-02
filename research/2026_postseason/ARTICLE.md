@@ -12,7 +12,7 @@ The Rays won five more games and took the season series 7-6. The Yankees still o
 
 Tampa is a tough lineup to put away. The Rays struck out in just 18.8% of their plate appearances, the lowest rate in MLB and well below the league's 22.1%. I still trust New York's pitching to handle that challenge, though it will have to finish innings with runners threatening rather than count on strikeouts every time.
 
-What makes me more comfortable with the Yankees is the offense beyond Aaron Judge. They [scored 18 runs in the Wild Card sweep while Judge was out with a calf injury](https://apnews.com/article/e39b4c53a201a1b417d2fecdf9585d86). Two games won't prove that will last, and his Division Series availability still needs watching, but the lineup has already given them a way to win without waiting for him.
+The Yankees' offense has been producing without Aaron Judge. They [scored 18 runs in the Wild Card sweep while Judge was out with a calf injury](https://apnews.com/article/e39b4c53a201a1b417d2fecdf9585d86). Two games won't prove that will last, and his Division Series availability still needs watching, but the lineup has already given them a way to win without waiting for him.
 
 Tampa's pitchers allowed MLB's lowest walk rate, so New York may have to supply that damage with fewer free runners. I like the Yankees' chances anyway.
 
